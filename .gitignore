@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.pnp.*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Next.js
+apps/agent-service/.next/
+apps/agent-service/out/
+
+# Build
+dist/
+*.tsbuildinfo
+
+# Salesforce
+salesforce/.sf/
+salesforce/**/package.xml.bak
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Vercel
+.vercel
