@@ -6,6 +6,7 @@ import styles from "./shell.module.css";
 export interface DropdownSelectOption {
   value: string;
   label: string;
+  leading?: React.ReactNode;
 }
 
 interface DropdownSelectProps {
@@ -169,7 +170,16 @@ export function DropdownSelect({
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className={styles.dropdownSelectValue}>{displayLabel}</span>
+        <span className={styles.dropdownSelectValue}>
+          {selected?.leading ? (
+            <span className={styles.dropdownSelectValueInner}>
+              {selected.leading}
+              <span className={styles.dropdownSelectValueLabel}>{displayLabel}</span>
+            </span>
+          ) : (
+            displayLabel
+          )}
+        </span>
         <span className={styles.dropdownSelectChevron}>
           <IconChevron />
         </span>
@@ -198,7 +208,10 @@ export function DropdownSelect({
                   setOpen(false);
                 }}
               >
-                <span>{option.label}</span>
+                <span className={styles.dropdownOptionMain}>
+                  {option.leading}
+                  <span>{option.label}</span>
+                </span>
                 {active && (
                   <span className={styles.dropdownOptionCheck}>
                     <IconCheck />

@@ -71,7 +71,7 @@ export function AccountBillingForm({ tenant }: AccountBillingFormProps) {
       {!editing ? (
         <div className={styles.tabPanelBody}>
           <DisplayStack>
-          <DisplayField label="Stripe customer ID" value={tenant.stripeCustomerId} />
+          <DisplayField label="Billing customer ID" value={tenant.stripeCustomerId} />
           <DisplayField label="Internal notes" value={tenant.internalNotes} />
           </DisplayStack>
         </div>
@@ -81,7 +81,7 @@ export function AccountBillingForm({ tenant }: AccountBillingFormProps) {
 
           <div className={styles.field}>
             <label className={styles.label} htmlFor="stripe-customer-id">
-              Stripe customer ID
+              Billing customer ID
             </label>
             <input
               id="stripe-customer-id"

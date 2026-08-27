@@ -3,7 +3,11 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
 } from "openai/resources/chat/completions";
-import { getEnv, isOpenAIConfigured } from "../env";
+import {
+  getOpenAIApiKey,
+  getOpenAIModel,
+  isOpenAIConfiguredAsync,
+} from "@/lib/admin/platform-credentials";
 import type { AgentPlaybook } from "../coordinator";
 import { CONCIERGE_SYSTEM } from "@/agents/concierge";
 import { SCHEDULER_SYSTEM } from "@/agents/scheduler";
@@ -65,15 +69,15 @@ export async function runAgentTurn(
   userMessage: string,
   contextBlock: string,
 ): Promise<AgentTurnResult> {
-  if (!isOpenAIConfigured()) {
+  if (!(await isOpenAIConfiguredAsync())) {
     return {
       reply: `[dev] Received: ${userMessage}. Configure OPENAI_API_KEY for live replies.`,
       toolCalls: [],
     };
   }
 
-  const env = getEnv();
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  const apiKey = await getOpenAIApiKey();
+  const client = new OpenAI({ apiKey });
 
   const messages: ChatCompletionMessageParam[] = [
     {
@@ -85,7 +89,7 @@ export async function runAgentTurn(
   ];
 
   const completion = await client.chat.completions.create({
-    model: env.OPENAI_MODEL,
+    model: getOpenAIModel(),
     messages,
     tools: CRM_TOOLS,
     tool_choice: "auto",

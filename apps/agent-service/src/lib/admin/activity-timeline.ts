@@ -99,7 +99,7 @@ export function buildActivityTimeline(
   if (tenant.stripeCustomerId) {
     entries.push({
       id: "stripe",
-      title: "Stripe customer linked",
+      title: "Billing customer linked",
       description: tenant.stripeCustomerId,
       occurredAt: tenant.updatedAt,
       tone: "purple",

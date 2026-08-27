@@ -1,13 +1,24 @@
 import { NextResponse } from "next/server";
-import { getEnv, isOpenAIConfigured, isSupabaseConfigured } from "@/lib/env";
+import {
+  isOpenAIConfiguredAsync,
+  isTwilioConfiguredAsync,
+} from "@/lib/admin/platform-credentials";
+import { isStripeConfiguredAsync } from "@/lib/admin/stripe";
+import { isSupabaseConfigured, getEnv } from "@/lib/env";
 
 export async function GET() {
-  const env = getEnv();
+  const [openai, twilio, stripe] = await Promise.all([
+    isOpenAIConfiguredAsync(),
+    isTwilioConfiguredAsync(),
+    isStripeConfiguredAsync(),
+  ]);
+
   return NextResponse.json({
     service: "reos-2",
     status: "ok",
-    openai: isOpenAIConfigured(env),
-    supabase: isSupabaseConfigured(env),
-    twilio: Boolean(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
+    openai,
+    supabase: isSupabaseConfigured(getEnv()),
+    twilio,
+    stripe,
   });
 }

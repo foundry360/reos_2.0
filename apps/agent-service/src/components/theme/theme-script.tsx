@@ -4,6 +4,12 @@ import { THEME_COOKIE } from "@/lib/theme";
 export function ThemeScript() {
   const script = `
 (function () {
+  var isLogin = /^\\/login(\\/|$)/.test(window.location.pathname);
+  if (isLogin) {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.style.colorScheme = 'light';
+    return;
+  }
   var m = document.cookie.match(/${THEME_COOKIE}=([^;]+)/);
   var pref = m ? m[1] : 'system';
   var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;

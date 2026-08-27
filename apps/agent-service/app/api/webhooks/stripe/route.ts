@@ -1,32 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { getStripeClient, getStripeWebhookSecret } from "@/lib/admin/stripe";
 
-/**
- * Stripe Connect split webhook (optional).
- * Wire product/price IDs to setup vs standard split rules.
- * No Salesforce integration — payments are separate from CRM.
- */
 export async function POST(request: NextRequest) {
-  const env = getEnv();
   const rawBody = await request.text();
   const signature = request.headers.get("stripe-signature");
 
-  if (!env.STRIPE_WEBHOOK_SECRET) {
-    return NextResponse.json(
-      { error: "STRIPE_WEBHOOK_SECRET not configured" },
-      { status: 501 },
-    );
+  const webhookSecret = await getStripeWebhookSecret();
+  if (!webhookSecret) {
+    return NextResponse.json({ error: "Webhook signing secret not configured" }, { status: 501 });
   }
 
   if (!signature) {
     return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   }
 
-  // TODO: stripe.webhooks.constructEvent + transfer to Connect accounts
-  console.log("Stripe webhook received (stub)", {
-    length: rawBody.length,
-    hasSignature: Boolean(signature),
-  });
+  const stripe = await getStripeClient();
+  if (!stripe) {
+    return NextResponse.json({ error: "Stripe secret key not configured" }, { status: 501 });
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid webhook signature";
+    console.error("Stripe webhook verification failed:", message);
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+
+  switch (event.type) {
+    case "payment_intent.succeeded":
+    case "payment_intent.payment_failed":
+    case "invoice.paid":
+    case "invoice.payment_failed":
+      console.log("Stripe webhook received:", event.type, event.id);
+      break;
+    default:
+      console.log("Stripe webhook received (unhandled):", event.type, event.id);
+  }
 
   return NextResponse.json({ received: true });
 }

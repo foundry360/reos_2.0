@@ -86,7 +86,7 @@ export function buildSetupChecklist(
       id: "billing",
       label: "Billing",
       shortLabel: "Billing",
-      description: "Add the Stripe customer ID in General Info → Billing.",
+      description: "Add the billing customer ID in General Info → Billing.",
       complete: isStepComplete(1),
     },
     {

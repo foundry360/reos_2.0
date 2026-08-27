@@ -4,7 +4,9 @@ import { AccountActivityTimeline } from "./_components/account-activity-timeline
 import { AccountDetailTabs } from "./_components/account-detail-tabs";
 import { AccountHighlightsPanel } from "./_components/account-highlights-panel";
 import { AccountSetupChevron } from "./_components/account-setup-chevron";
+import { AccountUsageWallet } from "../../_components/account-usage-wallet";
 import { listPlatformAdminOptions } from "@/lib/admin/platform-admin-actions";
+import { fetchTenantUsageSummary } from "@/lib/admin/billing-stats";
 import { buildSetupChecklist } from "@/lib/admin/setup-checklist";
 import { getTenantConfig } from "@/lib/admin/tenant-config";
 import { getTenantUsers } from "@/lib/admin/tenant-users";
@@ -44,10 +46,11 @@ function metaFeedbackMessage(searchParams: {
 export default async function AccountDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const query = await searchParams;
-  const [tenant, platformAdmins, users] = await Promise.all([
+  const [tenant, platformAdmins, users, usageSummary] = await Promise.all([
     getTenantConfig(id),
     listPlatformAdminOptions(),
     getTenantUsers(id),
+    fetchTenantUsageSummary(id),
   ]);
 
   if (!tenant) notFound();
@@ -91,6 +94,13 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
         tenantId={tenant.id}
         currentStatus={tenant.status}
         checklist={checklist}
+      />
+
+      <AccountUsageWallet
+        tenantId={tenant.id}
+        cycle={usageSummary.cycle}
+        totalUsageCents={usageSummary.totalUsageCents}
+        categoryTotals={usageSummary.categoryTotals}
       />
 
       <div className={styles.accountDetailLayout}>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import twilio from "twilio";
+import { getTwilioCredentials } from "@/lib/admin/platform-credentials";
 import { getEnv } from "@/lib/env";
 import { handleInboundSms } from "@/lib/handle-inbound";
 
@@ -13,6 +14,7 @@ function twimlMessage(body: string): string {
 
 export async function POST(request: NextRequest) {
   const env = getEnv();
+  const { authToken } = await getTwilioCredentials();
   const rawBody = await request.text();
   const params = new URLSearchParams(rawBody);
 
@@ -20,11 +22,11 @@ export async function POST(request: NextRequest) {
   const body = params.get("Body") ?? "";
   const to = params.get("To") ?? "";
 
-  if (!env.TWILIO_SKIP_SIGNATURE_VERIFY && env.TWILIO_AUTH_TOKEN) {
+  if (!env.TWILIO_SKIP_SIGNATURE_VERIFY && authToken) {
     const signature = request.headers.get("x-twilio-signature") ?? "";
     const url = request.url;
     const valid = twilio.validateRequest(
-      env.TWILIO_AUTH_TOKEN,
+      authToken,
       signature,
       url,
       Object.fromEntries(params),

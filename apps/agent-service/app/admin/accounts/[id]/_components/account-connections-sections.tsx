@@ -276,7 +276,7 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
 
         <li className={styles.connectionRow}>
           <div className={styles.connectionMeta}>
-            <span className={styles.connectionName}>Stripe</span>
+            <span className={styles.connectionName}>Billing</span>
             <span className={styles.connectionDesc}>
               {stripeConnected ? tenant.stripeCustomerId : "Not configured"}
             </span>
@@ -284,7 +284,7 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
           <ConnectionToggle
             checked={stripeConnected}
             disabled
-            label="Stripe connected"
+            label="Billing connected"
             onChange={() => undefined}
           />
         </li>

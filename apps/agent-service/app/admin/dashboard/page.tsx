@@ -252,7 +252,7 @@ export default async function AdminDashboardPage() {
               </span>
               <span className={styles.dashSignalValue}>{stats.missingPhoneCount}</span>
             </div>
-            <div className={styles.dashSignalItem}>
+            <Link href="/admin/billing?attention=missing" className={styles.dashSignalItem}>
               <span className={`${styles.dashSignalIcon} ${styles.dashSignalIconViolet}`}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <rect
@@ -269,10 +269,10 @@ export default async function AdminDashboardPage() {
               </span>
               <span className={styles.dashSignalCopy}>
                 <strong>Missing billing</strong>
-                <small>No Stripe customer ID</small>
+                <small>Billing not configured</small>
               </span>
               <span className={styles.dashSignalValue}>{stats.missingBillingCount}</span>
-            </div>
+            </Link>
           </div>
         </section>
       </div>

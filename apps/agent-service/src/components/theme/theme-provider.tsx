@@ -10,6 +10,12 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ preference, children }: ThemeProviderProps) {
   useEffect(() => {
+    const onLogin = /^\/login(\/|$)/.test(window.location.pathname);
+    if (onLogin) {
+      applyTheme("light");
+      return;
+    }
+
     applyTheme(preference);
 
     if (preference !== "system") return;
