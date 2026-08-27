@@ -14,8 +14,11 @@ export type SortDirection = "asc" | "desc";
 export const PAGE_SIZES = [25, 50, 75, 100] as const;
 export type PageSize = (typeof PAGE_SIZES)[number];
 
+export type AccountsView = "active" | "onboarding";
+
 export interface AccountsListParams {
   q: string;
+  view: AccountsView;
   status: "all" | TenantStatus;
   sort: AccountSortColumn;
   dir: SortDirection;
@@ -54,8 +57,12 @@ export function parseAccountsListParams(
   const pageRaw = Number(readParam(searchParams.page));
   const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
 
+  const viewRaw = readParam(searchParams.view);
+  const view: AccountsView = viewRaw === "onboarding" ? "onboarding" : "active";
+
   return {
     q: readParam(searchParams.q).trim(),
+    view,
     status,
     sort,
     dir,
@@ -67,6 +74,7 @@ export function parseAccountsListParams(
 export function buildAccountsListQuery(params: AccountsListParams): string {
   const qs = new URLSearchParams();
   if (params.q) qs.set("q", params.q);
+  if (params.view !== "active") qs.set("view", params.view);
   if (params.status !== "all") qs.set("status", params.status);
   if (params.sort !== "created_at") qs.set("sort", params.sort);
   if (params.dir !== "desc") qs.set("dir", params.dir);

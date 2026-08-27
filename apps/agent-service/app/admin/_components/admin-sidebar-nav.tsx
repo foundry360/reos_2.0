@@ -1,6 +1,12 @@
 "use client";
 
-import { IconBuilding, IconLayoutDashboard, IconUsers, SidebarNav } from "@/components/shell/sidebar-nav";
+import {
+  IconBuilding,
+  IconLayoutDashboard,
+  IconSettings,
+  IconUsers,
+  SidebarNav,
+} from "@/components/shell/sidebar-nav";
 
 const ADMIN_NAV = [
   { href: "/admin/dashboard", label: "Dashboard", icon: <IconLayoutDashboard /> },
@@ -8,6 +14,16 @@ const ADMIN_NAV = [
   { href: "/admin/users", label: "Users", icon: <IconUsers /> },
 ];
 
+const ADMIN_SECONDARY_NAV = [
+  { href: "/admin/settings", label: "Settings", icon: <IconSettings /> },
+];
+
 export function AdminSidebarNav() {
-  return <SidebarNav sectionLabel="General" items={ADMIN_NAV} />;
+  return (
+    <SidebarNav
+      sectionLabel="General"
+      items={ADMIN_NAV}
+      secondaryItems={ADMIN_SECONDARY_NAV}
+    />
+  );
 }

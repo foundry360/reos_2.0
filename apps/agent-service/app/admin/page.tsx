@@ -1,8 +1,14 @@
 import Link from "next/link";
 import { AccountsHeaderActions } from "./_components/accounts-header-actions";
 import { AccountsPagination } from "./_components/accounts-pagination";
+import { AccountsViewTabs } from "./_components/accounts-view-tabs";
 import { NewAccountModal } from "./_components/new-account-modal";
-import { fetchAccountsList, parseAccountsListParams } from "@/lib/admin/accounts-list";
+import { OnboardingKanban } from "./_components/onboarding-kanban";
+import {
+  fetchAccountsList,
+  fetchOnboardingKanbanAccounts,
+  parseAccountsListParams,
+} from "@/lib/admin/accounts-list";
 import {
   buildSortHref,
   type AccountSortColumn,
@@ -11,17 +17,10 @@ import {
 import { AccountStatusBadge } from "@/lib/admin/account-status";
 import styles from "@/components/shell/shell.module.css";
 import { formatPhoneDisplay } from "@/lib/phone-display";
+import { accountInitials } from "@/lib/user-display";
 
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-function accountInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
 }
 
 function IconSort({ direction }: { direction: "asc" | "desc" | null }) {
@@ -79,8 +78,16 @@ function SortHeader({
 export default async function AdminAccountsPage({ searchParams }: PageProps) {
   const resolved = await searchParams;
   const params = parseAccountsListParams(resolved);
-  const { rows, total } = await fetchAccountsList(params);
-  const hasFilters = params.q.length > 0 || params.status !== "all";
+  const isOnboardingView = params.view === "onboarding";
+
+  const listResult = isOnboardingView ? null : await fetchAccountsList(params);
+  const kanbanResult = isOnboardingView
+    ? await fetchOnboardingKanbanAccounts(params.q)
+    : null;
+
+  const rows = listResult?.rows ?? [];
+  const total = listResult?.total ?? kanbanResult?.total ?? 0;
+  const hasFilters = params.q.length > 0;
 
   return (
     <>
@@ -94,13 +101,29 @@ export default async function AdminAccountsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      <AccountsViewTabs params={params} />
+
+      {isOnboardingView ? (
+        kanbanResult && total === 0 ? (
+          <p className={styles.empty}>
+            {hasFilters ? (
+              "No onboarding accounts match your search."
+            ) : (
+              <>
+                No accounts in onboarding. <NewAccountModal trigger="link" />.
+              </>
+            )}
+          </p>
+        ) : (
+          kanbanResult && <OnboardingKanban columns={kanbanResult.columns} />
+        )
+      ) : rows.length === 0 ? (
         <p className={styles.empty}>
           {hasFilters ? (
             "No accounts match your filters."
           ) : (
             <>
-              No accounts yet. <NewAccountModal trigger="link" />.
+              No active accounts yet. <NewAccountModal trigger="link" />.
             </>
           )}
         </p>

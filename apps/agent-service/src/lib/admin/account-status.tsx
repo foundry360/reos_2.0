@@ -12,6 +12,20 @@ export const TENANT_STATUS_OPTIONS = [
 
 export type TenantStatus = (typeof TENANT_STATUS_OPTIONS)[number]["value"];
 
+export const ONBOARDING_STATUSES = [
+  "company_info",
+  "billing",
+  "agents",
+  "connected_accounts",
+  "testing",
+] as const satisfies readonly TenantStatus[];
+
+export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];
+
+export const ONBOARDING_STATUS_OPTIONS = TENANT_STATUS_OPTIONS.filter((option) =>
+  ONBOARDING_STATUSES.includes(option.value as OnboardingStatus),
+);
+
 export const TENANT_STATUS_VALUES = TENANT_STATUS_OPTIONS.map((option) => option.value);
 
 export function isValidTenantStatus(status: string): status is TenantStatus {
@@ -51,6 +65,52 @@ const STATUS_BADGE_CLASS: Record<TenantStatus, string> = {
   active: styles.badgeActive,
   paused: styles.badgePaused,
 };
+
+const STATUS_FUNNEL_FILL_CLASS: Record<TenantStatus, string> = {
+  company_info: styles.dashFunnelFillCompanyInfo,
+  billing: styles.dashFunnelFillBilling,
+  agents: styles.dashFunnelFillAgents,
+  connected_accounts: styles.dashFunnelFillConnectedAccounts,
+  testing: styles.dashFunnelFillTesting,
+  active: styles.dashFunnelFillActive,
+  paused: styles.dashFunnelFillPaused,
+};
+
+const STATUS_FUNNEL_LABEL_CLASS: Record<TenantStatus, string> = {
+  company_info: styles.dashFunnelLabelCompanyInfo,
+  billing: styles.dashFunnelLabelBilling,
+  agents: styles.dashFunnelLabelAgents,
+  connected_accounts: styles.dashFunnelLabelConnectedAccounts,
+  testing: styles.dashFunnelLabelTesting,
+  active: styles.dashFunnelLabelActive,
+  paused: styles.dashFunnelLabelPaused,
+};
+
+const STATUS_CHEVRON_CLASS: Record<TenantStatus, string> = {
+  company_info: styles.setupChevronStepCompanyInfo,
+  billing: styles.setupChevronStepBilling,
+  agents: styles.setupChevronStepAgents,
+  connected_accounts: styles.setupChevronStepConnectedAccounts,
+  testing: styles.setupChevronStepTesting,
+  active: styles.setupChevronStepActive,
+  paused: styles.setupChevronStepPaused,
+};
+
+export function tenantStatusFunnelFillClass(status: string): string {
+  return STATUS_FUNNEL_FILL_CLASS[normalizeTenantStatus(status)];
+}
+
+export function tenantStatusFunnelLabelClass(status: string): string {
+  return STATUS_FUNNEL_LABEL_CLASS[normalizeTenantStatus(status)];
+}
+
+export function tenantStatusChevronClass(status: string): string {
+  return STATUS_CHEVRON_CLASS[normalizeTenantStatus(status)];
+}
+
+export function tenantStatusBadgeClass(status: string): string {
+  return STATUS_BADGE_CLASS[normalizeTenantStatus(status)];
+}
 
 function StatusBadgeIcon({ status }: { status: TenantStatus }) {
   if (status === "active") {

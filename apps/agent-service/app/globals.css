@@ -4,71 +4,148 @@
   box-sizing: border-box;
 }
 
-/* Light theme — Huemint: #182d55 · #eae9f1 · #a8b3ba · #386A95 */
+/* Light theme — Huemint: #fffefa · #023435 · #72679a · #55a9db */
 html,
 html[data-theme="light"] {
   color-scheme: light;
-  --brand: #386A95;
-  --brand-dark: #2f5f82;
-  --brand-light: #386A95;
-  --brand-tint: #e2e9f0;
-  --shell-bg: #eae9f1;
-  --shell-content-bg: #eae9f1;
-  --shell-surface: #ffffff;
-  --shell-surface-muted: #f3f2f6;
-  --shell-hover: #dde2e7;
-  --shell-hover-accent: #dce6ef;
-  --shell-border: #d0d6db;
-  --shell-border-strong: #a8b3ba;
-  --shell-text: #182d55;
-  --shell-text-secondary: #2a4566;
-  --shell-muted: #6b7a85;
-  --shell-input-bg: #ffffff;
-  --shell-readonly-bg: #f3f2f6;
-  --nav-active-bg: #dce6ef;
-  --nav-active-text: #182d55;
-  --shell-header-bg: #386A95;
-  --shell-header-text: #ffffff;
-  --shell-header-muted: rgba(255, 255, 255, 0.78);
-  --shell-header-border: #2f5f82;
-  --shell-header-control-bg: rgba(255, 255, 255, 0.12);
-  --shell-header-control-border: rgba(255, 255, 255, 0.28);
-  --shell-header-control-hover: rgba(255, 255, 255, 0.2);
-  --dropdown-shadow: 0 12px 32px rgba(24, 45, 85, 0.12);
-  --dropdown-shadow-strong: 0 18px 44px rgba(24, 45, 85, 0.16);
+  --brand: #55a9db;
+  --brand-dark: #4496c7;
+  --brand-light: #7bbde5;
+  --brand-accent: #72679a;
+  --brand-tint: #e8f4fc;
+  --shell-bg: #fffefa;
+  --shell-content-bg: #fffefa;
+  --shell-surface: #fffefa;
+  --shell-surface-muted: #f3f2ec;
+  --shell-hover: #ebeae3;
+  --shell-hover-accent: #e3f2fa;
+  --shell-border: #d8ddd8;
+  --shell-border-strong: #72679a;
+  --shell-text: #023435;
+  --shell-text-secondary: #1a4546;
+  --shell-muted: #5f7172;
+  --shell-input-bg: #fffefa;
+  --shell-readonly-bg: #f3f2ec;
+  --nav-active-bg: #e3f2fa;
+  --nav-active-text: #023435;
+  --shell-header-bg: #023435;
+  --shell-header-text: #fffefa;
+  --shell-header-muted: rgba(255, 254, 250, 0.78);
+  --shell-header-border: #012526;
+  --shell-header-control-bg: rgba(255, 254, 250, 0.1);
+  --shell-header-control-border: rgba(255, 254, 250, 0.24);
+  --shell-header-control-hover: rgba(255, 254, 250, 0.16);
+  --dropdown-shadow: 0 12px 32px rgba(2, 52, 53, 0.1);
+  --dropdown-shadow-strong: 0 18px 44px rgba(2, 52, 53, 0.14);
+  --btn-secondary-border: var(--brand);
+  --btn-secondary-bg: var(--shell-surface);
+  --btn-secondary-text: var(--brand);
+  --btn-secondary-hover-bg: var(--shell-hover-accent);
+  --btn-secondary-hover-border: var(--brand);
+  --chevron-active-mix: 45%;
+  --chevron-active-base: #ffffff;
+  --chevron-pending-mix: 20%;
+  --chevron-pending-base: var(--shell-surface-muted);
+  --chevron-pending-text-mix: 65%;
+  --dash-stat-icon-green: var(--palette-mint);
+  --dash-signal-icon-amber: var(--palette-orange);
+  --dash-signal-icon-cyan: var(--palette-cyan-alt);
+  --dash-signal-icon-violet: var(--palette-purple);
+  --dash-live-label: #588f82;
+  --shell-card-shadow: 0 2px 8px rgba(2, 52, 53, 0.06), 0 8px 24px rgba(2, 52, 53, 0.08);
+  /* Soft accent palette — Huemint purple + existing status hues */
+  --palette-purple: #72679a;
+  --palette-purple-soft: #edeaf3;
+  --palette-purple-text: #5a5178;
+  --palette-periwinkle: #7b8cde;
+  --palette-periwinkle-soft: #eef1ff;
+  --palette-periwinkle-text: #4556a8;
+  --palette-cyan: #13d0ef;
+  --palette-cyan-alt: #00c4e9;
+  --palette-cyan-soft: #e0f9fe;
+  --palette-cyan-text: #0a8fad;
+  --palette-orange: #ff9f00;
+  --palette-orange-soft: #fff4e0;
+  --palette-orange-text: #c77700;
+  --palette-coral: #ff6b4a;
+  --palette-coral-soft: #ffe8e3;
+  --palette-violet: #a594ff;
+  --palette-violet-soft: #f2efff;
+  --palette-violet-text: #7368c4;
+  --palette-mint: #3dd9b4;
+  --palette-mint-soft: #e5fbf5;
+  --palette-mint-text: #1f9a7a;
 }
 
-/* Dark theme — Huemint: #050000 · #c0bfb5 · #a3a1a0 · #315d86 */
+/* Dark theme — Huemint blue/purple on neutral charcoal (no #023435) */
 html[data-theme="dark"] {
   color-scheme: dark;
-  --brand: #315d86;
-  --brand-dark: #050000;
-  --brand-light: #4a7aa3;
-  --brand-tint: rgba(49, 93, 134, 0.24);
-  --shell-bg: #050000;
-  --shell-content-bg: #050000;
-  --shell-surface: #121010;
-  --shell-surface-muted: #1a1818;
-  --shell-hover: #222020;
-  --shell-hover-accent: rgba(49, 93, 134, 0.22);
-  --shell-border: #3a3838;
-  --shell-border-strong: #a3a1a0;
-  --shell-text: #c0bfb5;
-  --shell-text-secondary: #b5b4aa;
-  --shell-muted: #a3a1a0;
-  --shell-input-bg: #1a1818;
-  --shell-readonly-bg: #1a1818;
-  --nav-active-bg: rgba(49, 93, 134, 0.28);
-  --nav-active-text: #c0bfb5;
-  --shell-header-bg: var(--shell-surface);
-  --shell-header-text: var(--shell-text);
-  --shell-header-muted: var(--shell-muted);
-  --shell-header-border: var(--shell-border);
-  --shell-header-control-bg: var(--shell-surface-muted);
-  --shell-header-control-border: var(--shell-border-strong);
-  --shell-header-control-hover: var(--shell-hover);
+  --brand: #55a9db;
+  --brand-dark: #4496c7;
+  --brand-light: #7bbde5;
+  --brand-accent: #72679a;
+  --brand-tint: rgba(85, 169, 219, 0.18);
+  --shell-bg: #0c0c0c;
+  --shell-content-bg: #0c0c0c;
+  --shell-surface: #161616;
+  --shell-surface-muted: #1f1f1f;
+  --shell-hover: #282828;
+  --shell-hover-accent: rgba(85, 169, 219, 0.16);
+  --shell-border: #3a3a3a;
+  --shell-border-strong: #72679a;
+  --shell-text: #fffefa;
+  --shell-text-secondary: #e8e7df;
+  --shell-muted: #a8a8a8;
+  --shell-input-bg: #1f1f1f;
+  --shell-readonly-bg: #1f1f1f;
+  --nav-active-bg: rgba(85, 169, 219, 0.2);
+  --nav-active-text: #fffefa;
+  --shell-header-bg: #161616;
+  --shell-header-text: #fffefa;
+  --shell-header-muted: rgba(255, 254, 250, 0.72);
+  --shell-header-border: #2e2e2e;
+  --shell-header-control-bg: rgba(255, 254, 250, 0.08);
+  --shell-header-control-border: rgba(255, 254, 250, 0.2);
+  --shell-header-control-hover: rgba(255, 254, 250, 0.12);
   --dropdown-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   --dropdown-shadow-strong: 0 20px 48px rgba(0, 0, 0, 0.68);
+  --btn-secondary-border: var(--shell-text);
+  --btn-secondary-bg: var(--shell-surface-muted);
+  --btn-secondary-text: var(--shell-text);
+  --btn-secondary-hover-bg: var(--shell-hover);
+  --btn-secondary-hover-border: var(--shell-text);
+  --chevron-active-mix: 55%;
+  --chevron-active-base: var(--shell-surface-muted);
+  --chevron-pending-mix: 32%;
+  --chevron-pending-base: var(--shell-surface);
+  --chevron-pending-text-mix: 45%;
+  --dash-stat-icon-green: var(--palette-mint-text);
+  --dash-signal-icon-amber: var(--palette-orange);
+  --dash-signal-icon-cyan: var(--palette-cyan-text);
+  --dash-signal-icon-violet: var(--palette-purple);
+  --dash-live-label: #9ec9bb;
+  --shell-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.22), 0 10px 28px rgba(0, 0, 0, 0.28);
+  --palette-purple: #8f86b0;
+  --palette-purple-soft: rgba(114, 103, 154, 0.22);
+  --palette-purple-text: #c2bade;
+  --palette-periwinkle: #8b98e8;
+  --palette-periwinkle-soft: rgba(123, 140, 222, 0.18);
+  --palette-periwinkle-text: #a8b4eb;
+  --palette-cyan: #2dd8f0;
+  --palette-cyan-alt: #1acceb;
+  --palette-cyan-soft: rgba(19, 208, 239, 0.16);
+  --palette-cyan-text: #5ee0f5;
+  --palette-orange: #ffb020;
+  --palette-orange-soft: rgba(255, 159, 0, 0.16);
+  --palette-orange-text: #ffc04d;
+  --palette-coral: #ff8566;
+  --palette-coral-soft: rgba(255, 107, 74, 0.16);
+  --palette-violet: #b5a8ff;
+  --palette-violet-soft: rgba(165, 148, 255, 0.16);
+  --palette-violet-text: #c9bfff;
+  --palette-mint: #4de0be;
+  --palette-mint-soft: rgba(61, 217, 180, 0.16);
+  --palette-mint-text: #6ee8c9;
 }
 
 html,
@@ -99,17 +176,17 @@ input {
   font: inherit;
 }
 
-/* Header bar — same token as .setupChevronStepCurrent (var(--shell-blue)) */
+/* Header + buttons — Huemint brand blue (#55a9db) */
 html:not([data-theme="dark"]) .admin {
-  --shell-blue: #386A95;
+  --shell-blue: #55a9db;
 }
 
 html:not([data-theme="dark"]) [data-reos-header] {
-  background: #396A94 !important;
-  background-color: #396A94 !important;
+  background: var(--shell-header-bg) !important;
+  background-color: var(--shell-header-bg) !important;
 }
 
 html[data-theme="dark"] [data-reos-header] {
-  background: var(--shell-surface) !important;
-  background-color: var(--shell-surface) !important;
+  background: var(--shell-header-bg) !important;
+  background-color: var(--shell-header-bg) !important;
 }

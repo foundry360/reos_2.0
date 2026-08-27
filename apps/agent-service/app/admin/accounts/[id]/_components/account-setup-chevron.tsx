@@ -3,7 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setTenantStatusFromStepAction } from "@/lib/admin/account-actions";
-import { normalizeTenantStatus } from "@/lib/admin/account-status";
+import { normalizeTenantStatus, tenantStatusChevronClass } from "@/lib/admin/account-status";
 import {
   SETUP_STEP_TO_STATUS,
   type SetupChecklist,
@@ -59,7 +59,11 @@ export function AccountSetupChevron({
     <section className={styles.setupChevronCard}>
       <h2 className={styles.setupChevronTitle}>Onboarding Progress</h2>
 
-      <ol className={styles.setupChevronTrack} aria-label="Onboarding progress">
+      <ol
+        className={styles.setupChevronTrack}
+        aria-label="Onboarding progress"
+        data-busy={pending ? "true" : undefined}
+      >
         {checklist.steps.map((step, index) => {
           const state = resolveStepState(step, index, checklist.steps);
           const stepStatus = SETUP_STEP_TO_STATUS[step.id];
@@ -68,7 +72,7 @@ export function AccountSetupChevron({
           return (
             <li
               key={step.id}
-              className={`${styles.setupChevronStep} ${STEP_STATE_CLASS[state]}`}
+              className={`${styles.setupChevronStep} ${tenantStatusChevronClass(stepStatus)} ${STEP_STATE_CLASS[state]}`}
             >
               <button
                 type="button"
