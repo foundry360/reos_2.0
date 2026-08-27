@@ -1,16 +1,16 @@
-# REOS SF
+# REOS 2.0
 
-Real Estate Operating System on **Salesforce** with an external **Agent Service** for conversational AI (Concierge, Scheduler, Follow-Up).
+Real Estate Operating System — conversational AI agents + simple CRM on **Vercel** and **Supabase**.
 
-This repo is **greenfield** — not tied to the GHL-based [REOS](https://github.com/foundry360/REOS) product. Payments stay in GHL + Stripe Connect (separate, manual tenant setup in Salesforce).
+Payments stay in **GHL + Stripe Connect** (separate; tenants created manually in admin after setup fee).
 
 ## Architecture
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ```text
-Lead (SMS) → Agent Service (Vercel) → OpenAI + Salesforce API
-Agents work in Salesforce (React UIBundle + Flows)
+Lead (SMS) → Vercel webhooks → OpenAI agents → Supabase
+Broker UI  → React app (tenant) + Admin portal (platform)
 GHL payments → Stripe (no integration with this repo)
 ```
 
@@ -18,43 +18,64 @@ GHL payments → Stripe (no integration with this repo)
 
 | Path | Purpose |
 |---|---|
-| [`apps/agent-service/`](apps/agent-service/) | Next.js on Vercel — Twilio webhooks, LLM, SF writes |
-| [`salesforce/`](salesforce/) | Salesforce CLI metadata (objects, Flows, React bundle later) |
-| [`docs/`](docs/) | Architecture and setup |
+| [`apps/agent-service/`](apps/agent-service/) | Next.js on Vercel — webhooks, agents, UI (growing) |
+| [`supabase/migrations/`](supabase/migrations/) | Postgres schema |
+| [`docs/`](docs/) | Architecture, agents, setup, admin |
+| [`legacy/salesforce/`](legacy/salesforce/) | Deprecated SF scaffold (pre–2.0 pivot) |
 
-## Quick start — Agent Service
+## Quick start
+
+1. **Create Supabase project** and run [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql).
+2. **Configure env:**
 
 ```bash
 cd apps/agent-service
 cp .env.example .env.local
-# Fill OPENAI_API_KEY, Twilio, Salesforce Connected App credentials
+# Fill OPENAI_API_KEY, Twilio, Supabase keys — see docs/SETUP.md
 npm install
 npm run dev
 ```
 
-Health: `http://localhost:3000/api/health`  
-Twilio webhook (dev): `POST /api/webhooks/twilio`
+3. **Seed a tenant** (SQL in [`docs/SETUP.md`](docs/SETUP.md)) and point Twilio at `POST /api/webhooks/twilio`.
 
-## Salesforce org
+Health: `http://localhost:3000/api/health`
 
-Dev org: `orgfarm-280f8f6fda-dev-ed.develop.lightning.force.com`
+## Vercel deploy
 
-```bash
-cd salesforce
-sf org login web --alias reos-dev \
-  --instance-url https://orgfarm-280f8f6fda-dev-ed.develop.lightning.force.com
-```
+Same Vercel project as before — root directory **`apps/agent-service`**.
 
-See [`salesforce/README.md`](salesforce/README.md) for data model and deploy steps.
-
-## Deploy Agent Service to Vercel
-
-1. Import this repo in Vercel; set root directory to `apps/agent-service`
-2. Add environment variables from `apps/agent-service/.env.example`
-3. Point Twilio inbound SMS webhook to `https://<your-app>/api/webhooks/twilio`
+Add environment variables from `.env.example`. Redeploy after Supabase is wired.
 
 ## Milestone 1 — Hello tenant
 
-- [ ] Account (tenant) + Contact in Salesforce sandbox
-- [ ] Twilio number → webhook → Concierge reply
-- [ ] Contact field updated from agent tool call
+- [x] Supabase schema (tenants, contacts, messages, agent config)
+- [x] Supabase project wired (`dfdimmmturnaxkysozkz`)
+- [x] Twilio webhook → Coordinator → Concierge → Supabase writes
+- [x] Inline Compliance (STOP keywords)
+- [x] Demo tenant seeded (`demo-realty`)
+- [ ] Assign real Twilio number to tenant (deferred)
+- [ ] End-to-end live SMS test (after number)
+
+## Milestone 2 — Portals
+
+- [x] Supabase Auth + split-screen login (`/login`)
+- [x] Admin shell: sidebar, header, logo, avatar menu
+- [x] Admin: account list, new account + owner invite, account detail
+- [x] Impersonate tenant from admin (`Open account`)
+- [ ] Run migration `002_platform_admins_policy.sql` if not done
+- [ ] Add your user to `platform_admins`
+- [ ] App: inbox, pipeline, contact detail
+
+## Rename repo
+
+GitHub: Settings → rename to `reos-2` or `REOS-2.0` (your choice). Local:
+
+```bash
+git remote set-url origin git@github.com:foundry360/<new-name>.git
+```
+
+## Related
+
+- Agent layer: [`docs/AGENTS.md`](docs/AGENTS.md)
+- Admin model: [`docs/ADMIN.md`](docs/ADMIN.md)
+- Legacy GHL product: [foundry360/REOS](https://github.com/foundry360/REOS)

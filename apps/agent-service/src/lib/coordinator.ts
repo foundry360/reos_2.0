@@ -1,7 +1,7 @@
 /** Agent playbooks — mirrors GHL Concierge / Scheduler / Follow-Up routing. */
 export type AgentPlaybook = "concierge" | "scheduler" | "follow_up" | "none";
 
-/** Salesforce Lead_Status__c values (planned picklist). */
+/** Salesforce Lead_Status__c picklist values. */
 export type LeadStatus =
   | "Qualifying"
   | "Ready_to_Book"

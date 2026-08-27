@@ -10,12 +10,13 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === "true"),
-  SF_INSTANCE_URL: z.string().url().optional(),
-  SF_CLIENT_ID: z.string().optional(),
-  SF_CLIENT_SECRET: z.string().optional(),
-  SF_REFRESH_TOKEN: z.string().optional(),
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  META_APP_ID: z.string().optional(),
+  META_APP_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -28,11 +29,8 @@ export function isOpenAIConfigured(env: Env = getEnv()): boolean {
   return Boolean(env.OPENAI_API_KEY);
 }
 
-export function isSalesforceConfigured(env: Env = getEnv()): boolean {
+export function isSupabaseConfigured(env: Env = getEnv()): boolean {
   return Boolean(
-    env.SF_INSTANCE_URL &&
-      env.SF_CLIENT_ID &&
-      env.SF_CLIENT_SECRET &&
-      env.SF_REFRESH_TOKEN,
+    env.NEXT_PUBLIC_SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY,
   );
 }

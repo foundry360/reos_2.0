@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Opted_Out__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Compliance kill-switch. When true, Agent Service stops outbound conversation.</description>
+    <inlineHelpText>If checked, the Agent Service will not reply.</inlineHelpText>
+    <label>Opted Out</label>
+    <trackFeedHistory>false</trackFeedHistory>
+    <type>Checkbox</type>
+</CustomField>

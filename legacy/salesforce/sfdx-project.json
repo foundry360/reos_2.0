@@ -1,0 +1,12 @@
+{
+  "packageDirectories": [
+    {
+      "path": "force-app",
+      "default": true
+    }
+  ],
+  "name": "reos_sf",
+  "namespace": "",
+  "sfdcLoginUrl": "https://orgfarm-280f8f6fda-dev-ed.develop.my.salesforce.com",
+  "sourceApiVersion": "62.0"
+}

@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
 
   const from = params.get("From") ?? "";
   const body = params.get("Body") ?? "";
+  const to = params.get("To") ?? "";
 
   if (!env.TWILIO_SKIP_SIGNATURE_VERIFY && env.TWILIO_AUTH_TOKEN) {
     const signature = request.headers.get("x-twilio-signature") ?? "";
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const result = await handleInboundSms({ from, body });
+  const result = await handleInboundSms({ from, body, to });
 
   if (!result.reply) {
     return new NextResponse("<Response></Response>", {

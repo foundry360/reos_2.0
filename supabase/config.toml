@@ -1,0 +1,9 @@
+# Supabase local dev — link with: npx supabase link --project-ref dfdimmmturnaxkysozkz
+
+project_id = "dfdimmmturnaxkysozkz"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15

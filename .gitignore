@@ -15,9 +15,11 @@ apps/agent-service/out/
 dist/
 *.tsbuildinfo
 
-# Salesforce
-salesforce/.sf/
-salesforce/**/package.xml.bak
+# Salesforce (legacy)
+legacy/salesforce/.sf/
+
+# Supabase local
+supabase/.temp/
 
 # OS / IDE
 .DS_Store

@@ -27,6 +27,7 @@ const CRM_TOOLS: ChatCompletionTool[] = [
               "Nurture",
               "Booked",
               "Handoff",
+              "Compliance",
             ],
           },
           lead_temperature: {

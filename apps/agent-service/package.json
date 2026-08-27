@@ -1,5 +1,5 @@
 {
-  "name": "reos-agent-service",
+  "name": "reos-2",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.112.4",
     "next": "^15.2.0",
     "openai": "^4.86.0",
     "react": "^19.0.0",
