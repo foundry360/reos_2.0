@@ -266,11 +266,11 @@
   overflow: hidden;
   background: linear-gradient(
     160deg,
-    #023435 0%,
-    #72679a 52%,
-    #55a9db 100%
+    #022342 0%,
+    #0b3557 48%,
+    #487095 100%
   );
-  color: #fffefa;
+  color: #ffffff;
   display: flex;
   flex-direction: column;
   padding: 2.5rem 3.5rem;
@@ -315,7 +315,7 @@
   padding: 0.55rem 1.125rem;
   border: none;
   border-radius: 999px;
-  background: #fffefa;
+  background: #ffffff;
   color: var(--brand);
   font-size: 0.875rem;
   font-weight: 700;

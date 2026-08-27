@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AccountStatusBadge } from "@/lib/admin/account-status";
+import { DashCardHeader } from "../dashboard/_components/dash-card-header";
 import { BillingTopSpenderCard } from "./billing-top-spender-card";
 import {
   BillingStatCard,
@@ -72,53 +73,49 @@ export function BillingTenantContent({ stats }: { stats: TenantBillingStats }) {
       </div>
 
       <div className={styles.billingGridSecondary}>
-        <section className={styles.dashCard}>
-          <div className={styles.dashCardHeader}>
-            <div className={styles.billingSectionHeaderMain}>
-              <span className={`${styles.dashStatIcon} ${styles.dashStatIconBlue}`} aria-hidden="true">
-                <IconBillingChart />
-              </span>
-              <div>
-                <h2 className={styles.dashCardTitle}>Usage breakdown</h2>
-                <p className={styles.dashCardSubtitle}>Twilio, AI, and other costs</p>
-              </div>
-            </div>
-            <Link href={stats.accountHref} className={styles.dashCardLink}>
-              Open account
-            </Link>
+        <section className={`${styles.dashCard} ${styles.dashCardWithHeader}`}>
+          <DashCardHeader
+            title="Usage Breakdown"
+            iconBadgeClassName={styles.dashCardIconFunnel}
+            icon={<IconBillingChart />}
+            action={
+              <Link href={stats.accountHref} className={styles.dashCardLink}>
+                Open account
+              </Link>
+            }
+          />
+          <div className={styles.dashCardBody}>
+            <p className={styles.dashCardSubtitle}>Twilio, AI, and other costs</p>
+            <CategoryBreakdown items={stats.categoryTotals} />
+            {stats.totalUsageCents === 0 && (
+              <p className={styles.billingEmptyHint}>
+                Usage events will appear here once SMS and AI metering is enabled.
+              </p>
+            )}
           </div>
-          <CategoryBreakdown items={stats.categoryTotals} />
-          {stats.totalUsageCents === 0 && (
-            <p className={styles.billingEmptyHint}>
-              Usage events will appear here once SMS and AI metering is enabled.
-            </p>
-          )}
         </section>
 
-        <section className={styles.dashCard}>
-          <div className={styles.dashCardHeader}>
-            <div className={styles.billingSectionHeaderMain}>
-              <span className={`${styles.dashStatIcon} ${styles.dashStatIconGreen}`} aria-hidden="true">
-                <IconBillingStatus />
-              </span>
-              <div>
-                <h2 className={styles.dashCardTitle}>Account status</h2>
-                <p className={styles.dashCardSubtitle}>Billing readiness</p>
+        <section className={`${styles.dashCard} ${styles.dashCardWithHeader}`}>
+          <DashCardHeader
+            title="Account Status"
+            iconBadgeClassName={styles.dashCardIconHealth}
+            icon={<IconBillingStatus />}
+          />
+          <div className={styles.dashCardBody}>
+            <p className={styles.dashCardSubtitle}>Billing readiness</p>
+            <div className={styles.billingMetaList}>
+              <div className={styles.billingMetaRow}>
+                <span className={styles.billingMetaLabel}>Status</span>
+                <AccountStatusBadge status={stats.tenant.status} />
               </div>
-            </div>
-          </div>
-          <div className={styles.billingMetaList}>
-            <div className={styles.billingMetaRow}>
-              <span>Status</span>
-              <AccountStatusBadge status={stats.tenant.status} />
-            </div>
-            <div className={styles.billingMetaRow}>
-              <span>Billing customer</span>
-              <strong>{stats.tenant.stripeCustomerId ?? "—"}</strong>
-            </div>
-            <div className={styles.billingMetaRow}>
-              <span>Billing cycle</span>
-              <strong>{stats.cycle.label}</strong>
+              <div className={styles.billingMetaRow}>
+                <span className={styles.billingMetaLabel}>Billing customer</span>
+                <strong>{stats.tenant.stripeCustomerId ?? "—"}</strong>
+              </div>
+              <div className={styles.billingMetaRow}>
+                <span className={styles.billingMetaLabel}>Billing cycle</span>
+                <strong>{stats.cycle.label}</strong>
+              </div>
             </div>
           </div>
         </section>

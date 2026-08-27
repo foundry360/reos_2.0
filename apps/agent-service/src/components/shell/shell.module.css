@@ -156,8 +156,8 @@
 }
 
 :global(html:not([data-theme="dark"])) .appHeader .logoMark {
-  background: #fffefa;
-  color: #72679a;
+  background: #ffffff;
+  color: #022342;
 }
 
 .logoSub {
@@ -447,7 +447,7 @@ html[data-theme="dark"] .dropdownOptionActive {
 }
 
 .dropdownSelectInline {
-  width: 100%;
+  width: auto;
 }
 
 .dropdownSelectTrigger {
@@ -487,6 +487,9 @@ html[data-theme="dark"] .dropdownOptionActive {
 
 .dropdownSelectTriggerInline {
   padding: 0.35rem 0;
+  width: auto;
+  justify-content: flex-start;
+  gap: 0.35rem;
   border: none;
   border-bottom: 1px solid transparent;
   border-radius: 0;
@@ -501,6 +504,22 @@ html[data-theme="dark"] .dropdownOptionActive {
 .dropdownSelectTriggerInline.dropdownSelectTriggerOpen {
   border-bottom-color: var(--shell-blue);
   box-shadow: none;
+}
+
+.dropdownSelectInline .dropdownSelectMenu {
+  left: auto;
+  right: 0;
+  width: max-content;
+  min-width: 100%;
+}
+
+.dropdownSelectInline .dropdownOptionMain {
+  min-width: auto;
+  flex-shrink: 0;
+}
+
+.dropdownSelectInline .dropdownOptionMain span {
+  white-space: nowrap;
 }
 
 .dropdownSelectValue {
@@ -1231,38 +1250,38 @@ html[data-theme="dark"] .menuItemDanger:hover {
 }
 
 .badgeCompanyInfo {
-  background: var(--palette-periwinkle);
-  color: #fffefa;
+  background: var(--palette-purple);
+  color: #ffffff;
 }
 
 .badgeBilling {
-  background: var(--palette-cyan-alt);
-  color: #fffefa;
+  background: var(--brand-accent);
+  color: #ffffff;
 }
 
 .badgeAgents {
   background: var(--palette-purple);
-  color: #fffefa;
+  color: #ffffff;
 }
 
 .badgeConnectedAccounts {
-  background: var(--palette-cyan);
-  color: #023435;
+  background: var(--brand-light);
+  color: #ffffff;
 }
 
 .badgeTesting {
   background: var(--palette-orange);
-  color: #fffefa;
+  color: #ffffff;
 }
 
 .badgeActive {
   background: var(--palette-mint);
-  color: #023435;
+  color: #ffffff;
 }
 
 .badgePaused {
   background: #6b7280;
-  color: #fffefa;
+  color: #ffffff;
 }
 
 /* Status colors — funnel bars, badges, and chevron steps */
@@ -2084,7 +2103,7 @@ html[data-theme="dark"] .menuError {
 }
 
 .accordionIconBilling {
-  background: var(--palette-cyan-alt);
+  background: var(--brand-accent);
   color: #ffffff;
 }
 
@@ -2162,7 +2181,7 @@ html[data-theme="dark"] .accordionIconBilling {
 }
 
 .highlightsIconBadge {
-  background: var(--palette-periwinkle);
+  background: var(--palette-purple);
   color: #ffffff;
 }
 
@@ -2493,7 +2512,7 @@ a.contactMiniMetaRow:hover .contactMiniMetaIcon {
 }
 
 .activityTimelineIconBadge {
-  background: var(--palette-cyan);
+  background: var(--brand-accent);
   color: #ffffff;
 }
 
@@ -2560,11 +2579,11 @@ html[data-theme="dark"] .activityTimelineIconBadge {
 }
 
 .activityTimelineDotCyan {
-  background: var(--palette-cyan);
+  background: var(--brand-light);
 }
 
 .activityTimelineDotBlue {
-  background: var(--palette-periwinkle);
+  background: var(--palette-purple);
 }
 
 .activityTimelineContent {
@@ -2600,12 +2619,12 @@ html[data-theme="dark"] .activityTimelineIconBadge {
 }
 
 .accordionIconConnections {
-  background: var(--palette-cyan);
+  background: var(--brand-accent);
   color: #ffffff;
 }
 
 .accordionIconSocial {
-  background: #1877f2;
+  background: var(--brand-accent);
   color: #ffffff;
 }
 
@@ -2615,7 +2634,7 @@ html[data-theme="dark"] .accordionIconConnections {
 }
 
 html[data-theme="dark"] .accordionIconSocial {
-  background: #1877f2;
+  background: var(--palette-purple);
   color: #ffffff;
 }
 
@@ -2932,15 +2951,15 @@ html[data-theme="dark"] .accordionIconSocial {
 :global(html:not([data-theme="dark"])) .accountDetailCard .displayLabel,
 :global(html:not([data-theme="dark"])) .accountDetailCard .label,
 :global(html:not([data-theme="dark"])) .accountDetailCard .detailsSectionTitle {
-  color: #023435;
+  color: var(--shell-text);
 }
 
 :global(html:not([data-theme="dark"])) .accountDetailCard .tabBtnActive {
-  color: #023435;
+  color: var(--shell-text);
 }
 
 :global(html:not([data-theme="dark"])) .accountDetailCard .tabBtnActive::after {
-  background: #023435;
+  background: var(--brand);
 }
 
 .highlightsPanel .displayField {
@@ -3337,6 +3356,54 @@ html[data-theme="dark"] .youBadge {
   border-radius: 12px;
   padding: 1.25rem 1.35rem;
   box-shadow: var(--shell-card-shadow);
+}
+
+.dashCardWithHeader {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dashCardWithHeader > .sidebarCardHeader:first-child {
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+.dashCardBody {
+  padding: 1.25rem 1.35rem;
+}
+
+.dashCardBody .dashCardSubtitle {
+  margin: 0 0 1rem;
+}
+
+.dashCardWithHeader .accordionIconBadge svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dashCardIconFunnel {
+  background: var(--brand-accent);
+  color: #ffffff;
+}
+
+.dashCardIconHealth {
+  background: var(--palette-mint);
+  color: #ffffff;
+}
+
+.dashCardIconOps {
+  background: var(--palette-orange);
+  color: #ffffff;
+}
+
+.dashCardIconAttention {
+  background: var(--palette-orange);
+  color: #ffffff;
+}
+
+.dashCardIconRecent {
+  background: var(--palette-purple);
+  color: #ffffff;
 }
 
 .dashCardHeader {
@@ -3799,13 +3866,11 @@ a.dashSignalItem:hover {
 
 .dashRecentMeta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.3rem;
+  align-items: center;
+  flex-shrink: 0;
 }
 
-.dashRecentMeta time {
-  font-size: 0.75rem;
+.dashRecentDate {
   color: var(--shell-muted);
 }
 
@@ -4051,7 +4116,7 @@ a.dashSignalItem:hover {
 
 /* Billing dashboard */
 .billingTenantSelect {
-  min-width: 16rem;
+  flex-shrink: 0;
 }
 
 .billingDropdownIcon {
@@ -4109,7 +4174,7 @@ a.dashSignalItem:hover {
 }
 
 .billingStatIconPurple {
-  background: var(--palette-violet);
+  background: var(--palette-purple);
   color: #fff;
 }
 
@@ -4279,8 +4344,12 @@ a.dashSignalItem:hover {
   font-size: 0.875rem;
 }
 
-.billingMetaRow span {
+.billingMetaLabel {
   color: var(--shell-muted);
+}
+
+.billingMetaRow .badge {
+  flex-shrink: 0;
 }
 
 .billingMetaRow strong {
@@ -4310,7 +4379,7 @@ a.dashSignalItem:hover {
 }
 
 .billingWalletIconBadge {
-  background: var(--palette-periwinkle);
+  background: var(--palette-purple);
   color: #ffffff;
 }
 
@@ -4361,17 +4430,26 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
 .billingWalletCategories li {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  align-items: baseline;
+  gap: 0.35rem;
   font-size: 0.8125rem;
 }
 
-.billingWalletCategories span {
+.billingWalletCategoryLabel {
+  flex-shrink: 0;
   color: var(--shell-muted);
 }
 
-.billingWalletCategories strong {
+.billingWalletLeader {
+  flex: 1;
+  min-width: 0.75rem;
+  align-self: flex-end;
+  margin-bottom: 0.3em;
+  border-bottom: 1px dotted var(--shell-border-strong);
+}
+
+.billingWalletCategoryAmount {
+  flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   color: var(--shell-text);
 }

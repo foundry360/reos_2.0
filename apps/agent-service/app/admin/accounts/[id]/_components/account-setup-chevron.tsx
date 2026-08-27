@@ -41,6 +41,10 @@ export function AccountSetupChevron({
   const [pending, startTransition] = useTransition();
   const normalizedStatus = normalizeTenantStatus(currentStatus);
 
+  if (checklist.isActive || normalizedStatus === "paused") {
+    return null;
+  }
+
   function handleStepClick(stepId: SetupStepId) {
     const nextStatus = SETUP_STEP_TO_STATUS[stepId];
     if (!nextStatus || nextStatus === normalizedStatus) return;

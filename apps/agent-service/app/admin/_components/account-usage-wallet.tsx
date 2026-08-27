@@ -44,8 +44,11 @@ export function AccountUsageWallet({
           <ul className={styles.billingWalletCategories}>
             {activeCategories.map((item) => (
               <li key={item.category}>
-                <span>{item.label}</span>
-                <strong>{formatUsdFromCents(item.amountCents)}</strong>
+                <span className={styles.billingWalletCategoryLabel}>{item.label}</span>
+                <span className={styles.billingWalletLeader} aria-hidden="true" />
+                <strong className={styles.billingWalletCategoryAmount}>
+                  {formatUsdFromCents(item.amountCents)}
+                </strong>
               </li>
             ))}
           </ul>
