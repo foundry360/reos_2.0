@@ -281,6 +281,7 @@
   z-index: 1;
   width: 100%;
   max-width: 680px;
+  padding-top: 2rem;
 }
 
 .eyebrow {

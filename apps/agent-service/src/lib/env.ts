@@ -18,6 +18,7 @@ const envSchema = z.object({
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
   PLATFORM_SECRETS_ENCRYPTION_KEY: z.string().optional(),
+  GHL_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;
