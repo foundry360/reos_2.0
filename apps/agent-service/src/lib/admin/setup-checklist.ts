@@ -86,7 +86,7 @@ export function buildSetupChecklist(
       id: "billing",
       label: "Billing",
       shortLabel: "Billing",
-      description: "Add the billing customer ID in General Info → Billing.",
+      description: "Link the Stripe customer ID from GHL setup payment in Connections.",
       complete: isStepComplete(1),
     },
     {
@@ -100,7 +100,7 @@ export function buildSetupChecklist(
       id: "connectedAccounts",
       label: "Connected Accounts",
       shortLabel: "Connected Accounts",
-      description: "Assign the Twilio SMS number and connect social channels.",
+      description: "Assign the Twilio SMS number and connect email, calendar, and social channels.",
       complete: isStepComplete(3),
     },
     {

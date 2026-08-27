@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AccountRowActions } from "./_components/account-row-actions";
 import { AccountsHeaderActions } from "./_components/accounts-header-actions";
 import { AccountsPagination } from "./_components/accounts-pagination";
 import { AccountsViewTabs } from "./_components/accounts-view-tabs";
@@ -129,7 +130,7 @@ export default async function AdminAccountsPage({ searchParams }: PageProps) {
         </p>
       ) : (
         <>
-          <div className={styles.tableWrap}>
+          <div className={`${styles.tableWrap} ${styles.tableWrapAllowMenuOverflow}`}>
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -146,6 +147,7 @@ export default async function AdminAccountsPage({ searchParams }: PageProps) {
                   <th>
                     <SortHeader label="Timezone" column="timezone" params={params} />
                   </th>
+                  <th aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -167,6 +169,9 @@ export default async function AdminAccountsPage({ searchParams }: PageProps) {
                     </td>
                     <td>{formatPhoneDisplay(tenant.phone) ?? "None"}</td>
                     <td>{tenant.timezone.replace("_", " ")}</td>
+                    <td className={styles.tableActionsCell}>
+                      <AccountRowActions accountId={tenant.id} accountName={tenant.name} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

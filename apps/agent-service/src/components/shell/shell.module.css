@@ -728,7 +728,7 @@ html[data-theme="dark"] .menuItemDanger:hover {
   width: min(100%, 520px);
   max-height: none;
   margin: auto;
-  overflow: visible;
+  overflow: hidden;
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
   border-radius: 14px;
@@ -752,6 +752,7 @@ html[data-theme="dark"] .menuItemDanger:hover {
   padding: 1.15rem 1.25rem;
   border-bottom: 1px solid var(--shell-border);
   background: var(--shell-surface-muted);
+  border-radius: 13px 13px 0 0;
 }
 
 .modalTitle {
@@ -764,6 +765,12 @@ html[data-theme="dark"] .menuItemDanger:hover {
   margin: 0.25rem 0 0;
   font-size: 0.8125rem;
   color: var(--shell-muted);
+}
+
+.modalConfirmHint {
+  margin: 0 0 0.85rem;
+  font-size: 0.875rem;
+  color: var(--shell-text);
 }
 
 .modalBody {
@@ -801,6 +808,31 @@ html[data-theme="dark"] .menuItemDanger:hover {
   color: var(--btn-secondary-text);
 }
 
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1.125rem;
+  border: 1px solid #b42318;
+  border-radius: 999px;
+  background: #b42318;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: #912018;
+  border-color: #912018;
+}
+
+.btnDanger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .card {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
@@ -815,6 +847,10 @@ html[data-theme="dark"] .menuItemDanger:hover {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: var(--shell-card-shadow);
+}
+
+.tableWrapAllowMenuOverflow {
+  overflow: visible;
 }
 
 .table thead tr:first-child th:first-child {
@@ -900,6 +936,16 @@ html[data-theme="dark"] .menuItemDanger:hover {
   width: 3.5rem;
   text-align: right;
   padding-right: 1.25rem;
+  overflow: visible;
+}
+
+.table tbody td.tableActionCol {
+  position: relative;
+  z-index: 1;
+}
+
+.table tbody tr:hover td.tableActionCol {
+  z-index: 2;
 }
 
 .tableFooter {
@@ -1007,7 +1053,7 @@ html[data-theme="dark"] .menuItemDanger:hover {
   position: absolute;
   top: calc(100% + 0.35rem);
   right: 0;
-  z-index: 50;
+  z-index: 90;
   min-width: 140px;
   padding: 0.35rem;
   background: var(--shell-surface);
@@ -1016,9 +1062,51 @@ html[data-theme="dark"] .menuItemDanger:hover {
   box-shadow: var(--dropdown-shadow);
 }
 
+.rowActionsDropdownUp {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
+}
+
+.rowActionsDropdownPortal {
+  position: fixed;
+  z-index: 90;
+  min-width: 140px;
+  padding: 0.35rem;
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  box-shadow: var(--dropdown-shadow);
+}
+
+.rowActionsDropdownPortal .dropdownItem {
+  width: 100%;
+  text-align: left;
+}
+
 .rowActionsDropdown .dropdownItem {
   width: 100%;
   text-align: left;
+}
+
+.tableActionsCell {
+  width: 3rem;
+  text-align: right;
+  vertical-align: middle;
+  overflow: visible;
+}
+
+.table tbody td.tableActionsCell {
+  position: relative;
+  z-index: 1;
+}
+
+.table tbody tr:hover td.tableActionsCell {
+  z-index: 2;
+}
+
+.table .rowActionsDropdown a.dropdownItem {
+  color: var(--shell-text-secondary);
+  font-weight: 500;
 }
 
 .table a {
@@ -1143,38 +1231,38 @@ html[data-theme="dark"] .menuItemDanger:hover {
 }
 
 .badgeCompanyInfo {
-  background: var(--palette-periwinkle-soft);
-  color: var(--palette-periwinkle-text);
+  background: var(--palette-periwinkle);
+  color: #fffefa;
 }
 
 .badgeBilling {
-  background: var(--palette-cyan-soft);
-  color: var(--palette-cyan-text);
+  background: var(--palette-cyan-alt);
+  color: #fffefa;
 }
 
 .badgeAgents {
-  background: var(--palette-purple-soft);
-  color: var(--palette-purple-text);
+  background: var(--palette-purple);
+  color: #fffefa;
 }
 
 .badgeConnectedAccounts {
-  background: var(--palette-cyan-soft);
-  color: var(--palette-cyan-alt);
+  background: var(--palette-cyan);
+  color: #023435;
 }
 
 .badgeTesting {
-  background: var(--palette-orange-soft);
-  color: var(--palette-orange-text);
+  background: var(--palette-orange);
+  color: #fffefa;
 }
 
 .badgeActive {
-  background: var(--palette-mint-soft);
-  color: var(--palette-mint-text);
+  background: var(--palette-mint);
+  color: #023435;
 }
 
 .badgePaused {
-  background: #f3f4f6;
-  color: #6b7280;
+  background: #6b7280;
+  color: #fffefa;
 }
 
 /* Status colors — funnel bars, badges, and chevron steps */
@@ -1844,6 +1932,16 @@ html[data-theme="dark"] .menuError {
   margin-top: 1rem;
 }
 
+.accountDetailSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.accountDetailSidebar .billingWalletCard {
+  margin-bottom: 0;
+}
+
 .accountDetailCard {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
@@ -2394,6 +2492,16 @@ a.contactMiniMetaRow:hover .contactMiniMetaIcon {
   padding: 1rem 1.25rem 1.5rem;
 }
 
+.activityTimelineIconBadge {
+  background: var(--palette-cyan);
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .activityTimelineIconBadge {
+  background: #0e7490;
+  color: #ffffff;
+}
+
 .activityTimelineEmpty {
   margin: 0;
   color: var(--shell-muted);
@@ -2589,6 +2697,28 @@ html[data-theme="dark"] .accordionIconSocial {
   word-break: break-word;
 }
 
+.connectionDescRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.connectionReadyCheck {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--palette-mint);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.connectionDescWarning {
+  color: var(--shell-muted);
+}
+
 .connectionToggle {
   position: relative;
   display: inline-flex;
@@ -2668,6 +2798,46 @@ html[data-theme="dark"] .accordionIconSocial {
 .connectionActionBtnDanger:hover:not(:disabled) {
   background: #fee4e2;
   color: #b42318;
+}
+
+.connectionTextBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.connectionTextBtnConnect {
+  border: none;
+  background: var(--shell-blue);
+  color: #fff;
+}
+
+.connectionTextBtnConnect:hover:not(:disabled) {
+  background: var(--shell-blue-dark);
+}
+
+.connectionTextBtnDisconnect {
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--shell-text-secondary);
+}
+
+.connectionTextBtnDisconnect:hover:not(:disabled) {
+  background: var(--btn-secondary-hover-bg);
+  border-color: var(--btn-secondary-hover-border);
+  color: var(--shell-text);
+}
+
+.connectionTextBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .contactsSectionLabel {
@@ -3770,11 +3940,13 @@ a.dashSignalItem:hover {
   border-radius: 10px;
   background: var(--shell-surface);
   box-shadow: var(--shell-card-shadow);
-  text-decoration: none;
   color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.kanbanCardDraggable {
   cursor: grab;
   touch-action: none;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
 }
 
 .kanbanCardDragging {
@@ -3806,11 +3978,38 @@ a.dashSignalItem:hover {
   font-size: 0.6875rem;
 }
 
+.kanbanCardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.kanbanCardTop .rowActionsMenu {
+  flex-shrink: 0;
+  margin-top: -0.15rem;
+  margin-right: -0.25rem;
+}
+
 .kanbanCardTitle {
   font-size: 0.9375rem;
   font-weight: 700;
   color: var(--shell-text);
   line-height: 1.35;
+}
+
+.kanbanCardTitleLink {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--shell-text);
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.kanbanCardTitleLink:hover {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .kanbanCardFooter {
@@ -4098,18 +4297,35 @@ a.dashSignalItem:hover {
 
 .billingWalletCard {
   margin-bottom: 1rem;
-  padding: 1.15rem 1.25rem;
+  border: 1px solid var(--shell-border);
   border-radius: 10px;
   background: var(--shell-surface);
+  overflow: hidden;
   box-shadow: var(--shell-card-shadow);
 }
 
-.billingWalletHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.75rem;
+.billingWalletCard > .sidebarCardHeader:first-child {
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+}
+
+.billingWalletIconBadge {
+  background: var(--palette-periwinkle);
+  color: #ffffff;
+}
+
+.billingWalletIconBadge svg {
+  width: 16px;
+  height: 16px;
+}
+
+html[data-theme="dark"] .billingWalletIconBadge {
+  background: var(--palette-purple);
+  color: #ffffff;
+}
+
+.billingWalletBody {
+  padding: 1.15rem 1.25rem 1.25rem;
 }
 
 .billingSectionHeaderMain {
@@ -4119,12 +4335,6 @@ a.dashSignalItem:hover {
   min-width: 0;
 }
 
-.billingWalletSubtitle {
-  margin: 0.2rem 0 0;
-  font-size: 0.8125rem;
-  color: var(--shell-muted);
-}
-
 .billingWalletTotal {
   margin: 0;
   font-size: 2rem;
@@ -4132,6 +4342,12 @@ a.dashSignalItem:hover {
   color: var(--shell-text);
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+.billingWalletCycle {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--shell-muted);
 }
 
 .billingWalletCategories {
@@ -4299,7 +4515,48 @@ a.dashSignalItem:hover {
   display: flex;
   align-items: flex-start;
   gap: 0.85rem;
-  margin-bottom: 0.85rem;
+  margin-bottom: 0;
+}
+
+.integrationAccordionTrigger {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.integrationAccordionTriggerMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.integrationAccordionTrigger .integrationCardMeta {
+  margin-top: 0.65rem;
+  margin-bottom: 0;
+}
+
+.integrationAccordionPanel {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--shell-border);
+}
+
+.integrationAccordionChevron {
+  flex-shrink: 0;
+  margin-top: 0.35rem;
+  color: var(--shell-muted);
+  transition: transform 0.15s ease;
+}
+
+.integrationAccordionChevronOpen {
+  transform: rotate(180deg);
 }
 
 .integrationCardTitle {

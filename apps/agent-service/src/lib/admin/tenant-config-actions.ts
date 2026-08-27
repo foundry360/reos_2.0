@@ -6,6 +6,7 @@ import { slugify } from "@/lib/admin/slug";
 import { createClient } from "@/lib/supabase/server";
 import { isValidTenantStatus } from "@/lib/admin/account-status";
 import { parsePhoneForStorage } from "@/lib/phone-display";
+import { verifyStripeCustomerForLinking } from "@/lib/admin/tenant-stripe";
 
 export interface ActionResult {
   ok: boolean;
@@ -500,12 +501,50 @@ export async function updateTenantBillingAction(formData: FormData): Promise<Act
   const stripeCustomerId = String(formData.get("stripeCustomerId") ?? "").trim() || null;
   const internalNotes = String(formData.get("internalNotes") ?? "").trim() || null;
 
+  if (stripeCustomerId) {
+    const verification = await verifyStripeCustomerForLinking(stripeCustomerId);
+    if (!verification.ok) {
+      return { ok: false, error: verification.error };
+    }
+  }
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("tenants")
     .update({
       stripe_customer_id: stripeCustomerId,
       internal_notes: internalNotes,
+      last_modified_by_id: admin.id,
+    })
+    .eq("id", tenantId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidateTenant(tenantId);
+  return { ok: true };
+}
+
+export async function linkTenantStripeCustomerAction(formData: FormData): Promise<ActionResult> {
+  const admin = await requirePlatformAdmin();
+
+  const tenantId = readTenantId(formData);
+  if (!tenantId) return { ok: false, error: "Missing account id." };
+
+  const stripeCustomerId = String(formData.get("stripeCustomerId") ?? "").trim();
+  if (!stripeCustomerId) {
+    return { ok: false, error: "Stripe customer ID is required." };
+  }
+
+  const verification = await verifyStripeCustomerForLinking(stripeCustomerId);
+  if (!verification.ok) {
+    return { ok: false, error: verification.error };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tenants")
+    .update({
+      stripe_customer_id: verification.profile.customerId,
       last_modified_by_id: admin.id,
     })
     .eq("id", tenantId);
@@ -541,13 +580,50 @@ export async function deleteTenantAdditionalContactAction(
   return { ok: true };
 }
 
+export async function disconnectTenantPrimaryPhoneAction(formData: FormData): Promise<ActionResult> {
+  const admin = await requirePlatformAdmin();
+
+  const tenantId = readTenantId(formData);
+  if (!tenantId) return { ok: false, error: "Missing account id." };
+
+  const phoneResult = await saveTenantPrimaryPhone(tenantId, "");
+  if (!phoneResult.ok) return phoneResult;
+
+  const auditResult = await markTenantModified(tenantId, admin.id);
+  if (!auditResult.ok) return auditResult;
+
+  revalidateTenant(tenantId);
+  return { ok: true };
+}
+
+export async function disconnectTenantBillingAction(formData: FormData): Promise<ActionResult> {
+  const admin = await requirePlatformAdmin();
+
+  const tenantId = readTenantId(formData);
+  if (!tenantId) return { ok: false, error: "Missing account id." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tenants")
+    .update({
+      stripe_customer_id: null,
+      last_modified_by_id: admin.id,
+    })
+    .eq("id", tenantId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidateTenant(tenantId);
+  return { ok: true };
+}
+
 export async function disconnectTenantChannelAction(formData: FormData): Promise<ActionResult> {
   const admin = await requirePlatformAdmin();
 
   const tenantId = readTenantId(formData);
   const channel = String(formData.get("channel") ?? "").trim();
   if (!tenantId) return { ok: false, error: "Missing account id." };
-  if (channel !== "messenger" && channel !== "instagram") {
+  if (channel !== "messenger" && channel !== "instagram" && channel !== "email" && channel !== "calendar") {
     return { ok: false, error: "Invalid channel." };
   }
 

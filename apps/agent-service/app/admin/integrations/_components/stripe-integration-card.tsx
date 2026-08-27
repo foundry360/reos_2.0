@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { IntegrationAccordionCard } from "./integration-accordion-card";
+import { IntegrationSourceBadge } from "./integration-source-badge";
 import {
   clearStripeStoredSecretsAction,
   saveStripeCredentialsAction,
@@ -13,17 +15,6 @@ import styles from "@/components/shell/shell.module.css";
 interface StripeIntegrationCardProps {
   overview: IntegrationsOverview;
   webhookUrl: string;
-}
-
-function SourceBadge({ source }: { source: IntegrationsOverview["stripe"]["source"] }) {
-  const label =
-    source === "database"
-      ? "Stored encrypted"
-      : source === "environment"
-        ? "Environment variable"
-        : "Not configured";
-
-  return <span className={styles.integrationSourceBadge}>{label}</span>;
 }
 
 export function StripeIntegrationCard({ overview, webhookUrl }: StripeIntegrationCardProps) {
@@ -90,34 +81,31 @@ export function StripeIntegrationCard({ overview, webhookUrl }: StripeIntegratio
   }
 
   return (
-    <section className={styles.integrationCard}>
-      <div className={styles.integrationCardHeader}>
+    <IntegrationAccordionCard
+      title="Billing (Stripe)"
+      subtitle="Platform secret key for charging tenant payment methods"
+      icon={
         <span className={`${styles.dashStatIcon} ${styles.billingStatIconPurple}`} aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.75" />
             <path d="M3 10h18" stroke="currentColor" strokeWidth="1.75" />
           </svg>
         </span>
-        <div>
-          <h2 className={styles.integrationCardTitle}>Billing (Stripe)</h2>
-          <p className={styles.integrationCardSubtitle}>
-            Platform secret key for charging tenant payment methods
-          </p>
-        </div>
-      </div>
-
-      <div className={styles.integrationCardMeta}>
-        <SourceBadge source={overview.stripe.source} />
-        {overview.stripe.secretKey.hint && (
-          <span className={styles.integrationHint}>Key: {overview.stripe.secretKey.hint}</span>
-        )}
-        {overview.stripe.webhookSecret.hint && (
-          <span className={styles.integrationHint}>
-            Webhook: {overview.stripe.webhookSecret.hint}
-          </span>
-        )}
-      </div>
-
+      }
+      meta={
+        <>
+          <IntegrationSourceBadge source={overview.stripe.source} />
+          {overview.stripe.secretKey.hint && (
+            <span className={styles.integrationHint}>Key: {overview.stripe.secretKey.hint}</span>
+          )}
+          {overview.stripe.webhookSecret.hint && (
+            <span className={styles.integrationHint}>
+              Webhook: {overview.stripe.webhookSecret.hint}
+            </span>
+          )}
+        </>
+      }
+    >
       <div className={styles.integrationWebhookBox}>
         <p className={styles.integrationWebhookLabel}>Webhook endpoint</p>
         <code className={styles.integrationWebhookUrl}>{webhookUrl}</code>
@@ -196,6 +184,6 @@ export function StripeIntegrationCard({ overview, webhookUrl }: StripeIntegratio
 
       {error && <p className={styles.error}>{error}</p>}
       {success && <p className={styles.success}>{success}</p>}
-    </section>
+    </IntegrationAccordionCard>
   );
 }

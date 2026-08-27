@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { RowActionsMenu } from "@/components/shell/row-actions-menu";
 import { deleteTenantUserAction } from "@/lib/admin/tenant-user-actions";
 import { displayValue } from "@/components/shell/inline-edit";
 import { formatPhoneDisplay } from "@/lib/phone-display";
@@ -17,16 +18,6 @@ interface AccountUsersSectionProps {
   users: TenantUser[];
 }
 
-function IconMore() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.5" fill="currentColor" />
-      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-      <circle cx="19" cy="12" r="1.5" fill="currentColor" />
-    </svg>
-  );
-}
-
 function UserTypeBadge({ role, label }: { role: TenantUserRole; label: string }) {
   const className =
     role === "owner" ? styles.badgeRole : role === "viewer" ? styles.badgeRoleMuted : styles.badgeActive;
@@ -34,70 +25,32 @@ function UserTypeBadge({ role, label }: { role: TenantUserRole; label: string })
   return <span className={`${styles.badge} ${className}`}>{label}</span>;
 }
 
-interface RowActionsMenuProps {
+interface UserRowActionsProps {
   onEdit: () => void;
   onDelete: () => void;
   disabled?: boolean;
 }
 
-function RowActionsMenu({ onEdit, onDelete, disabled }: RowActionsMenuProps) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-
-    function onDocClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
-
+function UserRowActions({ onEdit, onDelete, disabled }: UserRowActionsProps) {
   return (
-    <div className={styles.rowActionsMenu} ref={ref}>
+    <RowActionsMenu ariaLabel="User actions" disabled={disabled} estimatedHeight={88}>
       <button
         type="button"
-        className={styles.rowActionsBtn}
-        aria-label="User actions"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        disabled={disabled}
-        onClick={() => setOpen((value) => !value)}
+        className={styles.dropdownItem}
+        role="menuitem"
+        onClick={onEdit}
       >
-        <IconMore />
+        Edit
       </button>
-
-      {open && (
-        <div className={styles.rowActionsDropdown} role="menu">
-          <button
-            type="button"
-            className={styles.dropdownItem}
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onEdit();
-            }}
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onDelete();
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
+      <button
+        type="button"
+        className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+        role="menuitem"
+        onClick={onDelete}
+      >
+        Delete
+      </button>
+    </RowActionsMenu>
   );
 }
 
@@ -138,7 +91,7 @@ export function AccountUsersSection({ tenantId, users }: AccountUsersSectionProp
         </button>
       </div>
 
-      <div className={styles.tableWrap}>
+      <div className={`${styles.tableWrap} ${styles.tableWrapAllowMenuOverflow}`}>
         <table className={styles.table}>
           <thead>
             <tr>
@@ -170,8 +123,8 @@ export function AccountUsersSection({ tenantId, users }: AccountUsersSectionProp
                   <td>
                     <UserTypeBadge role={user.userType} label={user.userTypeLabel} />
                   </td>
-                  <td className={styles.tableActionCol}>
-                    <RowActionsMenu
+                  <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
+                    <UserRowActions
                       disabled={pending}
                       onEdit={() => setEditingUser(user)}
                       onDelete={() => handleDelete(user)}

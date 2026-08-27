@@ -18,13 +18,33 @@ interface PageProps {
     created?: string;
     meta_connected?: string;
     meta_error?: string;
+    google_connected?: string;
+    google_error?: string;
+    tab?: string;
   }>;
 }
 
-function metaFeedbackMessage(searchParams: {
+function channelFeedbackMessage(searchParams: {
   meta_connected?: string;
   meta_error?: string;
+  google_connected?: string;
+  google_error?: string;
 }): { kind: "success" | "error"; text: string } | null {
+  if (searchParams.google_connected === "email") {
+    return { kind: "success", text: "Gmail connected." };
+  }
+  if (searchParams.google_connected === "calendar") {
+    return { kind: "success", text: "Google Calendar connected." };
+  }
+  if (searchParams.google_error === "not_configured") {
+    return {
+      kind: "error",
+      text: "Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+    };
+  }
+  if (searchParams.google_error) {
+    return { kind: "error", text: searchParams.google_error };
+  }
   if (searchParams.meta_connected === "messenger") {
     return { kind: "success", text: "Facebook Messenger connected." };
   }
@@ -56,7 +76,8 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
   if (!tenant) notFound();
 
   const checklist = buildSetupChecklist(tenant, users);
-  const metaFeedback = metaFeedbackMessage(query);
+  const metaFeedback = channelFeedbackMessage(query);
+  const initialTab = query.tab === "details" ? "details" : "general";
 
   return (
     <>
@@ -96,16 +117,17 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
         checklist={checklist}
       />
 
-      <AccountUsageWallet
-        tenantId={tenant.id}
-        cycle={usageSummary.cycle}
-        totalUsageCents={usageSummary.totalUsageCents}
-        categoryTotals={usageSummary.categoryTotals}
-      />
-
       <div className={styles.accountDetailLayout}>
-        <AccountDetailTabs tenant={tenant} users={users} />
-        <AccountActivityTimeline tenant={tenant} userCount={users.length} />
+        <AccountDetailTabs tenant={tenant} users={users} initialTab={initialTab} />
+        <div className={styles.accountDetailSidebar}>
+          <AccountUsageWallet
+            tenantId={tenant.id}
+            cycle={usageSummary.cycle}
+            totalUsageCents={usageSummary.totalUsageCents}
+            categoryTotals={usageSummary.categoryTotals}
+          />
+          <AccountActivityTimeline tenant={tenant} userCount={users.length} />
+        </div>
       </div>
     </>
   );

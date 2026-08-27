@@ -11,6 +11,7 @@ export interface GhlOpportunityWonInput {
   principalLastName: string;
   email?: string;
   phone?: string;
+  stripeCustomerId?: string;
   timezone?: string;
   website?: string;
   street?: string;
@@ -119,6 +120,9 @@ export function parseGhlOpportunityWonPayload(body: unknown): ParseGhlOpportunit
     principalLastName,
     email: pickString(root, "email") ?? pickString(contact, "email"),
     phone: pickString(root, "phone", "phoneE164", "phone_e164") ?? pickString(contact, "phone"),
+    stripeCustomerId:
+      pickString(root, "stripeCustomerId", "stripe_customer_id", "stripeCustomerID") ??
+      pickString(contact, "stripeCustomerId", "stripe_customer_id"),
     timezone: pickString(root, "timezone", "timeZone", "time_zone"),
     website: pickString(root, "website") ?? pickString(contact, "website"),
     street: pickString(root, "street", "address1", "address") ?? pickString(contact, "address1", "address"),
@@ -192,6 +196,7 @@ export async function provisionTenantFromGhlOpportunityWon(
       state: input.state ?? null,
       postal_code: input.postalCode ?? null,
       country: input.country ?? "United States",
+      stripe_customer_id: input.stripeCustomerId ?? null,
       internal_notes: "Provisioned from GHL Closed Won webhook.",
     })
     .select("id, slug")

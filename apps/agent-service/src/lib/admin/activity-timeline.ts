@@ -110,11 +110,18 @@ export function buildActivityTimeline(
   for (const channel of tenant.channelAccounts) {
     if (channel.status !== "connected") continue;
 
-    const label = channel.channel === "messenger" ? "Facebook Messenger" : "Instagram";
+    const label =
+      channel.channel === "messenger"
+        ? "Facebook Messenger"
+        : channel.channel === "instagram"
+          ? "Instagram"
+          : channel.channel === "email"
+            ? "Gmail"
+            : "Google Calendar";
     entries.push({
       id: `channel-${channel.channel}`,
       title: `${label} connected`,
-      description: channel.accountLabel ?? "Social channel connected",
+      description: channel.accountLabel ?? `${label} connected`,
       occurredAt: tenant.updatedAt,
       tone: "green",
       icon: "channel",

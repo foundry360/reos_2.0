@@ -2,23 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { IntegrationAccordionCard } from "./integration-accordion-card";
+import { IntegrationSourceBadge } from "./integration-source-badge";
 import {
   clearTwilioStoredSecretsAction,
   saveTwilioCredentialsAction,
 } from "@/lib/admin/platform-secrets-actions";
 import type { IntegrationsOverview } from "@/lib/admin/platform-secrets";
 import styles from "@/components/shell/shell.module.css";
-
-function SourceBadge({ source }: { source: IntegrationsOverview["twilio"]["source"] }) {
-  const label =
-    source === "database"
-      ? "Stored encrypted"
-      : source === "environment"
-        ? "Environment variable"
-        : "Not configured";
-
-  return <span className={styles.integrationSourceBadge}>{label}</span>;
-}
 
 export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOverview }) {
   const router = useRouter();
@@ -61,8 +52,10 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
   }
 
   return (
-    <section className={styles.integrationCard}>
-      <div className={styles.integrationCardHeader}>
+    <IntegrationAccordionCard
+      title="Twilio"
+      subtitle="Platform Account SID and Auth Token for SMS"
+      icon={
         <span className={`${styles.dashStatIcon} ${styles.billingStatIconAmber}`} aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <path
@@ -73,24 +66,19 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
             />
           </svg>
         </span>
-        <div>
-          <h2 className={styles.integrationCardTitle}>Twilio</h2>
-          <p className={styles.integrationCardSubtitle}>
-            Platform Account SID and Auth Token for SMS
-          </p>
-        </div>
-      </div>
-
-      <div className={styles.integrationCardMeta}>
-        <SourceBadge source={overview.twilio.source} />
-        {overview.twilio.accountSid.hint && (
-          <span className={styles.integrationHint}>SID: {overview.twilio.accountSid.hint}</span>
-        )}
-        {overview.twilio.authToken.hint && (
-          <span className={styles.integrationHint}>Token: {overview.twilio.authToken.hint}</span>
-        )}
-      </div>
-
+      }
+      meta={
+        <>
+          <IntegrationSourceBadge source={overview.twilio.source} />
+          {overview.twilio.accountSid.hint && (
+            <span className={styles.integrationHint}>SID: {overview.twilio.accountSid.hint}</span>
+          )}
+          {overview.twilio.authToken.hint && (
+            <span className={styles.integrationHint}>Token: {overview.twilio.authToken.hint}</span>
+          )}
+        </>
+      }
+    >
       {!overview.encryptionEnabled && (
         <p className={styles.integrationNotice}>
           Set <code>PLATFORM_SECRETS_ENCRYPTION_KEY</code> to save credentials in the database.
@@ -156,6 +144,6 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
 
       {error && <p className={styles.error}>{error}</p>}
       {success && <p className={styles.success}>Twilio credentials saved.</p>}
-    </section>
+    </IntegrationAccordionCard>
   );
 }

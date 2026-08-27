@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NewUserModal } from "../_components/new-user-modal";
+import { UserRowActions } from "../_components/user-row-actions";
 import { UsersHeaderActions } from "../_components/users-header-actions";
 import { UsersPagination } from "../_components/users-pagination";
 import { fetchUsersList, parseUsersListParams } from "@/lib/admin/users-list";
@@ -113,7 +114,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         </p>
       ) : (
         <>
-          <div className={styles.tableWrap}>
+          <div className={`${styles.tableWrap} ${styles.tableWrapAllowMenuOverflow}`}>
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -128,6 +129,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                     <SortHeader label="User Type" column="role" params={params} />
                   </th>
                   <th>Phone</th>
+                  <th aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -152,6 +154,13 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
                       <UserTypeBadge role={user.userType} label={user.userTypeLabel} />
                     </td>
                     <td>{formatPhoneDisplay(user.phone) ?? displayValue(null)}</td>
+                    <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
+                      <UserRowActions
+                        tenantId={user.tenantId}
+                        membershipId={user.membershipId}
+                        userName={user.name}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

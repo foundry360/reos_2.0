@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/admin/auth";
 import { getPlatformAdminLabel, getUserDisplayLabel } from "@/lib/admin/platform-admin-actions";
+import { tenantStripeUsageReady } from "@/lib/admin/tenant-stripe";
 
 export interface TenantAgentConfig {
   conciergeEnabled: boolean;
@@ -15,7 +16,7 @@ export interface TenantAgentConfig {
 }
 
 export interface TenantChannelStatus {
-  channel: "messenger" | "instagram";
+  channel: "messenger" | "instagram" | "email" | "calendar";
   status: "connected" | "disconnected" | "error";
   accountLabel: string | null;
 }
@@ -50,6 +51,7 @@ export interface TenantConfig {
   postalCode: string | null;
   country: string | null;
   stripeCustomerId: string | null;
+  stripeBillingReady: boolean;
   internalNotes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -115,7 +117,9 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
 
   const primaryPhone = phones?.find((phone) => phone.is_primary)?.phone_e164 ?? null;
 
-  const channelAccounts: TenantChannelStatus[] = (["messenger", "instagram"] as const).map(
+  const channelAccounts: TenantChannelStatus[] = (
+    ["email", "calendar", "messenger", "instagram"] as const
+  ).map(
     (channel) => {
       const row = channelsResult.data?.find((entry) => entry.channel === channel);
       const metadata = row?.metadata as { label?: string } | null;
@@ -132,10 +136,14 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
     },
   );
 
-  const [accountOwnerLabel, createdByLabel, lastModifiedByLabel] = await Promise.all([
+  const [accountOwnerLabel, createdByLabel, lastModifiedByLabel, stripeBillingReady] =
+    await Promise.all([
     getPlatformAdminLabel(tenant.account_owner_id),
     getUserDisplayLabel(tenant.created_by_id ?? tenant.account_owner_id),
     getUserDisplayLabel(tenant.last_modified_by_id),
+    tenant.stripe_customer_id
+      ? tenantStripeUsageReady(tenant.stripe_customer_id)
+      : Promise.resolve(false),
   ]);
 
   return {
@@ -158,6 +166,7 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
     postalCode: tenant.postal_code,
     country: tenant.country,
     stripeCustomerId: tenant.stripe_customer_id,
+    stripeBillingReady,
     internalNotes: tenant.internal_notes,
     createdAt: tenant.created_at,
     updatedAt: tenant.updated_at,

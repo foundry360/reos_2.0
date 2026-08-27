@@ -1,7 +1,10 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { isValidTenantStatus } from "@/lib/admin/account-status";
 import { startImpersonation, updateTenantStatus } from "@/lib/admin/actions";
+import { requirePlatformAdmin } from "@/lib/admin/auth";
+import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/admin/tenant-config-actions";
 
 export async function openTenantAction(formData: FormData): Promise<void> {
@@ -48,4 +51,22 @@ export async function setTenantStatusFromStepAction(
       error instanceof Error ? error.message : "Could not update status.";
     return { ok: false, error: message };
   }
+}
+
+export async function deleteTenantAction(tenantId: string): Promise<ActionResult> {
+  await requirePlatformAdmin();
+
+  const id = tenantId.trim();
+  if (!id) return { ok: false, error: "Missing account id." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("tenants").delete().eq("id", id);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/admin");
+  revalidatePath(`/admin/accounts/${id}`);
+  return { ok: true };
 }

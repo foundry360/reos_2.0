@@ -17,10 +17,11 @@ const TABS: { id: AccountTab; label: string }[] = [
 interface AccountDetailTabsProps {
   tenant: TenantConfig;
   users: TenantUser[];
+  initialTab?: AccountTab;
 }
 
-export function AccountDetailTabs({ tenant, users }: AccountDetailTabsProps) {
-  const [activeTab, setActiveTab] = useState<AccountTab>("general");
+export function AccountDetailTabs({ tenant, users, initialTab = "general" }: AccountDetailTabsProps) {
+  const [activeTab, setActiveTab] = useState<AccountTab>(initialTab);
 
   return (
     <div className={styles.accountDetailCard}>

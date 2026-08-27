@@ -24,37 +24,37 @@ export function AccountUsageWallet({
 
   return (
     <section className={styles.billingWalletCard}>
-      <div className={styles.billingWalletHeader}>
-        <div className={styles.billingSectionHeaderMain}>
-          <span className={`${styles.dashStatIcon} ${styles.dashStatIconBlue}`} aria-hidden="true">
+      <div className={styles.sidebarCardHeader}>
+        <div className={styles.sidebarCardHeaderMain}>
+          <span className={`${styles.accordionIconBadge} ${styles.billingWalletIconBadge}`}>
             <IconBillingWallet />
           </span>
-          <div>
-            <h2 className={styles.sidebarCardTitle}>Usage wallet</h2>
-            <p className={styles.billingWalletSubtitle}>{cycle.label}</p>
-          </div>
+          <h2 className={styles.sidebarCardTitle}>Usage Wallet</h2>
         </div>
         <Link href={`/admin/billing/tenants/${tenantId}`} className={styles.dashCardLink}>
           View in Billing
         </Link>
       </div>
 
-      <p className={styles.billingWalletTotal}>{formatUsdFromCents(totalUsageCents)}</p>
+      <div className={styles.billingWalletBody}>
+        <p className={styles.billingWalletTotal}>{formatUsdFromCents(totalUsageCents)}</p>
+        <p className={styles.billingWalletCycle}>{cycle.label}</p>
 
-      {activeCategories.length > 0 ? (
-        <ul className={styles.billingWalletCategories}>
-          {activeCategories.map((item) => (
-            <li key={item.category}>
-              <span>{item.label}</span>
-              <strong>{formatUsdFromCents(item.amountCents)}</strong>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className={styles.billingEmptyHint}>
-          No usage recorded this cycle yet. SMS and AI costs will roll up here.
-        </p>
-      )}
+        {activeCategories.length > 0 ? (
+          <ul className={styles.billingWalletCategories}>
+            {activeCategories.map((item) => (
+              <li key={item.category}>
+                <span>{item.label}</span>
+                <strong>{formatUsdFromCents(item.amountCents)}</strong>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={styles.billingEmptyHint}>
+            No usage recorded this cycle yet. SMS and AI costs will roll up here.
+          </p>
+        )}
+      </div>
     </section>
   );
 }

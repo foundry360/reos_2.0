@@ -3,14 +3,12 @@ import {
   USAGE_CATEGORY_LABELS,
   type UsageCategory,
 } from "@/lib/admin/billing-categories";
+import { getCurrentBillingCycle, type BillingCycleWindow } from "@/lib/admin/billing-cycle";
 import { normalizeTenantStatus } from "@/lib/admin/account-status";
 import { createClient } from "@/lib/supabase/server";
 
-export interface BillingCycleWindow {
-  start: string;
-  end: string;
-  label: string;
-}
+export type { BillingCycleWindow } from "@/lib/admin/billing-cycle";
+export { getCurrentBillingCycle } from "@/lib/admin/billing-cycle";
 
 export interface UsageCategoryTotal {
   category: UsageCategory;
@@ -72,20 +70,6 @@ interface UsageAggregateRow {
   tenant_id: string;
   category: UsageCategory;
   total_cents: number;
-}
-
-export function getCurrentBillingCycle(reference = new Date()): BillingCycleWindow {
-  const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
-  const end = new Date(reference.getFullYear(), reference.getMonth() + 1, 0, 23, 59, 59, 999);
-
-  return {
-    start: start.toISOString(),
-    end: end.toISOString(),
-    label: new Intl.DateTimeFormat("en-US", {
-      month: "long",
-      year: "numeric",
-    }).format(start),
-  };
 }
 
 export function formatUsdFromCents(cents: number): string {

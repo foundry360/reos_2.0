@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripeClient, getStripeWebhookSecret } from "@/lib/admin/stripe";
+import { markBillingCyclePaidFromStripeInvoice } from "@/lib/admin/usage-billing";
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -29,10 +30,31 @@ export async function POST(request: NextRequest) {
   }
 
   switch (event.type) {
+    case "invoice.paid": {
+      const invoice = event.data.object as {
+        id: string;
+        metadata?: { billing_cycle_id?: string; tenant_id?: string; purpose?: string };
+        payment_intent?: string | { id?: string } | null;
+      };
+      if (invoice.metadata?.purpose === "usage_billing") {
+        await markBillingCyclePaidFromStripeInvoice(invoice);
+      }
+      console.log("Stripe webhook received:", event.type, event.id);
+      break;
+    }
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as {
+        id: string;
+        metadata?: { billing_cycle_id?: string; purpose?: string };
+      };
+      if (invoice.metadata?.purpose === "usage_billing" && invoice.metadata.billing_cycle_id) {
+        console.log("Usage billing invoice payment failed:", invoice.id);
+      }
+      console.log("Stripe webhook received:", event.type, event.id);
+      break;
+    }
     case "payment_intent.succeeded":
     case "payment_intent.payment_failed":
-    case "invoice.paid":
-    case "invoice.payment_failed":
       console.log("Stripe webhook received:", event.type, event.id);
       break;
     default:

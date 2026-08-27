@@ -2,23 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { IntegrationAccordionCard } from "./integration-accordion-card";
+import { IntegrationSourceBadge } from "./integration-source-badge";
 import {
   clearOpenAIStoredKeyAction,
   saveOpenAIKeyAction,
 } from "@/lib/admin/platform-secrets-actions";
 import type { IntegrationsOverview } from "@/lib/admin/platform-secrets";
 import styles from "@/components/shell/shell.module.css";
-
-function SourceBadge({ source }: { source: IntegrationsOverview["openai"]["source"] }) {
-  const label =
-    source === "database"
-      ? "Stored encrypted"
-      : source === "environment"
-        ? "Environment variable"
-        : "Not configured";
-
-  return <span className={styles.integrationSourceBadge}>{label}</span>;
-}
 
 export function OpenAIIntegrationCard({ overview }: { overview: IntegrationsOverview }) {
   const router = useRouter();
@@ -59,8 +50,10 @@ export function OpenAIIntegrationCard({ overview }: { overview: IntegrationsOver
   }
 
   return (
-    <section className={styles.integrationCard}>
-      <div className={styles.integrationCardHeader}>
+    <IntegrationAccordionCard
+      title="OpenAI"
+      subtitle="Platform API key for agent replies"
+      icon={
         <span className={`${styles.dashStatIcon} ${styles.dashStatIconBlue}`} aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
             <path
@@ -71,19 +64,16 @@ export function OpenAIIntegrationCard({ overview }: { overview: IntegrationsOver
             />
           </svg>
         </span>
-        <div>
-          <h2 className={styles.integrationCardTitle}>OpenAI</h2>
-          <p className={styles.integrationCardSubtitle}>Platform API key for agent replies</p>
-        </div>
-      </div>
-
-      <div className={styles.integrationCardMeta}>
-        <SourceBadge source={overview.openai.source} />
-        {overview.openai.hint && (
-          <span className={styles.integrationHint}>Current: {overview.openai.hint}</span>
-        )}
-      </div>
-
+      }
+      meta={
+        <>
+          <IntegrationSourceBadge source={overview.openai.source} />
+          {overview.openai.hint && (
+            <span className={styles.integrationHint}>Current: {overview.openai.hint}</span>
+          )}
+        </>
+      }
+    >
       {!overview.encryptionEnabled && (
         <p className={styles.integrationNotice}>
           Set <code>PLATFORM_SECRETS_ENCRYPTION_KEY</code> to save keys in the database. Until
@@ -129,6 +119,6 @@ export function OpenAIIntegrationCard({ overview }: { overview: IntegrationsOver
 
       {error && <p className={styles.error}>{error}</p>}
       {success && <p className={styles.success}>OpenAI key saved.</p>}
-    </section>
+    </IntegrationAccordionCard>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { AccountBillingForm } from "./account-billing-form";
 import { AccountConnectionsSections } from "./account-connections-sections";
 import { AccountUsersSection } from "./account-users-section";
 import type { TenantConfig } from "@/lib/admin/tenant-config";
@@ -36,36 +35,9 @@ function AccordionChevron({ open }: { open: boolean }) {
 
 export function AccountGeneralInfoTab({ tenant, users }: AccountGeneralInfoTabProps) {
   const [usersOpen, setUsersOpen] = useState(false);
-  const [billingOpen, setBillingOpen] = useState(true);
 
   return (
     <div className={styles.accordionList}>
-      <section className={styles.accordionSection}>
-        <button
-          type="button"
-          className={styles.accordionTrigger}
-          aria-expanded={billingOpen}
-          onClick={() => setBillingOpen((open) => !open)}
-        >
-          <span className={styles.accordionTriggerMain}>
-            <span className={`${styles.accordionIconBadge} ${styles.accordionIconBilling}`}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
-                <path d="M2 10h20" stroke="currentColor" strokeWidth="2" />
-              </svg>
-            </span>
-            <span>Billing</span>
-          </span>
-          <AccordionChevron open={billingOpen} />
-        </button>
-
-        {billingOpen && (
-          <div className={styles.accordionPanel}>
-            <AccountBillingForm tenant={tenant} />
-          </div>
-        )}
-      </section>
-
       <section className={styles.accordionSection}>
         <button
           type="button"

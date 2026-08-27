@@ -16,6 +16,7 @@ import { CSS } from "@dnd-kit/utilities";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
+import { AccountRowActions } from "./account-row-actions";
 import { setTenantStatusFromStepAction } from "@/lib/admin/account-actions";
 import {
   ONBOARDING_STATUSES,
@@ -81,18 +82,41 @@ function moveAccount(
 function KanbanCardContent({
   account,
   stageLabel,
+  linkTitle = true,
+  showActions = false,
 }: {
   account: AccountRow;
   stageLabel: string;
+  linkTitle?: boolean;
+  showActions?: boolean;
 }) {
   return (
     <>
-      <span
-        className={`${styles.badge} ${styles.kanbanCardTag} ${tenantStatusBadgeClass(account.status)}`}
-      >
-        {stageLabel}
-      </span>
-      <strong className={styles.kanbanCardTitle}>{account.name}</strong>
+      <div className={styles.kanbanCardTop}>
+        <span
+          className={`${styles.badge} ${styles.kanbanCardTag} ${tenantStatusBadgeClass(account.status)}`}
+        >
+          {stageLabel}
+        </span>
+        {showActions && (
+          <AccountRowActions
+            accountId={account.id}
+            accountName={account.name}
+            stopDrag
+          />
+        )}
+      </div>
+      {linkTitle ? (
+        <Link
+          href={`/admin/accounts/${account.id}`}
+          className={styles.kanbanCardTitleLink}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {account.name}
+        </Link>
+      ) : (
+        <strong className={styles.kanbanCardTitle}>{account.name}</strong>
+      )}
       <div className={styles.kanbanCardFooter}>
         <span className={styles.kanbanCardMeta}>
           {formatPhoneDisplay(account.phone) ?? account.slug}
@@ -105,6 +129,46 @@ function KanbanCardContent({
         Added {formatShortDate(account.created_at)}
       </time>
     </>
+  );
+}
+
+function KanbanCardStatic({
+  account,
+  stageLabel,
+}: {
+  account: AccountRow;
+  stageLabel: string;
+}) {
+  return (
+    <div className={styles.kanbanCard}>
+      <KanbanCardContent account={account} stageLabel={stageLabel} showActions />
+    </div>
+  );
+}
+
+function KanbanColumnStatic({
+  stage,
+  cards,
+}: {
+  stage: (typeof ONBOARDING_STATUS_OPTIONS)[number];
+  cards: AccountRow[];
+}) {
+  return (
+    <section className={styles.kanbanColumn}>
+      <header className={styles.kanbanColumnHeader}>
+        <h2 className={styles.kanbanColumnTitle}>{stage.label}</h2>
+        <span className={styles.kanbanColumnCount}>{cards.length}</span>
+      </header>
+      <div className={styles.kanbanColumnBody}>
+        {cards.length === 0 ? (
+          <p className={styles.kanbanEmpty}>No accounts</p>
+        ) : (
+          cards.map((account) => (
+            <KanbanCardStatic key={account.id} account={account} stageLabel={stage.label} />
+          ))
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -125,16 +189,15 @@ function KanbanCard({
     : undefined;
 
   return (
-    <Link
+    <div
       ref={setNodeRef}
-      href={`/admin/accounts/${account.id}`}
-      className={`${styles.kanbanCard} ${isDragging ? styles.kanbanCardDragging : ""}`}
+      className={`${styles.kanbanCard} ${styles.kanbanCardDraggable} ${isDragging ? styles.kanbanCardDragging : ""}`}
       style={style}
       {...listeners}
       {...attributes}
     >
-      <KanbanCardContent account={account} stageLabel={stageLabel} />
-    </Link>
+      <KanbanCardContent account={account} stageLabel={stageLabel} showActions />
+    </div>
   );
 }
 
@@ -176,6 +239,11 @@ export function OnboardingKanban({ columns: initialColumns }: OnboardingKanbanPr
   const [columns, setColumns] = useState(initialColumns);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setColumns(initialColumns);
@@ -232,6 +300,20 @@ export function OnboardingKanban({ columns: initialColumns }: OnboardingKanbanPr
     setActiveId(null);
   }
 
+  if (!mounted) {
+    return (
+      <div className={styles.kanbanBoard} aria-busy={isPending}>
+        {ONBOARDING_STATUS_OPTIONS.map((stage) => (
+          <KanbanColumnStatic
+            key={stage.value}
+            stage={stage}
+            cards={columns[stage.value as OnboardingStatus]}
+          />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -257,7 +339,11 @@ export function OnboardingKanban({ columns: initialColumns }: OnboardingKanbanPr
       <DragOverlay dropAnimation={null}>
         {activeAccount ? (
           <div className={`${styles.kanbanCard} ${styles.kanbanCardOverlay}`}>
-            <KanbanCardContent account={activeAccount} stageLabel={activeStageLabel} />
+            <KanbanCardContent
+              account={activeAccount}
+              stageLabel={activeStageLabel}
+              linkTitle={false}
+            />
           </div>
         ) : null}
       </DragOverlay>
