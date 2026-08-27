@@ -145,7 +145,6 @@
   width: 2rem;
   height: 2rem;
   border-radius: 50%;
-  border: 2px solid #fff;
   background: var(--brand);
   color: #fff;
   display: flex;
@@ -154,6 +153,11 @@
   font-size: 0.72rem;
   font-weight: 800;
   flex-shrink: 0;
+}
+
+:global(html:not([data-theme="dark"])) .appHeader .logoMark {
+  background: #fffefa;
+  color: #72679a;
 }
 
 .logoSub {
@@ -1451,7 +1455,12 @@ html[data-theme="dark"] .select {
 
 .appHeader .avatarBtn:hover {
   background: var(--shell-header-control-hover, var(--shell-hover));
-  border-color: var(--shell-header-control-border, var(--shell-border));
+  border-color: transparent;
+}
+
+.appHeader .avatar,
+.appHeader .avatarImg {
+  box-shadow: none;
 }
 
 .appHeader .avatarName {
@@ -3225,7 +3234,7 @@ html[data-theme="dark"] .youBadge {
 .dashHeroBody {
   margin: 0.55rem 0 0;
   max-width: 36rem;
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   line-height: 1.5;
   color: var(--shell-muted);
 }

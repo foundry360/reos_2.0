@@ -70,10 +70,7 @@ export default async function AdminDashboardPage() {
     <>
       <div className={styles.pageHeader}>
         <div>
-          <h1 className={styles.pageTitle}>Dashboard</h1>
-          <p className={styles.pageSubtitle}>
-            Platform health, onboarding progress, and accounts that need attention.
-          </p>
+          <h1 className={styles.pageTitle}>Platform console</h1>
         </div>
         <div className={styles.pageHeaderActions}>
           <Link href="/admin" className={styles.btnSecondary}>
@@ -88,7 +85,6 @@ export default async function AdminDashboardPage() {
       <div className={styles.dashGrid}>
         <section className={`${styles.dashCard} ${styles.dashHero}`}>
           <div className={styles.dashHeroCopy}>
-            <p className={styles.dashHeroEyebrow}>Platform console</p>
             <h2 className={styles.dashHeroTitle}>Welcome back, {name}</h2>
             <p className={styles.dashHeroBody}>
               {stats.onboardingCount > 0
