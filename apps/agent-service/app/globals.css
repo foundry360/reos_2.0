@@ -13,8 +13,8 @@ html[data-theme="light"] {
   --brand-light: #5f82a0;
   --brand-accent: #487095;
   --brand-tint: #d6e2eb;
-  --shell-bg: #edf3f7;
-  --shell-content-bg: #edf3f7;
+  --shell-bg: #f9fbfc;
+  --shell-content-bg: #f9fbfc;
   --shell-surface: #ffffff;
   --shell-surface-muted: #edf3f7;
   --shell-hover: #d6e2eb;

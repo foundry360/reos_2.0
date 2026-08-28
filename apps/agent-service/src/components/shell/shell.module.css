@@ -412,7 +412,7 @@
   flex: 1;
   min-width: 0;
   min-height: calc(100vh - var(--shell-header-height));
-  padding: 1.5rem 60px;
+  padding: 1.5rem 1.25rem;
   background: var(--shell-content-bg);
 }
 
