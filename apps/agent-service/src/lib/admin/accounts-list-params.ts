@@ -17,6 +17,10 @@ export type PageSize = (typeof PAGE_SIZES)[number];
 export type AccountsView = "active" | "onboarding";
 export type AccountsLayout = "list" | "kanban";
 
+export function defaultAccountsLayout(view: AccountsView): AccountsLayout {
+  return view === "onboarding" ? "kanban" : "list";
+}
+
 export interface AccountsListParams {
   q: string;
   view: AccountsView;
@@ -63,10 +67,10 @@ export function parseAccountsListParams(
   const view: AccountsView = viewRaw === "onboarding" ? "onboarding" : "active";
 
   const layoutRaw = readParam(searchParams.layout);
-  let layout: AccountsLayout = layoutRaw === "kanban" ? "kanban" : "list";
-  if (view === "onboarding" && !layoutRaw) {
-    layout = "kanban";
-  }
+  const layout: AccountsLayout =
+    layoutRaw === "kanban" || layoutRaw === "list"
+      ? layoutRaw
+      : defaultAccountsLayout(view);
 
   return {
     q: readParam(searchParams.q).trim(),
@@ -84,7 +88,9 @@ export function buildAccountsListQuery(params: AccountsListParams): string {
   const qs = new URLSearchParams();
   if (params.q) qs.set("q", params.q);
   if (params.view !== "active") qs.set("view", params.view);
-  if (params.layout === "kanban") qs.set("layout", "kanban");
+  if (params.layout !== defaultAccountsLayout(params.view)) {
+    qs.set("layout", params.layout);
+  }
   if (params.status !== "all") qs.set("status", params.status);
   if (params.sort !== "created_at") qs.set("sort", params.sort);
   if (params.dir !== "desc") qs.set("dir", params.dir);
