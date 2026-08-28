@@ -196,17 +196,6 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                 <SortHeader label="Status" column="status" params={params} basePath={basePath} />
               </th>
               <th>
-                <SortHeader label="Score" column="score" params={params} basePath={basePath} />
-              </th>
-              <th>
-                <SortHeader
-                  label="Temp"
-                  column="temperature"
-                  params={params}
-                  basePath={basePath}
-                />
-              </th>
-              <th>
                 <SortHeader
                   label="Updated"
                   column="updated_at"
@@ -243,12 +232,6 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                   <td>
                     <LeadStatusBadge status={lead.leadStatus} label={lead.leadStatusLabel} />
                   </td>
-                  <td>
-                    {lead.qualificationScore != null
-                      ? lead.qualificationScore
-                      : displayValue(null)}
-                  </td>
-                  <td>{lead.leadTemperature ?? displayValue(null)}</td>
                   <td>
                     <time dateTime={lead.updatedAt}>{formatRelativeTime(lead.updatedAt)}</time>
                   </td>
