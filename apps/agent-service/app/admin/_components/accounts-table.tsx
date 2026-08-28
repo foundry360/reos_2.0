@@ -170,9 +170,6 @@ export function AccountsTable({ rows, params, total }: AccountsTableProps) {
               </th>
               <th>Phone</th>
               <th>Email</th>
-              <th>
-                <SortHeader label="Timezone" column="timezone" params={params} />
-              </th>
               <th className={styles.tableActionCol} aria-label="Actions" />
             </tr>
           </thead>
@@ -206,7 +203,6 @@ export function AccountsTable({ rows, params, total }: AccountsTableProps) {
                   </td>
                   <td>{formatPhoneDisplay(tenant.phone) ?? "None"}</td>
                   <td>{tenant.email ?? "None"}</td>
-                  <td>{tenant.timezone.replace("_", " ")}</td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
                     <AccountRowActions accountId={tenant.id} accountName={tenant.name} />
                   </td>
