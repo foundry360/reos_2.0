@@ -14,6 +14,7 @@ import {
   type AccountsListParams,
 } from "@/lib/admin/accounts-list-params";
 import { formatPhoneDisplay } from "@/lib/phone-display";
+import { TableEmailCell, TablePhoneCell } from "@/components/shell/table-contact-cells";
 import { accountInitials } from "@/lib/user-display";
 import styles from "@/components/shell/shell.module.css";
 
@@ -201,8 +202,12 @@ export function AccountsTable({ rows, params, total }: AccountsTableProps) {
                   <td>
                     <AccountStatusBadge status={tenant.status} />
                   </td>
-                  <td>{formatPhoneDisplay(tenant.phone) ?? "None"}</td>
-                  <td>{tenant.email ?? "None"}</td>
+                  <td>
+                    <TablePhoneCell value={formatPhoneDisplay(tenant.phone)} empty="None" />
+                  </td>
+                  <td>
+                    <TableEmailCell value={tenant.email} empty="None" />
+                  </td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
                     <AccountRowActions accountId={tenant.id} accountName={tenant.name} />
                   </td>

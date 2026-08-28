@@ -3,7 +3,7 @@ import styles from "@/components/shell/shell.module.css";
 import { ShellHeader } from "@/components/shell/shell-header";
 import { ShellLayout } from "@/components/shell/shell-layout";
 import { ThemeProvider } from "@/components/theme/theme-provider";
-import { TenantSecondarySidebar, TenantSidebarNav } from "./tenant-sidebar-nav";
+import { TenantSidebarNav } from "./tenant-sidebar-nav";
 import type { UserProfile } from "@/lib/profile/server";
 
 interface TenantShellProps {
@@ -38,7 +38,6 @@ export function TenantShell({
               <TenantSidebarNav />
             </Suspense>
           }
-          secondarySidebar={<TenantSecondarySidebar />}
         >
           {children}
         </ShellLayout>

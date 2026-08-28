@@ -27,7 +27,7 @@ const ADMIN_SECONDARY_NAV = [
 export function AdminSidebarNav() {
   return (
     <SidebarNav
-      sectionLabel="General"
+      sectionLabel="Workspace"
       items={ADMIN_NAV}
       secondaryItems={ADMIN_SECONDARY_NAV}
     />

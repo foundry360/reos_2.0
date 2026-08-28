@@ -51,7 +51,8 @@ html[data-theme="light"] {
   --chevron-pending-mix: 20%;
   --chevron-pending-base: var(--shell-surface-muted);
   --chevron-pending-text-mix: 65%;
-  --kanban-scrollbar-track: var(--shell-hover);
+  --kanban-column-bg: #f0f4f7;
+  --kanban-scrollbar-track: var(--kanban-column-bg);
   --kanban-scrollbar-thumb: #c5d5e3;
   --kanban-board-scrollbar-track: var(--shell-content-bg);
   --dash-stat-icon-green: var(--brand-light);
@@ -131,7 +132,8 @@ html[data-theme="dark"] {
   --chevron-pending-mix: 32%;
   --chevron-pending-base: var(--shell-surface);
   --chevron-pending-text-mix: 45%;
-  --kanban-scrollbar-track: var(--shell-hover);
+  --kanban-column-bg: var(--shell-hover);
+  --kanban-scrollbar-track: var(--kanban-column-bg);
   --kanban-scrollbar-thumb: #383838;
   --kanban-board-scrollbar-track: var(--shell-content-bg);
   --dash-stat-icon-green: var(--brand-light);

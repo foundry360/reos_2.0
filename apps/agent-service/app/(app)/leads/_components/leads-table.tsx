@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LeadRowActions } from "./lead-row-actions";
 import { LeadsPagination } from "./leads-pagination";
+import { PersonActivityTrigger } from "./person-activity-trigger";
 import { deleteLeadsAction } from "@/lib/crm/crm-actions";
 import {
   personBasePath,
@@ -19,8 +20,8 @@ import {
 } from "@/lib/leads/leads-list-params";
 import type { LeadRow } from "@/lib/leads/leads-types";
 import type { LeadStatus } from "@/lib/coordinator";
-import { displayValue } from "@/lib/display-value";
 import { formatPhoneDisplay } from "@/lib/phone-display";
+import { TableEmailCell, TablePhoneCell } from "@/components/shell/table-contact-cells";
 import { accountInitials } from "@/lib/user-display";
 import { formatRelativeTime } from "@/lib/admin/activity-timeline";
 import styles from "@/components/shell/shell.module.css";
@@ -222,13 +223,21 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                   <td>
                     <div className={styles.tableCellPerson}>
                       <span className={styles.avatar}>{accountInitials(lead.name)}</span>
-                      <Link href={`${basePath}/${lead.id}`} className={styles.tableCellLink}>
-                        <span className={styles.tableCellName}>{lead.name}</span>
-                      </Link>
+                      <div className={styles.tableCellPersonMain}>
+                        <Link href={`${basePath}/${lead.id}`} className={styles.tableCellLink}>
+                          <span className={styles.tableCellName}>{lead.name}</span>
+                        </Link>
+                        <span className={styles.tableCellPersonDivider} aria-hidden="true" />
+                        <PersonActivityTrigger personName={lead.name} kind={kind} />
+                      </div>
                     </div>
                   </td>
-                  <td>{formatPhoneDisplay(lead.phone) ?? displayValue(null)}</td>
-                  <td>{lead.email ?? displayValue(null)}</td>
+                  <td>
+                    <TablePhoneCell value={formatPhoneDisplay(lead.phone)} />
+                  </td>
+                  <td>
+                    <TableEmailCell value={lead.email} />
+                  </td>
                   <td>
                     <LeadStatusBadge status={lead.leadStatus} label={lead.leadStatusLabel} />
                   </td>

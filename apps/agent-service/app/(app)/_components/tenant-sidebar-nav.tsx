@@ -1,7 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
   IconCalendar,
   IconData,
@@ -15,7 +14,6 @@ import {
   SidebarNav,
 } from "@/components/shell/sidebar-nav";
 import { DataImportModal } from "./data-import-modal";
-import { PeopleSubnav } from "../leads/_components/leads-subnav";
 
 const TENANT_NAV = [
   { href: "/", label: "Overview", icon: <IconHome />, match: "exact" as const },
@@ -33,7 +31,7 @@ export function TenantSidebarNav() {
   return (
     <>
       <SidebarNav
-        sectionLabel="General"
+        sectionLabel="Workspace"
         items={TENANT_NAV}
         secondaryItems={[
           {
@@ -49,28 +47,4 @@ export function TenantSidebarNav() {
       <DataImportModal open={importOpen} onClose={() => setImportOpen(false)} />
     </>
   );
-}
-
-export function TenantSecondarySidebar() {
-  const pathname = usePathname();
-  const onLeads = pathname === "/leads" || pathname.startsWith("/leads/");
-  const onContacts = pathname === "/contacts" || pathname.startsWith("/contacts/");
-
-  if (onLeads) {
-    return (
-      <Suspense fallback={null}>
-        <PeopleSubnav kind="lead" />
-      </Suspense>
-    );
-  }
-
-  if (onContacts) {
-    return (
-      <Suspense fallback={null}>
-        <PeopleSubnav kind="contact" />
-      </Suspense>
-    );
-  }
-
-  return null;
 }

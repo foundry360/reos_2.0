@@ -11,17 +11,9 @@ import {
   personPlural,
   type PersonKind,
 } from "@/lib/crm/person-kind";
-import { LEAD_STATUS_OPTIONS } from "@/lib/leads/lead-status";
+import { personViews, type LeadViewId } from "@/lib/leads/leads-views";
 import { DropdownOptionList } from "@/components/shell/dropdown-select";
 import styles from "@/components/shell/shell.module.css";
-
-const STATUS_OPTIONS = [
-  { value: "all", label: "All statuses" },
-  ...LEAD_STATUS_OPTIONS.map((option) => ({
-    value: option.value,
-    label: option.label,
-  })),
-];
 
 interface LeadsHeaderActionsProps {
   params: LeadsListParams;
@@ -62,6 +54,11 @@ export function LeadsHeaderActions({ params, kind = "lead" }: LeadsHeaderActions
   const [search, setSearch] = useState(params.q);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const viewOptions = personViews(kind).map((view) => ({
+    value: view.id,
+    label: view.label,
+  }));
 
   useEffect(() => {
     setSearch(params.q);
@@ -105,7 +102,7 @@ export function LeadsHeaderActions({ params, kind = "lead" }: LeadsHeaderActions
   }
 
   const searchActive = params.q.length > 0;
-  const filterActive = params.status !== "all";
+  const filterActive = params.view !== "all" || params.status !== "all";
   const searchExpanded = searchOpen || searchActive;
 
   return (
@@ -161,16 +158,17 @@ export function LeadsHeaderActions({ params, kind = "lead" }: LeadsHeaderActions
               <p className={styles.dropdownTitle}>Filter</p>
             </div>
             <div className={styles.dropdownBody}>
-              <p className={styles.dropdownSectionLabel}>Status</p>
+              <p className={styles.dropdownSectionLabel}>View</p>
               <DropdownOptionList
-                value={params.status}
-                onChange={(status) =>
+                value={params.view}
+                onChange={(view) =>
                   navigate({
-                    status: status as LeadsListParams["status"],
+                    view: view as LeadViewId,
+                    status: "all",
                     page: 1,
                   })
                 }
-                options={STATUS_OPTIONS}
+                options={viewOptions}
               />
             </div>
           </div>

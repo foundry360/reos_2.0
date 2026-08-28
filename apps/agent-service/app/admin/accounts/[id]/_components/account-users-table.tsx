@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { RowActionsMenu } from "@/components/shell/row-actions-menu";
 import { deleteTenantUsersAction } from "@/lib/admin/tenant-user-actions";
 import type { TenantUser, TenantUserRole } from "@/lib/admin/tenant-users";
-import { displayValue } from "@/lib/display-value";
 import { formatPhoneDisplay } from "@/lib/phone-display";
+import { TableEmailCell, TablePhoneCell } from "@/components/shell/table-contact-cells";
 import { AccountAddUserModal } from "./account-add-user-modal";
 import { AccountUserModal } from "./account-user-modal";
 import { IconPlus } from "@/components/shell/sidebar-nav";
@@ -308,8 +308,12 @@ export function AccountUsersTable({ tenantId, users }: AccountUsersTableProps) {
                         <span className={styles.tableCellName}>{user.name}</span>
                       </div>
                     </td>
-                    <td>{user.email}</td>
-                    <td>{formatPhoneDisplay(user.phone) ?? displayValue(null)}</td>
+                    <td>
+                      <TableEmailCell value={user.email} />
+                    </td>
+                    <td>
+                      <TablePhoneCell value={formatPhoneDisplay(user.phone)} />
+                    </td>
                     <td>
                       <UserTypeBadge role={user.userType} label={user.userTypeLabel} />
                     </td>

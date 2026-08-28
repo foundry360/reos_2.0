@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
 import styles from "./shell.module.css";
 
 const STORAGE_KEY = "reos-sidebar-collapsed";
@@ -27,14 +26,8 @@ function IconSidebarToggle() {
 }
 
 export function ShellLayout({ sidebar, secondarySidebar, children }: ShellLayoutProps) {
-  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  const hasSubnav =
-    Boolean(secondarySidebar) &&
-    (pathname === "/leads" ||
-      pathname.startsWith("/leads/") ||
-      pathname === "/contacts" ||
-      pathname.startsWith("/contacts/"));
+  const hasSubnav = Boolean(secondarySidebar);
 
   useEffect(() => {
     try {

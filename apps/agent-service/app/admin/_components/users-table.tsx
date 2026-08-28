@@ -13,8 +13,8 @@ import {
   type UserSortColumn,
   type UsersListParams,
 } from "@/lib/admin/users-list-params";
-import { displayValue } from "@/lib/display-value";
 import { formatPhoneDisplay } from "@/lib/phone-display";
+import { TableEmailCell, TablePhoneCell } from "@/components/shell/table-contact-cells";
 import { UserAvatar } from "@/components/shell/user-avatar";
 import styles from "@/components/shell/shell.module.css";
 
@@ -208,7 +208,9 @@ export function UsersTable({ rows, params, total }: UsersTableProps) {
                       <span className={styles.tableCellName}>{user.name}</span>
                     </div>
                   </td>
-                  <td>{user.email}</td>
+                  <td>
+                    <TableEmailCell value={user.email} />
+                  </td>
                   <td>
                     <Link
                       href={`/admin/accounts/${user.tenantId}`}
@@ -220,7 +222,9 @@ export function UsersTable({ rows, params, total }: UsersTableProps) {
                   <td>
                     <UserTypeBadge role={user.userType} label={user.userTypeLabel} />
                   </td>
-                  <td>{formatPhoneDisplay(user.phone) ?? displayValue(null)}</td>
+                  <td>
+                    <TablePhoneCell value={formatPhoneDisplay(user.phone)} />
+                  </td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
                     <UserRowActions
                       tenantId={user.tenantId}
