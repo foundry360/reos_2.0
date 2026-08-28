@@ -12,11 +12,34 @@ import { accountInitials } from "@/lib/user-display";
 import { formatRelativeTime } from "@/lib/admin/activity-timeline";
 import styles from "@/components/shell/shell.module.css";
 import { PersonAboutCard } from "./person-about-card";
-import type { PersonDetailData } from "../_lib/person-detail-types";
+import type {
+  PersonActivityItem,
+  PersonDetailData,
+  PersonOpportunitySummary,
+  PersonTaskSummary,
+} from "../_lib/person-detail-types";
+import { NewActivityModal } from "./new-activity-modal";
+import { NewOpportunityModal } from "../../opportunities/_components/new-opportunity-modal";
+import { NewTaskModal } from "../../tasks/_components/new-task-modal";
+import { IconPlus } from "@/components/shell/sidebar-nav";
 
 export type { PersonDetailData };
 
 type DetailTab = "overview" | "activities" | "messaging" | "notes" | "tasks";
+
+interface AgentOption {
+  id: string;
+  label: string;
+}
+
+function formatUsd(cents: number | null): string {
+  if (cents == null) return displayValue(null);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}
 
 function IconBack() {
   return (
@@ -190,6 +213,110 @@ function EmptyBlock({ title, description }: { title: string; description: string
   );
 }
 
+function formatDueDate(value: string | null): string {
+  if (!value) return displayValue(null);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function ActivityList({
+  activities,
+  limit,
+}: {
+  activities: PersonActivityItem[];
+  limit?: number;
+}) {
+  const rows = limit != null ? activities.slice(0, limit) : activities;
+  return (
+    <ul className={styles.personLinkedList}>
+      {rows.map((activity) => (
+        <li key={activity.id}>
+          <div className={`${styles.personLinkedItem} ${styles.personActivityItem}`}>
+            <span className={styles.personLinkedItemMain}>
+              <span className={styles.personLinkedItemTitle}>{activity.title}</span>
+              <span className={styles.personLinkedItemMeta}>
+                {activity.typeLabel}
+                {activity.body ? ` · ${activity.body}` : ""}
+              </span>
+            </span>
+            <time className={styles.personLinkedItemTime} dateTime={activity.occurredAt}>
+              {formatRelativeTime(activity.occurredAt)}
+            </time>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function TaskList({ tasks }: { tasks: PersonTaskSummary[] }) {
+  return (
+    <ul className={styles.personLinkedList}>
+      {tasks.map((task) => (
+        <li key={task.id}>
+          <Link
+            href="/tasks"
+            className={`${styles.personLinkedItem} ${styles.personTaskItem}`}
+          >
+            <span className={styles.personLinkedItemMain}>
+              <span className={styles.personLinkedItemTitle}>{task.title}</span>
+              <span className={styles.personLinkedItemMeta}>
+                {task.status === "done" ? "Done" : "Open"}
+                {task.dueAt ? ` · Due ${formatDueDate(task.dueAt)}` : ""}
+              </span>
+            </span>
+            <time className={styles.personLinkedItemTime} dateTime={task.updatedAt}>
+              {formatRelativeTime(task.updatedAt)}
+            </time>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function OpportunityList({
+  opportunities,
+  compact = false,
+}: {
+  opportunities: PersonOpportunitySummary[];
+  compact?: boolean;
+}) {
+  return (
+    <ul className={compact ? styles.personAssociationList : styles.personLinkedList}>
+      {opportunities.map((opportunity) => (
+        <li key={opportunity.id}>
+          <Link
+            href="/opportunities"
+            className={`${compact ? styles.personAssociationItem : styles.personLinkedItem} ${styles.personOpportunityItem}`}
+          >
+            <span className={compact ? styles.personAssociationItemMain : styles.personLinkedItemMain}>
+              <span className={compact ? styles.personAssociationItemTitle : styles.personLinkedItemTitle}>
+                {opportunity.name}
+              </span>
+              <span className={compact ? styles.personAssociationItemMeta : styles.personLinkedItemMeta}>
+                {opportunity.stageLabel}
+                {opportunity.amountCents != null ? ` · ${formatUsd(opportunity.amountCents)}` : ""}
+              </span>
+            </span>
+            {!compact ? (
+              <time
+                className={styles.personLinkedItemTime}
+                dateTime={opportunity.updatedAt}
+              >
+                {formatRelativeTime(opportunity.updatedAt)}
+              </time>
+            ) : null}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const QUICK_ACTIONS = [
   { id: "note", label: "Note", icon: <IconNote /> },
   { id: "email", label: "Email", icon: <IconEmail /> },
@@ -207,13 +334,21 @@ const DETAIL_TABS: { id: DetailTab; label: string; icon: ReactNode }[] = [
   { id: "tasks", label: "Tasks", icon: <IconTask /> },
 ];
 
-export function PersonDetailView({ person }: { person: PersonDetailData }) {
+export function PersonDetailView({
+  person,
+  agentOptions = [],
+}: {
+  person: PersonDetailData;
+  agentOptions?: AgentOption[];
+}) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const [summaryOpen, setSummaryOpen] = useState(true);
   const singular = personSingularTitle(person.kind);
   const plural = personPlural(person.kind);
   const listHref = personBasePath(person.kind);
   const email = person.email?.trim() || null;
+
+  const contactOption = { id: person.id, label: person.name };
 
   async function copyEmail() {
     if (!email || !navigator.clipboard) return;
@@ -223,6 +358,31 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
       // ignore clipboard failures
     }
   }
+
+  const addActivity = (
+    <NewActivityModal contactId={person.id} trigger="secondary" linkLabel="Add" />
+  );
+
+  const addTask = (
+    <NewTaskModal
+      leadOptions={[contactOption]}
+      defaultContactId={person.id}
+      lockContact
+      trigger="secondary"
+      linkLabel="Add"
+    />
+  );
+
+  const addOpportunity = (
+    <NewOpportunityModal
+      contactOptions={[contactOption]}
+      agentOptions={agentOptions}
+      defaultContactId={person.id}
+      lockContact
+      trigger="secondary"
+      linkLabel="Add"
+    />
+  );
 
   return (
     <div className={styles.personDetailPage}>
@@ -308,13 +468,21 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
                     </span>
                   </div>
                   <div className={styles.personHighlightItem}>
-                    <span className={styles.personHighlightLabel}>Status</span>
-                    <span className={styles.personHighlightValue}>{person.statusLabel}</span>
+                    <span className={styles.personHighlightLabel}>
+                      {person.kind === "contact" ? "Contact type" : "Status"}
+                    </span>
+                    <span className={styles.personHighlightValue}>
+                      {person.kind === "contact"
+                        ? person.contactTypeLabel
+                        : person.statusLabel}
+                    </span>
                   </div>
                   <div className={styles.personHighlightItem}>
                     <span className={styles.personHighlightLabel}>Last activity</span>
                     <span className={styles.personHighlightValue}>
-                      {formatRelativeTime(person.updatedAt)}
+                      {formatRelativeTime(
+                        person.activities[0]?.occurredAt ?? person.updatedAt,
+                      )}
                     </span>
                   </div>
                 </div>
@@ -323,40 +491,46 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Recent activities</h2>
-                  <button type="button" className={styles.btnSecondary} disabled>
-                    Add activities
-                  </button>
+                  {addActivity}
                 </div>
-                <EmptyBlock
-                  title="No activities yet"
-                  description="Notes, calls, emails, and tasks for this record will appear here."
-                />
+                {person.activities.length > 0 ? (
+                  <ActivityList activities={person.activities} limit={6} />
+                ) : (
+                  <EmptyBlock
+                    title="No activities yet"
+                    description="Notes, calls, emails, and tasks for this record will appear here."
+                  />
+                )}
               </section>
 
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Opportunities</h2>
-                  <button type="button" className={styles.tableFooterLink} disabled>
-                    + Add
-                  </button>
+                  {addOpportunity}
                 </div>
-                <EmptyBlock
-                  title="No associated opportunities"
-                  description="Link deals and opportunities to this record to track progress."
-                />
+                {person.opportunities.length > 0 ? (
+                  <OpportunityList opportunities={person.opportunities} />
+                ) : (
+                  <EmptyBlock
+                    title="No associated opportunities"
+                    description="Link deals and opportunities to this record to track progress."
+                  />
+                )}
               </section>
 
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Tasks</h2>
-                  <button type="button" className={styles.tableFooterLink} disabled>
-                    + Add
-                  </button>
+                  {addTask}
                 </div>
-                <EmptyBlock
-                  title="No associated tasks"
-                  description="Create follow-ups and to-dos tied to this record."
-                />
+                {person.tasks.length > 0 ? (
+                  <TaskList tasks={person.tasks} />
+                ) : (
+                  <EmptyBlock
+                    title="No associated tasks"
+                    description="Create follow-ups and to-dos tied to this record."
+                  />
+                )}
               </section>
             </div>
           ) : null}
@@ -366,14 +540,16 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Activities</h2>
-                  <button type="button" className={styles.btnSecondary} disabled>
-                    Add activities
-                  </button>
+                  {addActivity}
                 </div>
-                <EmptyBlock
-                  title="Activity feed coming soon"
-                  description="A full timeline of interactions will live here."
-                />
+                {person.activities.length > 0 ? (
+                  <ActivityList activities={person.activities} />
+                ) : (
+                  <EmptyBlock
+                    title="No activities yet"
+                    description="Notes, calls, emails, SMS, and tasks for this record will appear here."
+                  />
+                )}
               </section>
             </div>
           ) : null}
@@ -400,8 +576,13 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Notes</h2>
-                  <button type="button" className={styles.btnSecondary} disabled>
-                    Add note
+                  <button
+                    type="button"
+                    className={`${styles.btnSecondary} ${styles.btnPill}`}
+                    disabled
+                  >
+                    <IconPlus />
+                    Add
                   </button>
                 </div>
                 <EmptyBlock
@@ -417,14 +598,16 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Tasks</h2>
-                  <button type="button" className={styles.btnSecondary} disabled>
-                    Add task
-                  </button>
+                  {addTask}
                 </div>
-                <EmptyBlock
-                  title="No tasks yet"
-                  description="Create follow-ups and to-dos tied to this record."
-                />
+                {person.tasks.length > 0 ? (
+                  <TaskList tasks={person.tasks} />
+                ) : (
+                  <EmptyBlock
+                    title="No tasks yet"
+                    description="Create follow-ups and to-dos tied to this record."
+                  />
+                )}
               </section>
             </div>
           ) : null}
@@ -477,12 +660,13 @@ export function PersonDetailView({ person }: { person: PersonDetailData }) {
               </div>
               <div className={styles.personAssociationBlock}>
                 <div className={styles.personAssociationHeader}>
-                  <span>Opportunities (0)</span>
-                  <button type="button" className={styles.tableFooterLink} disabled>
-                    + Add
-                  </button>
+                  <span>Opportunities ({person.opportunities.length})</span>
                 </div>
-                <p className={styles.personAssociationEmpty}>No opportunities linked yet.</p>
+                {person.opportunities.length > 0 ? (
+                  <OpportunityList opportunities={person.opportunities} compact />
+                ) : (
+                  <p className={styles.personAssociationEmpty}>No opportunities linked yet.</p>
+                )}
               </div>
             </div>
           </section>

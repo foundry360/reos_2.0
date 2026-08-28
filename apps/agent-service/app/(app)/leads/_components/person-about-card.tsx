@@ -3,7 +3,13 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateLeadAction } from "@/lib/crm/crm-actions";
-import { personSingularTitle } from "@/lib/crm/person-kind";
+import {
+  CONTACT_TYPE_OPTIONS,
+  DEFAULT_CONTACT_TYPE,
+  isContactType,
+  type ContactType,
+} from "@/lib/crm/contact-type";
+import { personBasePath, personSingularTitle } from "@/lib/crm/person-kind";
 import type { LeadStatus } from "@/lib/coordinator";
 import { isLeadStatus, LEAD_STATUS_OPTIONS } from "@/lib/leads/lead-status";
 import { displayValue } from "@/lib/display-value";
@@ -51,9 +57,15 @@ function resolveStatus(status: string): LeadStatus {
   return isLeadStatus(status) ? status : "New";
 }
 
+function resolveContactType(value: string | null | undefined): ContactType {
+  if (isContactType(value ?? "")) return value as ContactType;
+  return DEFAULT_CONTACT_TYPE;
+}
+
 export function PersonAboutCard({ person }: { person: PersonDetailData }) {
   const router = useRouter();
   const singular = personSingularTitle(person.kind);
+  const isContact = person.kind === "contact";
   const [open, setOpen] = useState(true);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +76,9 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
   const [email, setEmail] = useState(person.email ?? "");
   const [phone, setPhone] = useState(person.phone ?? "");
   const [status, setStatus] = useState<LeadStatus>(resolveStatus(person.leadStatus));
+  const [contactType, setContactType] = useState<ContactType>(
+    resolveContactType(person.contactType),
+  );
 
   useEffect(() => {
     if (editing) return;
@@ -72,6 +87,7 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
     setEmail(person.email ?? "");
     setPhone(person.phone ?? "");
     setStatus(resolveStatus(person.leadStatus));
+    setContactType(resolveContactType(person.contactType));
   }, [person, editing]);
 
   function startEdit() {
@@ -82,6 +98,7 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
     setEmail(person.email ?? "");
     setPhone(person.phone ?? "");
     setStatus(resolveStatus(person.leadStatus));
+    setContactType(resolveContactType(person.contactType));
     setOpen(true);
     setEditing(true);
   }
@@ -95,6 +112,7 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
     setEmail(person.email ?? "");
     setPhone(person.phone ?? "");
     setStatus(resolveStatus(person.leadStatus));
+    setContactType(resolveContactType(person.contactType));
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -103,10 +121,14 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
     setSuccess(false);
     const formData = new FormData(e.currentTarget);
     formData.set("leadId", person.id);
-    formData.set("status", status);
     formData.set("firstName", firstName);
     formData.set("lastName", lastName);
     formData.set("email", email);
+    if (isContact) {
+      formData.set("contactType", contactType);
+    } else {
+      formData.set("status", status);
+    }
 
     startTransition(async () => {
       const result = await updateLeadAction(formData);
@@ -116,6 +138,10 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
       }
       setSuccess(true);
       setEditing(false);
+      if (person.kind === "lead" && result.kind === "contact") {
+        router.push(`${personBasePath("contact")}/${person.id}`);
+        return;
+      }
       router.refresh();
     });
   }
@@ -133,7 +159,7 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
           }}
           disabled={editing}
         >
-          <span>About this {singular.toLowerCase()}</span>
+          <span>Overview</span>
           <AccordionChevron open={open} />
         </button>
         {!editing && (
@@ -144,11 +170,17 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
       {open &&
         (!editing ? (
           <div className={styles.personSideCardBody}>
-            <PropertyRow label="First name" value={person.firstName || displayValue(null)} />
-            <PropertyRow label="Last name" value={person.lastName || displayValue(null)} />
+            <PropertyRow label="Name" value={person.name || displayValue(null)} />
             <PropertyRow label="Email" value={person.email ?? displayValue(null)} />
             <PropertyRow label="Phone number" value={person.phone ?? displayValue(null)} />
-            <PropertyRow label="Lead status" value={person.statusLabel} />
+            {isContact ? (
+              <PropertyRow
+                label="Contact type"
+                value={person.contactTypeLabel || displayValue(null)}
+              />
+            ) : (
+              <PropertyRow label="Lead status" value={person.statusLabel} />
+            )}
             <PropertyRow
               label="Score"
               value={person.score != null ? String(person.score) : displayValue(null)}
@@ -220,22 +252,41 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
               />
             </div>
 
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="person-about-status">
-                Lead status
-              </label>
-              <DropdownSelect
-                id="person-about-status"
-                value={status}
-                ariaLabel="Lead status"
-                disabled={pending}
-                onChange={(value) => setStatus(value as LeadStatus)}
-                options={LEAD_STATUS_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-              />
-            </div>
+            {isContact ? (
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="person-about-contact-type">
+                  Contact type
+                </label>
+                <DropdownSelect
+                  id="person-about-contact-type"
+                  value={contactType}
+                  ariaLabel="Contact type"
+                  disabled={pending}
+                  onChange={(value) => setContactType(value as ContactType)}
+                  options={CONTACT_TYPE_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
+              </div>
+            ) : (
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="person-about-status">
+                  Lead status
+                </label>
+                <DropdownSelect
+                  id="person-about-status"
+                  value={status}
+                  ariaLabel="Lead status"
+                  disabled={pending}
+                  onChange={(value) => setStatus(value as LeadStatus)}
+                  options={LEAD_STATUS_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
+              </div>
+            )}
 
             <EditFormActions pending={pending} onCancel={cancelEdit} />
           </form>

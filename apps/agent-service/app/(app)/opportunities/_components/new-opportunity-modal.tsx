@@ -3,32 +3,48 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createOpportunityAction } from "@/lib/crm/crm-actions";
+import {
+  DEFAULT_OPPORTUNITY_TYPE,
+  OPPORTUNITY_LEAD_SOURCE_OPTIONS,
+  OPPORTUNITY_PRIORITY_COLORS,
+  OPPORTUNITY_PRIORITY_OPTIONS,
+  OPPORTUNITY_TYPE_OPTIONS,
+  type OpportunityType,
+} from "@/lib/opportunities/opportunity-fields";
+import {
+  defaultStageForPipeline,
+  isOpportunityPipeline,
+  OPPORTUNITY_PIPELINES,
+  stagesForPipeline,
+  type OpportunityPipeline,
+  type OpportunityStage,
+} from "@/lib/opportunities/opportunity-stages";
 import { DropdownSelect } from "@/components/shell/dropdown-select";
+import { DateInput } from "@/components/shell/date-input";
 import { IconPlus } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
-export const OPPORTUNITY_STAGE_OPTIONS = [
-  { value: "Qualification", label: "Qualification" },
-  { value: "Proposal", label: "Proposal" },
-  { value: "Negotiation", label: "Negotiation" },
-  { value: "Closed_Won", label: "Closed Won" },
-  { value: "Closed_Lost", label: "Closed Lost" },
-] as const;
-
-interface LeadOption {
+interface SelectOption {
   id: string;
   label: string;
 }
 
 interface NewOpportunityModalProps {
-  leadOptions: LeadOption[];
-  trigger?: "pill" | "link" | "cta";
+  contactOptions: SelectOption[];
+  agentOptions: SelectOption[];
+  defaultContactId?: string;
+  /** When true, contact is fixed to defaultContactId and cannot be changed. */
+  lockContact?: boolean;
+  trigger?: "pill" | "link" | "cta" | "footer" | "secondary";
   linkLabel?: string;
   disabled?: boolean;
 }
 
 export function NewOpportunityModal({
-  leadOptions,
+  contactOptions,
+  agentOptions,
+  defaultContactId = "",
+  lockContact = false,
   trigger = "pill",
   linkLabel = "Add the first one",
   disabled = false,
@@ -38,11 +54,22 @@ export function NewOpportunityModal({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
-  const [stage, setStage] = useState("Qualification");
-  const [contactId, setContactId] = useState("none");
+  const [contactId, setContactId] = useState(defaultContactId);
+  const [opportunityType, setOpportunityType] =
+    useState<OpportunityType>(DEFAULT_OPPORTUNITY_TYPE);
+  const [pipeline, setPipeline] = useState<OpportunityPipeline | "">("");
+  const [stage, setStage] = useState<OpportunityStage | "">("");
   const [amount, setAmount] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
+  const [assignedAgentId, setAssignedAgentId] = useState("none");
+  const [leadSource, setLeadSource] = useState("none");
+  const [priority, setPriority] = useState("none");
   const panelRef = useRef<HTMLDivElement>(null);
+
+  const resolvedDefaultContactId = lockContact
+    ? defaultContactId || contactOptions[0]?.id || ""
+    : defaultContactId;
+  const stageOptions = pipeline ? stagesForPipeline(pipeline) : [];
 
   useEffect(() => {
     if (!open) return;
@@ -56,6 +83,9 @@ export function NewOpportunityModal({
   useEffect(() => {
     if (open) {
       setError(null);
+      if (resolvedDefaultContactId) {
+        setContactId(resolvedDefaultContactId);
+      }
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -63,23 +93,60 @@ export function NewOpportunityModal({
     return () => {
       document.body.style.overflow = "";
     };
-  }, [open]);
+  }, [open, resolvedDefaultContactId]);
 
   function resetForm() {
     setName("");
-    setStage("Qualification");
-    setContactId("none");
+    setContactId(resolvedDefaultContactId);
+    setOpportunityType(DEFAULT_OPPORTUNITY_TYPE);
+    setPipeline("");
+    setStage("");
     setAmount("");
     setExpectedCloseDate("");
+    setAssignedAgentId("none");
+    setLeadSource("none");
+    setPriority("none");
     setError(null);
+  }
+
+  function handlePipelineChange(value: string) {
+    if (!isOpportunityPipeline(value)) {
+      setPipeline("");
+      setStage("");
+      return;
+    }
+    setPipeline(value);
+    setStage(defaultStageForPipeline(value));
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+
+    if (!contactId) {
+      setError("Contact is required.");
+      return;
+    }
+    if (!pipeline) {
+      setError("Pipeline is required.");
+      return;
+    }
+    if (!stage) {
+      setError("Stage is required.");
+      return;
+    }
+
     const formData = new FormData(e.currentTarget);
-    formData.set("stage", stage);
     formData.set("contactId", contactId);
+    formData.set("opportunityType", opportunityType);
+    formData.set("pipeline", pipeline);
+    formData.set("stage", stage);
+    formData.set(
+      "assignedAgentId",
+      assignedAgentId === "none" ? "" : assignedAgentId,
+    );
+    formData.set("leadSource", leadSource === "none" ? "" : leadSource);
+    formData.set("priority", priority === "none" ? "" : priority);
 
     startTransition(async () => {
       const result = await createOpportunityAction(formData);
@@ -93,17 +160,56 @@ export function NewOpportunityModal({
     });
   }
 
-  const contactOptions = [
-    { value: "none", label: "No linked lead" },
-    ...leadOptions.map((lead) => ({ value: lead.id, label: lead.label })),
+  const contactSelectOptions = lockContact
+    ? contactOptions.map((contact) => ({
+        value: contact.id,
+        label: contact.label,
+      }))
+    : [
+        { value: "", label: "Select a contact" },
+        ...contactOptions.map((contact) => ({
+          value: contact.id,
+          label: contact.label,
+        })),
+      ];
+
+  const agentSelectOptions = [
+    { value: "none", label: "Unassigned" },
+    ...agentOptions.map((agent) => ({
+      value: agent.id,
+      label: agent.label,
+    })),
+  ];
+
+  const leadSourceSelectOptions = [
+    { value: "none", label: "None" },
+    ...OPPORTUNITY_LEAD_SOURCE_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+    })),
+  ];
+
+  const prioritySelectOptions = [
+    { value: "none", label: "None" },
+    ...OPPORTUNITY_PRIORITY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: option.label,
+      leading: (
+        <span
+          className={styles.optionColorDot}
+          style={{ backgroundColor: OPPORTUNITY_PRIORITY_COLORS[option.value] }}
+          aria-hidden
+        />
+      ),
+    })),
   ];
 
   return (
     <>
-      {trigger === "pill" || trigger === "cta" ? (
+      {trigger === "pill" || trigger === "cta" || trigger === "secondary" ? (
         <button
           type="button"
-          className={`${styles.btnPrimary} ${styles.btnPill}`}
+          className={`${trigger === "secondary" ? styles.btnSecondary : styles.btnPrimary} ${styles.btnPill}`}
           onClick={() => setOpen(true)}
           disabled={disabled}
         >
@@ -112,6 +218,11 @@ export function NewOpportunityModal({
               <IconPlus />
               New opportunity
             </>
+          ) : trigger === "secondary" ? (
+            <>
+              <IconPlus />
+              {linkLabel === "Add the first one" ? "Add" : linkLabel}
+            </>
           ) : (
             linkLabel === "Add the first one" ? "Add an Opportunity" : linkLabel
           )}
@@ -119,7 +230,7 @@ export function NewOpportunityModal({
       ) : (
         <button
           type="button"
-          className={styles.modalLinkTrigger}
+          className={trigger === "footer" ? styles.tableFooterLink : styles.modalLinkTrigger}
           onClick={() => setOpen(true)}
           disabled={disabled}
         >
@@ -131,7 +242,7 @@ export function NewOpportunityModal({
         <div className={styles.modalOverlay} onClick={() => !pending && setOpen(false)}>
           <div
             ref={panelRef}
-            className={styles.modalPanel}
+            className={`${styles.modalPanel} ${styles.modalPanelWide}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="new-opportunity-title"
@@ -143,7 +254,7 @@ export function NewOpportunityModal({
                   New opportunity
                 </h2>
                 <p className={styles.modalSubtitle}>
-                  Track a deal or appointment from qualification through close.
+                  Capture the deal details to start tracking.
                 </p>
               </div>
               <button
@@ -157,100 +268,191 @@ export function NewOpportunityModal({
               </button>
             </div>
 
-            <form className={styles.modalBody} onSubmit={handleSubmit}>
-              {error && <p className={styles.error}>{error}</p>}
+            <form className={styles.modalForm} onSubmit={handleSubmit}>
+              <div className={`${styles.modalBody} ${styles.modalBodyScroll}`}>
+                {error && <p className={styles.error}>{error}</p>}
 
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-opp-name">
-                  Name
-                </label>
-                <input
-                  id="new-opp-name"
-                  name="name"
-                  className={styles.input}
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="123 Main St showing"
-                  required
-                  disabled={pending}
-                />
-              </div>
+                <p className={styles.modalSectionLabel}>Required</p>
 
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-opp-contact">
-                  Lead
-                </label>
-                <DropdownSelect
-                  id="new-opp-contact"
-                  value={contactId}
-                  ariaLabel="Linked lead"
-                  disabled={pending}
-                  onChange={setContactId}
-                  options={contactOptions}
-                />
-              </div>
-
-              <div className={styles.inlineFieldRow}>
                 <div className={styles.field}>
-                  <label className={styles.label} htmlFor="new-opp-stage">
-                    Stage
+                  <label className={styles.label} htmlFor="new-opp-name">
+                    Opportunity name
+                  </label>
+                  <input
+                    id="new-opp-name"
+                    name="name"
+                    className={styles.input}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="123 Main St showing"
+                    required
+                    disabled={pending}
+                  />
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="new-opp-contact">
+                    Contact
                   </label>
                   <DropdownSelect
-                    id="new-opp-stage"
-                    value={stage}
-                    ariaLabel="Stage"
+                    id="new-opp-contact"
+                    value={contactId}
+                    ariaLabel="Contact"
+                    disabled={pending || lockContact || contactOptions.length === 0}
+                    onChange={setContactId}
+                    options={contactSelectOptions}
+                  />
+                  {!lockContact && contactOptions.length === 0 ? (
+                    <p className={styles.fieldHint}>
+                      Add a lead or contact first, then create an opportunity.
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="new-opp-type">
+                    Opportunity type
+                  </label>
+                  <DropdownSelect
+                    id="new-opp-type"
+                    value={opportunityType}
+                    ariaLabel="Opportunity type"
                     disabled={pending}
-                    onChange={setStage}
-                    options={OPPORTUNITY_STAGE_OPTIONS.map((option) => ({
+                    onChange={(value) => setOpportunityType(value as OpportunityType)}
+                    options={OPPORTUNITY_TYPE_OPTIONS.map((option) => ({
                       value: option.value,
                       label: option.label,
                     }))}
                   />
                 </div>
+
                 <div className={styles.field}>
-                  <label className={styles.label} htmlFor="new-opp-amount">
-                    Amount
+                  <label className={styles.label} htmlFor="new-opp-pipeline">
+                    Pipeline
                   </label>
-                  <input
-                    id="new-opp-amount"
-                    name="amount"
-                    className={styles.input}
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    placeholder="0.00"
-                    inputMode="decimal"
+                  <DropdownSelect
+                    id="new-opp-pipeline"
+                    value={pipeline}
+                    ariaLabel="Pipeline"
                     disabled={pending}
+                    onChange={handlePipelineChange}
+                    options={[
+                      { value: "", label: "Select a pipeline" },
+                      ...OPPORTUNITY_PIPELINES.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      })),
+                    ]}
                   />
                 </div>
-              </div>
 
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-opp-close">
-                  Expected close
-                </label>
-                <input
-                  id="new-opp-close"
-                  name="expectedCloseDate"
-                  type="date"
-                  className={styles.input}
-                  value={expectedCloseDate}
-                  onChange={(e) => setExpectedCloseDate(e.target.value)}
-                  disabled={pending}
-                />
-              </div>
+                {pipeline ? (
+                  <div className={styles.field}>
+                    <label className={styles.label} htmlFor="new-opp-stage">
+                      Stage
+                    </label>
+                    <DropdownSelect
+                      id="new-opp-stage"
+                      value={stage}
+                      ariaLabel="Stage"
+                      disabled={pending}
+                      onChange={(value) => setStage(value as OpportunityStage)}
+                      options={stageOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                    />
+                  </div>
+                ) : null}
 
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-opp-notes">
-                  Notes
-                </label>
-                <textarea
-                  id="new-opp-notes"
-                  name="notes"
-                  className={styles.input}
-                  rows={3}
-                  disabled={pending}
-                  placeholder="Optional context"
-                />
+                <p className={styles.modalSectionLabel}>Optional</p>
+
+                <div className={styles.fieldRow}>
+                  <div className={styles.field}>
+                    <label className={styles.label} htmlFor="new-opp-amount">
+                      Estimated value
+                    </label>
+                    <input
+                      id="new-opp-amount"
+                      name="amount"
+                      className={styles.input}
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      placeholder="0.00"
+                      inputMode="decimal"
+                      disabled={pending}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label} htmlFor="new-opp-close">
+                      Expected close date
+                    </label>
+                    <DateInput
+                      id="new-opp-close"
+                      name="expectedCloseDate"
+                      value={expectedCloseDate}
+                      onChange={(e) => setExpectedCloseDate(e.target.value)}
+                      disabled={pending}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="new-opp-agent">
+                    Assigned agent
+                  </label>
+                  <DropdownSelect
+                    id="new-opp-agent"
+                    value={assignedAgentId}
+                    ariaLabel="Assigned agent"
+                    disabled={pending}
+                    onChange={setAssignedAgentId}
+                    options={agentSelectOptions}
+                  />
+                </div>
+
+                <div className={styles.fieldRow}>
+                  <div className={styles.field}>
+                    <label className={styles.label} htmlFor="new-opp-source">
+                      Lead source
+                    </label>
+                    <DropdownSelect
+                      id="new-opp-source"
+                      value={leadSource}
+                      ariaLabel="Lead source"
+                      disabled={pending}
+                      onChange={setLeadSource}
+                      options={leadSourceSelectOptions}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label} htmlFor="new-opp-priority">
+                      Priority
+                    </label>
+                    <DropdownSelect
+                      id="new-opp-priority"
+                      value={priority}
+                      ariaLabel="Priority"
+                      disabled={pending}
+                      onChange={setPriority}
+                      options={prioritySelectOptions}
+                    />
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label} htmlFor="new-opp-notes">
+                    Notes
+                  </label>
+                  <textarea
+                    id="new-opp-notes"
+                    name="notes"
+                    className={styles.input}
+                    rows={3}
+                    disabled={pending}
+                    placeholder="Optional context"
+                  />
+                </div>
               </div>
 
               <div className={styles.modalFooter}>
@@ -262,7 +464,11 @@ export function NewOpportunityModal({
                 >
                   Cancel
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={pending}>
+                <button
+                  type="submit"
+                  className={styles.btnPrimary}
+                  disabled={pending || contactOptions.length === 0}
+                >
                   {pending ? "Adding…" : "Add opportunity"}
                 </button>
               </div>

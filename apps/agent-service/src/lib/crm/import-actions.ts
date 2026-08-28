@@ -2,22 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { isLeadStatus } from "@/lib/leads/lead-status";
+import {
+  DEFAULT_OPPORTUNITY_PIPELINE,
+  normalizeOpportunityStage,
+} from "@/lib/opportunities/opportunity-stages";
 import { parsePhoneForStorage } from "@/lib/phone-display";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
 import { splitFullName, type ImportEntity, type ImportMode } from "@/lib/crm/import-parse";
 
 const MAX_IMPORT_ROWS = 500;
-
-const OPPORTUNITY_STAGES = [
-  "Qualification",
-  "Proposal",
-  "Negotiation",
-  "Closed_Won",
-  "Closed_Lost",
-] as const;
-
-type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number];
 
 export interface ImportRowPayload {
   values: Record<string, string>;
@@ -60,28 +54,6 @@ function normalizeLeadStatus(raw: string): string {
     compliance: "New",
   };
   return aliases[compact] ?? "New";
-}
-
-function normalizeOpportunityStage(raw: string): OpportunityStage {
-  const trimmed = raw.trim();
-  if ((OPPORTUNITY_STAGES as readonly string[]).includes(trimmed)) {
-    return trimmed as OpportunityStage;
-  }
-  const compact = trimmed.toLowerCase().replace(/[\s-]+/g, "_");
-  const aliases: Record<string, OpportunityStage> = {
-    qualification: "Qualification",
-    qualifying: "Qualification",
-    new: "Qualification",
-    proposal: "Proposal",
-    negotiation: "Negotiation",
-    closed_won: "Closed_Won",
-    closedwon: "Closed_Won",
-    won: "Closed_Won",
-    closed_lost: "Closed_Lost",
-    closedlost: "Closed_Lost",
-    lost: "Closed_Lost",
-  };
-  return aliases[compact] ?? "Qualification";
 }
 
 function parseAmountCents(raw: string): number | null | { error: string } {
@@ -455,6 +427,7 @@ async function importOpportunities(
     const existingId = await findOpportunityByName(supabase, tenantId, name);
     const payload = {
       name,
+      pipeline: DEFAULT_OPPORTUNITY_PIPELINE,
       stage,
       amount_cents: typeof amount === "number" ? amount : null,
       expected_close_date: expectedCloseDate,

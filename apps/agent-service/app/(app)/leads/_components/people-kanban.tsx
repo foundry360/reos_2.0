@@ -17,7 +17,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { LeadRowActions } from "./lead-row-actions";
-import { updateLeadStatusAction } from "@/lib/crm/crm-actions";
+import {
+  updateContactTypeAction,
+  updateLeadStatusAction,
+} from "@/lib/crm/crm-actions";
+import {
+  CONTACT_TYPE_OPTIONS,
+  DEFAULT_CONTACT_TYPE,
+  formatContactTypeLabel,
+  type ContactType,
+} from "@/lib/crm/contact-type";
 import {
   personBasePath,
   personPlural,
@@ -38,39 +47,64 @@ const STATUS_BADGE_CLASS: Record<LeadStatus, string> = {
   Converted: styles.badgeLeadConverted,
 };
 
+const CONTACT_TYPE_BADGE_CLASS: Record<ContactType, string> = {
+  Prospect: styles.badgeLeadNew,
+  Customer: styles.badgeLeadQualified,
+  "Inactive Customer": styles.badgeLeadConverted,
+  Partner: styles.badgeLeadContacted,
+  Vendor: styles.badgeLeadWorking,
+};
+
+type ColumnOption = { value: string; label: string };
+
 interface PeopleKanbanProps {
-  columns: Record<LeadStatus, LeadRow[]>;
+  columns: Record<string, LeadRow[]>;
   kind?: PersonKind;
 }
 
-function formatShortDate(iso: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-  }).format(new Date(iso));
+function columnOptionsForKind(kind: PersonKind): ColumnOption[] {
+  return kind === "contact"
+    ? CONTACT_TYPE_OPTIONS.map((option) => ({
+        value: option.value,
+        label: option.label,
+      }))
+    : LEAD_STATUS_OPTIONS.map((option) => ({
+        value: option.value,
+        label: option.label,
+      }));
+}
+
+function cardColumnKey(lead: LeadRow, kind: PersonKind): string {
+  if (kind === "contact") {
+    return lead.contactType ?? DEFAULT_CONTACT_TYPE;
+  }
+  return lead.leadStatus;
 }
 
 function findLead(
-  columns: Record<LeadStatus, LeadRow[]>,
+  columns: Record<string, LeadRow[]>,
+  columnOptions: ColumnOption[],
   leadId: string,
 ): LeadRow | null {
-  for (const status of LEAD_STATUS_OPTIONS) {
-    const match = columns[status.value].find((row) => row.id === leadId);
+  for (const column of columnOptions) {
+    const match = columns[column.value]?.find((row) => row.id === leadId);
     if (match) return match;
   }
   return null;
 }
 
 function moveLead(
-  columns: Record<LeadStatus, LeadRow[]>,
+  columns: Record<string, LeadRow[]>,
+  columnOptions: ColumnOption[],
   leadId: string,
-  toStatus: LeadStatus,
-): Record<LeadStatus, LeadRow[]> {
+  toColumn: string,
+  kind: PersonKind,
+): Record<string, LeadRow[]> {
   let moved: LeadRow | undefined;
 
-  const next = LEAD_STATUS_OPTIONS.reduce(
-    (acc, status) => {
-      acc[status.value] = columns[status.value].filter((row) => {
+  const next = columnOptions.reduce(
+    (acc, column) => {
+      acc[column.value] = (columns[column.value] ?? []).filter((row) => {
         if (row.id === leadId) {
           moved = row;
           return false;
@@ -79,22 +113,34 @@ function moveLead(
       });
       return acc;
     },
-    {} as Record<LeadStatus, LeadRow[]>,
+    {} as Record<string, LeadRow[]>,
   );
 
   if (moved) {
-    next[toStatus] = [
-      ...next[toStatus],
-      {
-        ...moved,
-        leadStatus: toStatus,
-        leadStatusLabel:
-          LEAD_STATUS_OPTIONS.find((option) => option.value === toStatus)?.label ?? toStatus,
-      },
-    ];
+    const updated: LeadRow =
+      kind === "contact"
+        ? {
+            ...moved,
+            contactType: toColumn as ContactType,
+          }
+        : {
+            ...moved,
+            leadStatus: toColumn as LeadStatus,
+            leadStatusLabel:
+              LEAD_STATUS_OPTIONS.find((option) => option.value === toColumn)?.label ??
+              toColumn,
+          };
+    next[toColumn] = [...(next[toColumn] ?? []), updated];
   }
 
   return next;
+}
+
+function formatShortDate(iso: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(iso));
 }
 
 function IconPhone() {
@@ -126,6 +172,25 @@ function IconMail() {
   );
 }
 
+function CardTypeBadge({ lead, kind }: { lead: LeadRow; kind: PersonKind }) {
+  if (kind === "contact") {
+    const type = lead.contactType ?? DEFAULT_CONTACT_TYPE;
+    return (
+      <span className={`${styles.badge} ${styles.kanbanCardTag} ${CONTACT_TYPE_BADGE_CLASS[type]}`}>
+        {formatContactTypeLabel(type)}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`${styles.badge} ${styles.kanbanCardTag} ${STATUS_BADGE_CLASS[lead.leadStatus]}`}
+    >
+      {lead.leadStatusLabel}
+    </span>
+  );
+}
+
 function KanbanCardContent({
   lead,
   kind,
@@ -144,11 +209,7 @@ function KanbanCardContent({
   return (
     <>
       <div className={styles.kanbanCardTop}>
-        <span
-          className={`${styles.badge} ${styles.kanbanCardTag} ${STATUS_BADGE_CLASS[lead.leadStatus]}`}
-        >
-          {lead.leadStatusLabel}
-        </span>
+        <CardTypeBadge lead={lead} kind={kind} />
         {showActions && <LeadRowActions lead={lead} kind={kind} stopDrag />}
       </div>
       {linkTitle ? (
@@ -208,7 +269,7 @@ function KanbanColumnStatic({
   kind,
   emptyLabel,
 }: {
-  stage: (typeof LEAD_STATUS_OPTIONS)[number];
+  stage: ColumnOption;
   cards: LeadRow[];
   kind: PersonKind;
   emptyLabel: string;
@@ -233,7 +294,7 @@ function KanbanColumnStatic({
 function KanbanCard({ lead, kind }: { lead: LeadRow; kind: PersonKind }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
-    data: { status: lead.leadStatus },
+    data: { column: cardColumnKey(lead, kind) },
   });
 
   const style = transform ? { transform: CSS.Translate.toString(transform) } : undefined;
@@ -257,7 +318,7 @@ function KanbanColumn({
   kind,
   emptyLabel,
 }: {
-  stage: (typeof LEAD_STATUS_OPTIONS)[number];
+  stage: ColumnOption;
   cards: LeadRow[];
   kind: PersonKind;
   emptyLabel: string;
@@ -290,6 +351,7 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
   const router = useRouter();
   const plural = personPlural(kind);
   const emptyLabel = `No ${plural}`;
+  const columnOptions = columnOptionsForKind(kind);
   const [columns, setColumns] = useState(initialColumns);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -309,7 +371,7 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
     }),
   );
 
-  const activeLead = activeId ? findLead(columns, activeId) : null;
+  const activeLead = activeId ? findLead(columns, columnOptions, activeId) : null;
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id));
@@ -320,21 +382,24 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
 
     const leadId = String(event.active.id);
     const overId = event.over?.id;
-    const nextStatus = String(overId ?? "") as LeadStatus;
-    const valid = LEAD_STATUS_OPTIONS.some((option) => option.value === nextStatus);
+    const nextColumn = String(overId ?? "");
+    const valid = columnOptions.some((option) => option.value === nextColumn);
 
     if (!valid) return;
 
-    const lead = findLead(columns, leadId);
-    if (!lead || lead.leadStatus === nextStatus) return;
+    const lead = findLead(columns, columnOptions, leadId);
+    if (!lead || cardColumnKey(lead, kind) === nextColumn) return;
 
     const previousColumns = columns;
-    setColumns(moveLead(columns, leadId, nextStatus));
+    setColumns(moveLead(columns, columnOptions, leadId, nextColumn, kind));
 
     startTransition(async () => {
-      const result = await updateLeadStatusAction(leadId, nextStatus);
+      const result =
+        kind === "contact"
+          ? await updateContactTypeAction(leadId, nextColumn)
+          : await updateLeadStatusAction(leadId, nextColumn);
       if (!result.ok) {
-        console.error(result.error ?? "Could not update status.");
+        console.error(result.error ?? "Could not update.");
         setColumns(previousColumns);
         return;
       }
@@ -349,11 +414,11 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
   if (!mounted) {
     return (
       <div className={`${styles.kanbanBoard} kanban-board-scroll`} aria-busy={isPending}>
-        {LEAD_STATUS_OPTIONS.map((stage) => (
+        {columnOptions.map((stage) => (
           <KanbanColumnStatic
             key={stage.value}
             stage={stage}
-            cards={columns[stage.value]}
+            cards={columns[stage.value] ?? []}
             kind={kind}
             emptyLabel={emptyLabel}
           />
@@ -375,11 +440,11 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
         data-busy={isPending ? "true" : undefined}
         aria-busy={isPending}
       >
-        {LEAD_STATUS_OPTIONS.map((stage) => (
+        {columnOptions.map((stage) => (
           <KanbanColumn
             key={stage.value}
             stage={stage}
-            cards={columns[stage.value]}
+            cards={columns[stage.value] ?? []}
             kind={kind}
             emptyLabel={emptyLabel}
           />

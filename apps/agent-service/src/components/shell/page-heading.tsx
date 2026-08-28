@@ -2,13 +2,21 @@ import type { ReactNode } from "react";
 import styles from "./shell.module.css";
 
 /** Platform blue-gray tones only. */
-export type PageHeadingTone = "accent" | "brand" | "light" | "dark";
+export type PageHeadingTone =
+  | "accent"
+  | "brand"
+  | "light"
+  | "dark"
+  | "person"
+  | "opportunity";
 
 const TONE_CLASS: Record<PageHeadingTone, string | undefined> = {
   accent: undefined,
   brand: styles.pageTitleIconBrand,
   light: styles.pageTitleIconLight,
   dark: styles.pageTitleIconDark,
+  person: styles.pageTitleIconPerson,
+  opportunity: styles.pageTitleIconOpportunity,
 };
 
 interface PageHeadingProps {

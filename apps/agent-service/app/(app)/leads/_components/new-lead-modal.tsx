@@ -4,6 +4,11 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createLeadAction } from "@/lib/crm/crm-actions";
 import {
+  CONTACT_TYPE_OPTIONS,
+  DEFAULT_CONTACT_TYPE,
+  type ContactType,
+} from "@/lib/crm/contact-type";
+import {
   personSingular,
   personSingularTitle,
   type PersonKind,
@@ -40,6 +45,7 @@ export function NewLeadModal({
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<LeadStatus>("New");
+  const [contactType, setContactType] = useState<ContactType>(DEFAULT_CONTACT_TYPE);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +76,7 @@ export function NewLeadModal({
     setLastName("");
     setEmail("");
     setStatus("New");
+    setContactType(DEFAULT_CONTACT_TYPE);
     setError(null);
   }
 
@@ -77,8 +84,12 @@ export function NewLeadModal({
     e.preventDefault();
     setError(null);
     const formData = new FormData(e.currentTarget);
-    formData.set("status", status);
     formData.set("recordType", kind);
+    if (kind === "contact") {
+      formData.set("contactType", contactType);
+    } else {
+      formData.set("status", status);
+    }
 
     startTransition(async () => {
       const result = await createLeadAction(formData);
@@ -215,19 +226,33 @@ export function NewLeadModal({
 
               <div className={styles.field}>
                 <label className={styles.label} htmlFor={`new-${kind}-status`}>
-                  Status
+                  {kind === "contact" ? "Contact type" : "Status"}
                 </label>
-                <DropdownSelect
-                  id={`new-${kind}-status`}
-                  value={status}
-                  ariaLabel={`${singularTitle} status`}
-                  disabled={pending}
-                  onChange={(value) => setStatus(value as LeadStatus)}
-                  options={LEAD_STATUS_OPTIONS.map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                  }))}
-                />
+                {kind === "contact" ? (
+                  <DropdownSelect
+                    id={`new-${kind}-status`}
+                    value={contactType}
+                    ariaLabel="Contact type"
+                    disabled={pending}
+                    onChange={(value) => setContactType(value as ContactType)}
+                    options={CONTACT_TYPE_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                  />
+                ) : (
+                  <DropdownSelect
+                    id={`new-${kind}-status`}
+                    value={status}
+                    ariaLabel={`${singularTitle} status`}
+                    disabled={pending}
+                    onChange={(value) => setStatus(value as LeadStatus)}
+                    options={LEAD_STATUS_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                  />
+                )}
               </div>
 
               <div className={styles.modalFooter}>

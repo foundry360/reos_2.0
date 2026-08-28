@@ -2,48 +2,37 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createTaskAction } from "@/lib/crm/crm-actions";
+import { createActivityAction } from "@/lib/crm/crm-actions";
+import {
+  ACTIVITY_TYPE_OPTIONS,
+  type ActivityType,
+} from "@/lib/crm/person-activities";
 import { DropdownSelect } from "@/components/shell/dropdown-select";
 import { DateInput } from "@/components/shell/date-input";
 import { IconPlus } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
-interface LeadOption {
-  id: string;
-  label: string;
-}
-
-interface NewTaskModalProps {
-  leadOptions: LeadOption[];
-  defaultContactId?: string;
-  lockContact?: boolean;
+interface NewActivityModalProps {
+  contactId: string;
   trigger?: "pill" | "link" | "cta" | "secondary";
   linkLabel?: string;
   disabled?: boolean;
 }
 
-export function NewTaskModal({
-  leadOptions,
-  defaultContactId = "",
-  lockContact = false,
+export function NewActivityModal({
+  contactId,
   trigger = "pill",
-  linkLabel = "Add the first one",
+  linkLabel = "Add",
   disabled = false,
-}: NewTaskModalProps) {
+}: NewActivityModalProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [activityType, setActivityType] = useState<ActivityType>("note");
   const [title, setTitle] = useState("");
-  const [contactId, setContactId] = useState(
-    lockContact ? defaultContactId || "none" : "none",
-  );
-  const [dueDate, setDueDate] = useState("");
+  const [occurredDate, setOccurredDate] = useState("");
   const panelRef = useRef<HTMLDivElement>(null);
-
-  const resolvedDefaultContactId = lockContact
-    ? defaultContactId || leadOptions[0]?.id || ""
-    : defaultContactId;
 
   useEffect(() => {
     if (!open) return;
@@ -57,11 +46,6 @@ export function NewTaskModal({
   useEffect(() => {
     if (open) {
       setError(null);
-      if (lockContact && resolvedDefaultContactId) {
-        setContactId(resolvedDefaultContactId);
-      } else if (defaultContactId) {
-        setContactId(defaultContactId);
-      }
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -69,12 +53,12 @@ export function NewTaskModal({
     return () => {
       document.body.style.overflow = "";
     };
-  }, [open, lockContact, resolvedDefaultContactId, defaultContactId]);
+  }, [open]);
 
   function resetForm() {
+    setActivityType("note");
     setTitle("");
-    setContactId(lockContact ? resolvedDefaultContactId || "none" : "none");
-    setDueDate("");
+    setOccurredDate("");
     setError(null);
   }
 
@@ -82,15 +66,13 @@ export function NewTaskModal({
     e.preventDefault();
     setError(null);
     const formData = new FormData(e.currentTarget);
-    formData.set(
-      "contactId",
-      lockContact ? resolvedDefaultContactId || contactId : contactId,
-    );
+    formData.set("contactId", contactId);
+    formData.set("activityType", activityType);
 
     startTransition(async () => {
-      const result = await createTaskAction(formData);
+      const result = await createActivityAction(formData);
       if (!result.ok) {
-        setError(result.error ?? "Could not create task.");
+        setError(result.error ?? "Could not create activity.");
         return;
       }
       resetForm();
@@ -99,14 +81,10 @@ export function NewTaskModal({
     });
   }
 
-  const contactOptions = [
-    { value: "none", label: "No linked lead" },
-    ...leadOptions.map((lead) => ({ value: lead.id, label: lead.label })),
-  ];
-
-  const lockedContactLabel =
-    leadOptions.find((option) => option.id === resolvedDefaultContactId)?.label ??
-    "Selected contact";
+  const typeOptions = ACTIVITY_TYPE_OPTIONS.map((option) => ({
+    value: option.value,
+    label: option.label,
+  }));
 
   return (
     <>
@@ -115,20 +93,20 @@ export function NewTaskModal({
           type="button"
           className={`${trigger === "secondary" ? styles.btnSecondary : styles.btnPrimary} ${styles.btnPill}`}
           onClick={() => setOpen(true)}
-          disabled={disabled}
+          disabled={disabled || !contactId}
         >
           {trigger === "pill" ? (
             <>
               <IconPlus />
-              New task
+              New activity
             </>
           ) : trigger === "secondary" ? (
             <>
               <IconPlus />
-              {linkLabel === "Add the first one" ? "Add" : linkLabel}
+              {linkLabel}
             </>
           ) : (
-            linkLabel === "Add the first one" ? "Add a Task" : linkLabel
+            linkLabel === "Add" ? "Add an Activity" : linkLabel
           )}
         </button>
       ) : (
@@ -136,7 +114,7 @@ export function NewTaskModal({
           type="button"
           className={styles.modalLinkTrigger}
           onClick={() => setOpen(true)}
-          disabled={disabled}
+          disabled={disabled || !contactId}
         >
           {linkLabel}
         </button>
@@ -149,16 +127,16 @@ export function NewTaskModal({
             className={styles.modalPanel}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="new-task-title"
+            aria-labelledby="new-activity-title"
             onClick={(e) => e.stopPropagation()}
           >
             <div className={styles.modalHeader}>
               <div>
-                <h2 id="new-task-title" className={styles.modalTitle}>
-                  New task
+                <h2 id="new-activity-title" className={styles.modalTitle}>
+                  Log activity
                 </h2>
                 <p className={styles.modalSubtitle}>
-                  Create a follow-up or to-do for your team.
+                  Capture a note, call, email, or meeting on this record.
                 </p>
               </div>
               <button
@@ -176,69 +154,59 @@ export function NewTaskModal({
               {error && <p className={styles.error}>{error}</p>}
 
               <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-task-title-input">
+                <label className={styles.label} htmlFor="new-activity-type">
+                  Type
+                </label>
+                <DropdownSelect
+                  id="new-activity-type"
+                  value={activityType}
+                  ariaLabel="Activity type"
+                  disabled={pending}
+                  onChange={(value) => setActivityType(value as ActivityType)}
+                  options={typeOptions}
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="new-activity-title-input">
                   Title
                 </label>
                 <input
-                  id="new-task-title-input"
+                  id="new-activity-title-input"
                   name="title"
                   className={styles.input}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Call back about listing"
+                  placeholder="Left voicemail about listing"
                   required
                   disabled={pending}
                 />
               </div>
 
               <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-task-contact">
-                  Contact
-                </label>
-                {lockContact ? (
-                  <input
-                    id="new-task-contact"
-                    className={styles.input}
-                    value={lockedContactLabel}
-                    disabled
-                    readOnly
-                  />
-                ) : (
-                  <DropdownSelect
-                    id="new-task-contact"
-                    value={contactId}
-                    ariaLabel="Linked contact"
-                    disabled={pending}
-                    onChange={setContactId}
-                    options={contactOptions}
-                  />
-                )}
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-task-due">
-                  Due date
+                <label className={styles.label} htmlFor="new-activity-date">
+                  Date
                 </label>
                 <DateInput
-                  id="new-task-due"
-                  name="dueDate"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  id="new-activity-date"
+                  name="occurredDate"
+                  value={occurredDate}
+                  onChange={(e) => setOccurredDate(e.target.value)}
                   disabled={pending}
                 />
               </div>
 
               <div className={styles.field}>
-                <label className={styles.label} htmlFor="new-task-notes">
-                  Notes
+                <label className={styles.label} htmlFor="new-activity-body">
+                  Details
                 </label>
                 <textarea
-                  id="new-task-notes"
-                  name="notes"
+                  id="new-activity-body"
+                  name="body"
                   className={styles.input}
                   rows={3}
                   disabled={pending}
-                  placeholder="Optional context"
+                  placeholder="Optional notes"
                 />
               </div>
 
@@ -252,7 +220,7 @@ export function NewTaskModal({
                   Cancel
                 </button>
                 <button type="submit" className={styles.btnPrimary} disabled={pending}>
-                  {pending ? "Adding…" : "Add task"}
+                  {pending ? "Saving…" : "Save activity"}
                 </button>
               </div>
             </form>

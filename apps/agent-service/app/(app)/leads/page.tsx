@@ -29,7 +29,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     return (
       <>
         <div className={styles.pageHeader}>
-          <PageHeading icon={<IconLeads />} title="Leads" tone="brand" />
+          <PageHeading icon={<IconLeads />} title="Leads" tone="person" />
         </div>
         <p className={styles.empty}>{workspaceUnavailableMessage(reason)}</p>
       </>
@@ -54,7 +54,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   return (
     <div className={showKanbanLayout ? styles.kanbanPage : undefined}>
       <div className={styles.pageHeader}>
-        <PageHeading icon={<IconLeads />} title={pageTitle} tone="brand" />
+        <PageHeading icon={<IconLeads />} title={pageTitle} tone="person" />
         <div className={styles.pageHeaderActions}>
           <PeopleLayoutToggle params={params} kind="lead" />
           <LeadsHeaderActions params={params} />

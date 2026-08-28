@@ -29,7 +29,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
     return (
       <>
         <div className={styles.pageHeader}>
-          <PageHeading icon={<IconUsers />} title="Contacts" tone="accent" />
+          <PageHeading icon={<IconUsers />} title="Contacts" tone="person" />
         </div>
         <p className={styles.empty}>{workspaceUnavailableMessage(reason)}</p>
       </>
@@ -56,7 +56,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
   return (
     <div className={showKanbanLayout ? styles.kanbanPage : undefined}>
       <div className={styles.pageHeader}>
-        <PageHeading icon={<IconUsers />} title={pageTitle} tone="accent" />
+        <PageHeading icon={<IconUsers />} title={pageTitle} tone="person" />
         <div className={styles.pageHeaderActions}>
           <PeopleLayoutToggle params={params} kind="contact" />
           <LeadsHeaderActions params={params} kind="contact" />

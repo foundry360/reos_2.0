@@ -515,7 +515,7 @@ export function DataImportModal({ open, onClose }: DataImportModalProps) {
                       return (
                         <tr key={`${getMappedValue(row, mapping, "name")}-${index}`}>
                           <td>{getMappedValue(row, mapping, "name") || "Untitled"}</td>
-                          <td>{getMappedValue(row, mapping, "stage") || "Qualification"}</td>
+                          <td>{getMappedValue(row, mapping, "stage") || "New"}</td>
                           <td>{getMappedValue(row, mapping, "amount") || "—"}</td>
                           <td>{getMappedValue(row, mapping, "close_date") || "—"}</td>
                           <td>{getMappedValue(row, mapping, "lead_name") || "—"}</td>

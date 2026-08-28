@@ -25,81 +25,54 @@ export async function listLeadOptionsForTenant(): Promise<
     const name = [contact.first_name?.trim(), contact.last_name?.trim()]
       .filter(Boolean)
       .join(" ");
-    const label = name || (sms?.external_id ? sms.external_id : "Unknown lead");
+    const label = name || (sms?.external_id ? sms.external_id : "Unknown contact");
     return { id: contact.id, label };
   });
 }
 
-export interface OpportunityRow {
-  id: string;
-  name: string;
-  stage: string;
-  stageLabel: string;
-  amountCents: number | null;
-  expectedCloseDate: string | null;
-  contactName: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export async function listAgentOptionsForTenant(): Promise<
+  { id: string; label: string }[]
+> {
+  const { tenantId } = await resolveCurrentTenant();
+  if (!tenantId) return [];
 
-const STAGE_LABELS: Record<string, string> = {
-  Qualification: "Qualification",
-  Proposal: "Proposal",
-  Negotiation: "Negotiation",
-  Closed_Won: "Closed Won",
-  Closed_Lost: "Closed Lost",
-};
-
-export async function fetchOpportunitiesList(
-  tenantId: string,
-): Promise<OpportunityRow[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("opportunities")
-    .select(
-      `
-      id,
-      name,
-      stage,
-      amount_cents,
-      expected_close_date,
-      created_at,
-      updated_at,
-      contacts (
-        first_name,
-        last_name
-      )
-    `,
-    )
+  const { data: memberships, error } = await supabase
+    .from("memberships")
+    .select("user_id, role")
     .eq("tenant_id", tenantId)
-    .order("updated_at", { ascending: false })
-    .limit(100);
+    .in("role", ["owner", "agent"])
+    .order("created_at", { ascending: true });
 
-  if (error) {
-    console.error("opportunities list failed:", error.message);
+  if (error || !memberships?.length) {
+    if (error) console.error("agent options failed:", error.message);
     return [];
   }
 
-  return (data ?? []).map((row) => {
-    const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts;
-    const contactName = contact
-      ? [contact.first_name?.trim(), contact.last_name?.trim()].filter(Boolean).join(" ") ||
-        null
-      : null;
+  const userIds = [...new Set(memberships.map((row) => row.user_id))];
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", userIds);
 
+  const nameById = new Map(
+    (profiles ?? []).map((profile) => [
+      profile.id,
+      profile.display_name?.trim() || null,
+    ]),
+  );
+
+  return memberships.map((membership) => {
+    const name = nameById.get(membership.user_id);
     return {
-      id: row.id,
-      name: row.name,
-      stage: row.stage,
-      stageLabel: STAGE_LABELS[row.stage] ?? row.stage,
-      amountCents: row.amount_cents,
-      expectedCloseDate: row.expected_close_date,
-      contactName,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      id: membership.user_id,
+      label: name || `Team member (${membership.role})`,
     };
   });
 }
+
+export type { OpportunityRow } from "@/lib/opportunities/opportunities-types";
+export { fetchOpportunitiesList } from "@/lib/opportunities/opportunities-list";
 
 export interface TaskRow {
   id: string;

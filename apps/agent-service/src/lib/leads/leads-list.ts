@@ -1,4 +1,10 @@
 import type { LeadStatus } from "@/lib/coordinator";
+import {
+  CONTACT_TYPE_VALUES,
+  DEFAULT_CONTACT_TYPE,
+  isContactType,
+  type ContactType,
+} from "@/lib/crm/contact-type";
 import type { PersonKind } from "@/lib/crm/person-kind";
 import { formatLeadStatusLabel, LEAD_STATUS_VALUES } from "@/lib/leads/lead-status";
 import type { LeadsListParams } from "@/lib/leads/leads-list-params";
@@ -34,6 +40,7 @@ interface ContactQueryRow {
   email: string | null;
   record_type: PersonKind | null;
   lead_status: LeadStatus;
+  contact_type: string | null;
   qualification_score: number | null;
   lead_temperature: "Hot" | "Warm" | "Cold" | null;
   opted_out: boolean;
@@ -86,6 +93,12 @@ function mapContactRows(contacts: ContactQueryRow[]): LeadRow[] {
       recordType: contact.record_type === "contact" ? "contact" : "lead",
       leadStatus: contact.lead_status,
       leadStatusLabel: formatLeadStatusLabel(contact.lead_status),
+      contactType:
+        isContactType(contact.contact_type ?? "")
+          ? (contact.contact_type as ContactType)
+          : contact.record_type === "contact"
+            ? DEFAULT_CONTACT_TYPE
+            : null,
       qualificationScore: contact.qualification_score,
       leadTemperature: contact.lead_temperature,
       optedOut: contact.opted_out,
@@ -144,6 +157,7 @@ function applyContactSort(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   query: any,
   params: LeadsListParams,
+  kind: PersonKind,
 ) {
   const ascending = params.dir === "asc";
 
@@ -154,7 +168,9 @@ function applyContactSort(
         nullsFirst: false,
       });
     case "status":
-      return query.order("lead_status", { ascending });
+      return query.order(kind === "contact" ? "contact_type" : "lead_status", {
+        ascending,
+      });
     case "score":
       return query.order("qualification_score", { ascending, nullsFirst: false });
     case "temperature":
@@ -193,6 +209,7 @@ export async function fetchLeadsList(
       email,
       record_type,
       lead_status,
+      contact_type,
       qualification_score,
       lead_temperature,
       opted_out,
@@ -221,19 +238,34 @@ export async function fetchLeadsList(
 
   switch (params.view) {
     case "new":
-      query = query.eq("lead_status", "New");
+      query =
+        kind === "contact"
+          ? query.eq("contact_type", "Prospect")
+          : query.eq("lead_status", "New");
       break;
     case "working":
-      query = query.eq("lead_status", "Working");
+      query =
+        kind === "contact"
+          ? query.eq("contact_type", "Customer")
+          : query.eq("lead_status", "Working");
       break;
     case "contacted":
-      query = query.eq("lead_status", "Contacted");
+      query =
+        kind === "contact"
+          ? query.eq("contact_type", "Inactive Customer")
+          : query.eq("lead_status", "Contacted");
       break;
     case "qualified":
-      query = query.eq("lead_status", "Qualified");
+      query =
+        kind === "contact"
+          ? query.eq("contact_type", "Partner")
+          : query.eq("lead_status", "Qualified");
       break;
     case "converted":
-      query = query.eq("lead_status", "Converted");
+      query =
+        kind === "contact"
+          ? query.eq("contact_type", "Vendor")
+          : query.eq("lead_status", "Converted");
       break;
     case "recently_modified":
       query = query.gte("updated_at", daysAgo(14));
@@ -264,7 +296,7 @@ export async function fetchLeadsList(
       break;
   }
 
-  query = applyContactSort(query, params);
+  query = applyContactSort(query, params, kind);
 
   if (options?.forExport) {
     const { data, count, error } = await query.limit(5000);
@@ -305,7 +337,7 @@ const STATUS_PIPELINE_VIEWS = new Set([
 ]);
 
 export interface PeopleKanbanResult {
-  columns: Record<LeadStatus, LeadRow[]>;
+  columns: Record<string, LeadRow[]>;
   total: number;
   params: LeadsListParams;
 }
@@ -316,12 +348,15 @@ export async function fetchPeopleKanban(
   params: LeadsListParams,
   options?: { kind?: PersonKind },
 ): Promise<PeopleKanbanResult> {
-  const emptyColumns = LEAD_STATUS_VALUES.reduce(
-    (acc, status) => {
-      acc[status] = [];
+  const kind = options?.kind ?? "lead";
+  const columnValues =
+    kind === "contact" ? [...CONTACT_TYPE_VALUES] : [...LEAD_STATUS_VALUES];
+  const emptyColumns = columnValues.reduce(
+    (acc, value) => {
+      acc[value] = [];
       return acc;
     },
-    {} as Record<LeadStatus, LeadRow[]>,
+    {} as Record<string, LeadRow[]>,
   );
 
   const kanbanParams: LeadsListParams = {
@@ -337,12 +372,19 @@ export async function fetchPeopleKanban(
 
   const { rows, total } = await fetchLeadsList(tenantId, kanbanParams, {
     forExport: true,
-    kind: options?.kind ?? "lead",
+    kind,
   });
 
   const columns = { ...emptyColumns };
   for (const row of rows) {
-    if (columns[row.leadStatus]) {
+    if (kind === "contact") {
+      const type = row.contactType ?? DEFAULT_CONTACT_TYPE;
+      if (columns[type]) {
+        columns[type].push(row);
+      } else {
+        columns[DEFAULT_CONTACT_TYPE].push(row);
+      }
+    } else if (columns[row.leadStatus]) {
       columns[row.leadStatus].push(row);
     } else {
       columns.New.push(row);
@@ -359,12 +401,13 @@ function csvEscape(value: string): string {
   return value;
 }
 
-export function leadsToCsv(rows: LeadRow[]): string {
+export function leadsToCsv(rows: LeadRow[], kind: PersonKind = "lead"): string {
+  const typeHeader = kind === "contact" ? "Type" : "Status";
   const header = [
     "Name",
     "Phone",
     "Email",
-    "Status",
+    typeHeader,
     "Score",
     "Temperature",
     "Opted Out",
@@ -373,12 +416,16 @@ export function leadsToCsv(rows: LeadRow[]): string {
   ];
   const lines = [header.join(",")];
   for (const row of rows) {
+    const typeValue =
+      kind === "contact"
+        ? (row.contactType ?? DEFAULT_CONTACT_TYPE)
+        : row.leadStatusLabel;
     lines.push(
       [
         csvEscape(row.name),
         csvEscape(row.phone ?? ""),
         csvEscape(row.email ?? ""),
-        csvEscape(row.leadStatusLabel),
+        csvEscape(typeValue),
         row.qualificationScore != null ? String(row.qualificationScore) : "",
         csvEscape(row.leadTemperature ?? ""),
         row.optedOut ? "Yes" : "No",

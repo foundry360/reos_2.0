@@ -3,61 +3,75 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LeadRowActions } from "./lead-row-actions";
-import { LeadsPagination } from "./leads-pagination";
-import { PersonActivityTrigger } from "./person-activity-trigger";
-import { deleteLeadsAction } from "@/lib/crm/crm-actions";
+import { OpportunityRowActions } from "./opportunity-row-actions";
+import { OpportunitiesPagination } from "./opportunities-pagination";
+import { deleteOpportunitiesAction } from "@/lib/crm/crm-actions";
 import {
-  personBasePath,
-  personPlural,
-  personSingular,
-  type PersonKind,
-} from "@/lib/crm/person-kind";
+  buildOpportunitySortHref,
+  type OpportunitiesListParams,
+  type OpportunitySortColumn,
+} from "@/lib/opportunities/opportunities-list-params";
+import type { OpportunityRow } from "@/lib/opportunities/opportunities-types";
+import type { OpportunityStage } from "@/lib/opportunities/opportunity-stages";
 import {
-  buildSortHref,
-  type LeadSortColumn,
-  type LeadsListParams,
-} from "@/lib/leads/leads-list-params";
-import type { LeadRow } from "@/lib/leads/leads-types";
-import type { LeadStatus } from "@/lib/coordinator";
-import {
-  DEFAULT_CONTACT_TYPE,
-  formatContactTypeLabel,
-  type ContactType,
-} from "@/lib/crm/contact-type";
-import { formatPhoneDisplay } from "@/lib/phone-display";
-import { TableEmailCell, TablePhoneCell } from "@/components/shell/table-contact-cells";
+  OPPORTUNITY_PRIORITY_COLORS,
+  type OpportunityPriority,
+} from "@/lib/opportunities/opportunity-fields";
+import { displayValue } from "@/lib/display-value";
 import { accountInitials } from "@/lib/user-display";
 import { formatRelativeTime } from "@/lib/admin/activity-timeline";
 import styles from "@/components/shell/shell.module.css";
 
-const STATUS_BADGE_CLASS: Record<LeadStatus, string> = {
+const STAGE_BADGE_CLASS: Record<OpportunityStage, string> = {
   New: styles.badgeLeadNew,
-  Working: styles.badgeLeadWorking,
-  Contacted: styles.badgeLeadContacted,
+  AI_Qualifying: styles.badgeLeadWorking,
   Qualified: styles.badgeLeadQualified,
-  Converted: styles.badgeLeadConverted,
+  Appointment_Set: styles.badgeLeadContacted,
+  Nurture: styles.badgeLeadWorking,
+  Closed_Won: styles.badgeLeadConverted,
 };
 
-const CONTACT_TYPE_BADGE_CLASS: Record<ContactType, string> = {
-  Prospect: styles.badgeLeadNew,
-  Customer: styles.badgeLeadQualified,
-  "Inactive Customer": styles.badgeLeadConverted,
-  Partner: styles.badgeLeadContacted,
-  Vendor: styles.badgeLeadWorking,
-};
-
-function LeadStatusBadge({ status, label }: { status: LeadStatus; label: string }) {
-  return <span className={`${styles.badge} ${STATUS_BADGE_CLASS[status]}`}>{label}</span>;
-}
-
-function ContactTypeBadge({ type }: { type: ContactType | null }) {
-  const value = type ?? DEFAULT_CONTACT_TYPE;
+function PriorityCell({ priority }: { priority: OpportunityPriority | null }) {
+  if (!priority) return <>{displayValue(null)}</>;
   return (
-    <span className={`${styles.badge} ${CONTACT_TYPE_BADGE_CLASS[value]}`}>
-      {formatContactTypeLabel(value)}
+    <span className={styles.priorityInline}>
+      <span
+        className={styles.optionColorDot}
+        style={{ backgroundColor: OPPORTUNITY_PRIORITY_COLORS[priority] }}
+        aria-hidden
+      />
+      {priority}
     </span>
   );
+}
+
+interface SelectOption {
+  id: string;
+  label: string;
+}
+
+function formatUsd(cents: number | null): string {
+  if (cents == null) return displayValue(null);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return displayValue(null);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${value}T12:00:00`));
+}
+
+function contactHref(row: OpportunityRow): string | null {
+  if (!row.contactId) return null;
+  if (row.contactRecordType === "contact") return `/contacts/${row.contactId}`;
+  return `/leads/${row.contactId}`;
 }
 
 function IconSort({ direction }: { direction: "asc" | "desc" | null }) {
@@ -90,12 +104,10 @@ function SortHeader({
   label,
   column,
   params,
-  basePath,
 }: {
   label: string;
-  column: LeadSortColumn;
-  params: LeadsListParams;
-  basePath: string;
+  column: OpportunitySortColumn;
+  params: OpportunitiesListParams;
 }) {
   const active = params.sort === column;
   const nextDir = active && params.dir === "asc" ? "descending" : "ascending";
@@ -104,7 +116,7 @@ function SortHeader({
     <div className={styles.tableSortHeader}>
       <span>{label}</span>
       <Link
-        href={buildSortHref(params, column, basePath)}
+        href={buildOpportunitySortHref(params, column)}
         className={`${styles.tableSortBtn} ${active ? styles.tableSortBtnActive : ""}`}
         aria-label={`Sort by ${label} ${nextDir}`}
       >
@@ -114,18 +126,22 @@ function SortHeader({
   );
 }
 
-interface LeadsTableProps {
-  rows: LeadRow[];
-  params: LeadsListParams;
+interface OpportunitiesTableProps {
+  rows: OpportunityRow[];
+  params: OpportunitiesListParams;
   total: number;
-  kind?: PersonKind;
+  contactOptions: SelectOption[];
+  agentOptions: SelectOption[];
 }
 
-export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTableProps) {
+export function OpportunitiesTable({
+  rows,
+  params,
+  total,
+  contactOptions,
+  agentOptions,
+}: OpportunitiesTableProps) {
   const router = useRouter();
-  const basePath = personBasePath(kind);
-  const plural = personPlural(kind);
-  const singular = personSingular(kind);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,9 +171,9 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
   function handleDelete() {
     setError(null);
     startTransition(async () => {
-      const result = await deleteLeadsAction(selectedIds);
+      const result = await deleteOpportunitiesAction(selectedIds);
       if (!result.ok) {
-        setError(result.error ?? `Could not delete ${plural}.`);
+        setError(result.error ?? "Could not delete opportunities.");
         return;
       }
       setConfirmOpen(false);
@@ -170,9 +186,7 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
     <>
       {selectedIds.length > 0 && (
         <div className={styles.bulkActionBar}>
-          <span className={styles.bulkActionCount}>
-            {selectedIds.length} selected
-          </span>
+          <span className={styles.bulkActionCount}>{selectedIds.length} selected</span>
           <button
             type="button"
             className={styles.btnDanger}
@@ -207,85 +221,92 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                     if (node) node.indeterminate = someSelected;
                   }}
                   onChange={toggleAll}
-                  aria-label={`Select all ${plural} on this page`}
+                  aria-label="Select all opportunities on this page"
                 />
               </th>
               <th>
-                <SortHeader label="Name" column="name" params={params} basePath={basePath} />
+                <SortHeader label="Name" column="name" params={params} />
               </th>
-              <th>Phone</th>
-              <th>Email</th>
+              <th>Contact</th>
               <th>
-                <SortHeader
-                  label={kind === "contact" ? "Type" : "Status"}
-                  column="status"
-                  params={params}
-                  basePath={basePath}
-                />
+                <SortHeader label="Stage" column="stage" params={params} />
+              </th>
+              <th>Priority</th>
+              <th>
+                <SortHeader label="Amount" column="amount" params={params} />
               </th>
               <th>
-                <SortHeader
-                  label="Updated"
-                  column="updated_at"
-                  params={params}
-                  basePath={basePath}
-                />
+                <SortHeader label="Expected close" column="expected_close_date" params={params} />
+              </th>
+              <th>
+                <SortHeader label="Updated" column="updated_at" params={params} />
               </th>
               <th className={styles.tableActionCol} aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
-            {rows.map((lead) => {
-              const selected = selectedIds.includes(lead.id);
+            {rows.map((opportunity) => {
+              const selected = selectedIds.includes(opportunity.id);
+              const href = contactHref(opportunity);
               return (
-                <tr key={lead.id} data-selected={selected ? "true" : undefined}>
+                <tr key={opportunity.id} data-selected={selected ? "true" : undefined}>
                   <td className={styles.tableSelectCol}>
                     <input
                       type="checkbox"
                       checked={selected}
-                      onChange={() => toggleRow(lead.id)}
-                      aria-label={`Select ${lead.name}`}
+                      onChange={() => toggleRow(opportunity.id)}
+                      aria-label={`Select ${opportunity.name}`}
                     />
                   </td>
                   <td>
                     <div className={styles.tableCellPerson}>
-                      <span className={`${styles.avatar} ${styles.personInitialsAvatar}`}>
-                        {accountInitials(lead.name)}
+                      <span className={`${styles.avatar} ${styles.opportunityInitialsAvatar}`}>
+                        {accountInitials(opportunity.name)}
                       </span>
                       <div className={styles.tableCellPersonMain}>
-                        <Link href={`${basePath}/${lead.id}`} className={styles.tableCellLink}>
-                          <span className={styles.tableCellName}>{lead.name}</span>
-                        </Link>
-                        <span className={styles.tableCellPersonDivider} aria-hidden="true" />
-                        <PersonActivityTrigger personName={lead.name} kind={kind} />
+                        <span className={styles.tableCellName}>{opportunity.name}</span>
                       </div>
                     </div>
                   </td>
                   <td>
-                    <TablePhoneCell value={formatPhoneDisplay(lead.phone)} />
-                  </td>
-                  <td>
-                    <TableEmailCell value={lead.email} />
-                  </td>
-                  <td>
-                    {kind === "contact" ? (
-                      <ContactTypeBadge type={lead.contactType} />
+                    {href && opportunity.contactName ? (
+                      <Link href={href} className={styles.tableCellLink}>
+                        {opportunity.contactName}
+                      </Link>
                     ) : (
-                      <LeadStatusBadge status={lead.leadStatus} label={lead.leadStatusLabel} />
+                      displayValue(opportunity.contactName)
                     )}
                   </td>
                   <td>
-                    <time dateTime={lead.updatedAt}>{formatRelativeTime(lead.updatedAt)}</time>
+                    <span
+                      className={`${styles.badge} ${STAGE_BADGE_CLASS[opportunity.stage]}`}
+                    >
+                      {opportunity.stageLabel}
+                    </span>
+                  </td>
+                  <td>
+                    <PriorityCell priority={opportunity.priority} />
+                  </td>
+                  <td>{formatUsd(opportunity.amountCents)}</td>
+                  <td>{formatDate(opportunity.expectedCloseDate)}</td>
+                  <td>
+                    <time dateTime={opportunity.updatedAt}>
+                      {formatRelativeTime(opportunity.updatedAt)}
+                    </time>
                   </td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
-                    <LeadRowActions lead={lead} kind={kind} />
+                    <OpportunityRowActions
+                      opportunity={opportunity}
+                      contactOptions={contactOptions}
+                      agentOptions={agentOptions}
+                    />
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        <LeadsPagination params={params} total={total} kind={kind} />
+        <OpportunitiesPagination params={params} total={total} />
       </div>
 
       {confirmOpen && (
@@ -297,17 +318,19 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
             className={styles.modalPanel}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="delete-leads-title"
+            aria-labelledby="delete-opportunities-title"
             onClick={(e) => e.stopPropagation()}
           >
             <div className={styles.modalHeader}>
               <div>
-                <h2 id="delete-leads-title" className={styles.modalTitle}>
-                  Delete {selectedIds.length} {selectedIds.length === 1 ? singular : plural}?
+                <h2 id="delete-opportunities-title" className={styles.modalTitle}>
+                  Delete {selectedIds.length}{" "}
+                  {selectedIds.length === 1 ? "opportunity" : "opportunities"}?
                 </h2>
                 <p className={styles.modalSubtitle}>
-                  This permanently removes the selected {selectedIds.length === 1 ? singular : plural}{" "}
-                  and related messages. This cannot be undone.
+                  This permanently removes the selected{" "}
+                  {selectedIds.length === 1 ? "opportunity" : "opportunities"}. This cannot be
+                  undone.
                 </p>
               </div>
               <button
