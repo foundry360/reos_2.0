@@ -70,3 +70,23 @@ export async function deleteTenantAction(tenantId: string): Promise<ActionResult
   revalidatePath(`/admin/accounts/${id}`);
   return { ok: true };
 }
+
+export async function deleteTenantsAction(tenantIds: string[]): Promise<ActionResult> {
+  await requirePlatformAdmin();
+
+  const ids = [...new Set(tenantIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return { ok: false, error: "No accounts selected." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("tenants").delete().in("id", ids);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/admin");
+  for (const id of ids) {
+    revalidatePath(`/admin/accounts/${id}`);
+  }
+  return { ok: true };
+}

@@ -4,32 +4,19 @@ import {
   type UsageCategory,
 } from "@/lib/admin/billing-categories";
 import { getCurrentBillingCycle, type BillingCycleWindow } from "@/lib/admin/billing-cycle";
+import type { BillingTenantOption, BillingTenantRow } from "@/lib/admin/billing-types";
 import { normalizeTenantStatus } from "@/lib/admin/account-status";
 import { createClient } from "@/lib/supabase/server";
 
 export type { BillingCycleWindow } from "@/lib/admin/billing-cycle";
 export { getCurrentBillingCycle } from "@/lib/admin/billing-cycle";
+export { formatUsdFromCents } from "@/lib/admin/billing-format";
+export type { BillingTenantOption, BillingTenantRow } from "@/lib/admin/billing-types";
 
 export interface UsageCategoryTotal {
   category: UsageCategory;
   label: string;
   amountCents: number;
-}
-
-export interface BillingTenantOption {
-  id: string;
-  name: string;
-  slug: string;
-}
-
-export interface BillingTenantRow {
-  id: string;
-  name: string;
-  slug: string;
-  status: string;
-  stripeCustomerId: string | null;
-  cycleUsageCents: number;
-  href: string;
 }
 
 export interface BillingRollupStats {
@@ -70,15 +57,6 @@ interface UsageAggregateRow {
   tenant_id: string;
   category: UsageCategory;
   total_cents: number;
-}
-
-export function formatUsdFromCents(cents: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(cents / 100);
 }
 
 function emptyCategoryTotals(): UsageCategoryTotal[] {

@@ -9,6 +9,8 @@ import { requirePlatformAdmin } from "@/lib/admin/auth";
 import { fetchDashboardStats } from "@/lib/admin/dashboard-stats";
 import { getCurrentProfile } from "@/lib/profile/server";
 import { accountInitials } from "@/lib/user-display";
+import { PageHeading } from "@/components/shell/page-heading";
+import { IconLayoutDashboard } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 import { DashCardHeader } from "./_components/dash-card-header";
 
@@ -70,9 +72,7 @@ export default async function AdminDashboardPage() {
   return (
     <>
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>Platform console</h1>
-        </div>
+        <PageHeading icon={<IconLayoutDashboard />} title="Platform console" tone="dark" />
         <div className={styles.pageHeaderActions}>
           <Link href="/admin" className={styles.btnSecondary}>
             View accounts

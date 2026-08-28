@@ -79,6 +79,35 @@ function moveAccount(
   return next;
 }
 
+function IconPhone() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconMail() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M22 6l-10 7L2 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function KanbanCardContent({
   account,
   stageLabel,
@@ -90,6 +119,9 @@ function KanbanCardContent({
   linkTitle?: boolean;
   showActions?: boolean;
 }) {
+  const phone = formatPhoneDisplay(account.phone);
+  const email = account.email?.trim() || null;
+
   return (
     <>
       <div className={styles.kanbanCardTop}>
@@ -117,17 +149,34 @@ function KanbanCardContent({
       ) : (
         <strong className={styles.kanbanCardTitle}>{account.name}</strong>
       )}
+      {(phone || email) && (
+        <div className={styles.kanbanCardContact}>
+          {phone && (
+            <span className={styles.kanbanCardContactRow}>
+              <span className={styles.kanbanCardContactIcon}>
+                <IconPhone />
+              </span>
+              <span className={styles.kanbanCardContactText}>{phone}</span>
+            </span>
+          )}
+          {email && (
+            <span className={styles.kanbanCardContactRow}>
+              <span className={styles.kanbanCardContactIcon}>
+                <IconMail />
+              </span>
+              <span className={styles.kanbanCardContactText}>{email}</span>
+            </span>
+          )}
+        </div>
+      )}
       <div className={styles.kanbanCardFooter}>
-        <span className={styles.kanbanCardMeta}>
-          {formatPhoneDisplay(account.phone) ?? account.slug}
-        </span>
+        <time className={styles.kanbanCardDate} dateTime={account.created_at}>
+          Added {formatShortDate(account.created_at)}
+        </time>
         <span className={styles.kanbanCardAvatar} aria-hidden="true">
           {accountInitials(account.name)}
         </span>
       </div>
-      <time className={styles.kanbanCardDate} dateTime={account.created_at}>
-        Added {formatShortDate(account.created_at)}
-      </time>
     </>
   );
 }
@@ -159,7 +208,7 @@ function KanbanColumnStatic({
         <h2 className={styles.kanbanColumnTitle}>{stage.label}</h2>
         <span className={styles.kanbanColumnCount}>{cards.length}</span>
       </header>
-      <div className={styles.kanbanColumnBody}>
+      <div className={`${styles.kanbanColumnBody} kanban-column-scroll`}>
         {cards.length === 0 ? (
           <p className={styles.kanbanEmpty}>No accounts</p>
         ) : (
@@ -220,7 +269,7 @@ function KanbanColumn({
       </header>
       <div
         ref={setNodeRef}
-        className={`${styles.kanbanColumnBody} ${isOver ? styles.kanbanColumnBodyOver : ""}`}
+        className={`${styles.kanbanColumnBody} kanban-column-scroll ${isOver ? styles.kanbanColumnBodyOver : ""}`}
       >
         {cards.length === 0 ? (
           <p className={styles.kanbanEmpty}>No accounts</p>
@@ -302,7 +351,7 @@ export function OnboardingKanban({ columns: initialColumns }: OnboardingKanbanPr
 
   if (!mounted) {
     return (
-      <div className={styles.kanbanBoard} aria-busy={isPending}>
+      <div className={`${styles.kanbanBoard} kanban-board-scroll`} aria-busy={isPending}>
         {ONBOARDING_STATUS_OPTIONS.map((stage) => (
           <KanbanColumnStatic
             key={stage.value}
@@ -323,7 +372,7 @@ export function OnboardingKanban({ columns: initialColumns }: OnboardingKanbanPr
       onDragCancel={handleDragCancel}
     >
       <div
-        className={styles.kanbanBoard}
+        className={`${styles.kanbanBoard} kanban-board-scroll`}
         data-busy={isPending ? "true" : undefined}
         aria-busy={isPending}
       >

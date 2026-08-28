@@ -1,12 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { displayValue } from "@/lib/display-value";
 import styles from "./shell.module.css";
 
-export function displayValue(value: string | null | undefined): string {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
-}
+export { displayValue };
 
 export function DisplayField({
   label,

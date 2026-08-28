@@ -85,6 +85,7 @@ export async function uploadAvatarAction(
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");
   revalidatePath("/admin/settings");
+  revalidatePath("/settings");
   return { ok: true };
 }
 
@@ -116,6 +117,7 @@ export async function removeAvatarAction(): Promise<{ ok: boolean; error?: strin
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");
   revalidatePath("/admin/settings");
+  revalidatePath("/settings");
   return { ok: true };
 }
 
@@ -150,6 +152,7 @@ export async function updateDisplayNameAction(
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");
   revalidatePath("/admin/settings");
+  revalidatePath("/settings");
   return { ok: true };
 }
 
@@ -188,5 +191,6 @@ export async function updateThemeAction(
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");
   revalidatePath("/admin/settings");
+  revalidatePath("/settings");
   return { ok: true };
 }

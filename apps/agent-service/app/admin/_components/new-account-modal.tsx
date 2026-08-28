@@ -11,7 +11,7 @@ import styles from "@/components/shell/shell.module.css";
 const TIMEZONES = TENANT_TIMEZONES;
 
 interface NewAccountModalProps {
-  trigger?: "pill" | "link";
+  trigger?: "pill" | "link" | "cta";
   linkLabel?: string;
 }
 
@@ -71,14 +71,20 @@ export function NewAccountModal({
 
   return (
     <>
-      {trigger === "pill" ? (
+      {trigger === "pill" || trigger === "cta" ? (
         <button
           type="button"
           className={`${styles.btnPrimary} ${styles.btnPill}`}
           onClick={() => setOpen(true)}
         >
-          <IconPlus />
-          New account
+          {trigger === "pill" ? (
+            <>
+              <IconPlus />
+              New account
+            </>
+          ) : (
+            linkLabel === "Create the first one" ? "Add an Account" : linkLabel
+          )}
         </button>
       ) : (
         <button type="button" className={styles.modalLinkTrigger} onClick={() => setOpen(true)}>

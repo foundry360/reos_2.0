@@ -24,6 +24,7 @@ export interface AccountRow {
   timezone: string;
   created_at: string;
   phone: string | null;
+  email: string | null;
 }
 
 export interface AccountsListResult {
@@ -37,28 +38,21 @@ export interface OnboardingKanbanResult {
   total: number;
 }
 
-async function attachPhones(rows: { id: string }[]): Promise<Map<string, string | null>> {
-  const supabase = await createClient();
-  const tenantIds = rows.map((row) => row.id);
-  const { data: phones } =
-    tenantIds.length > 0
-      ? await supabase
-          .from("tenant_phone_numbers")
-          .select("tenant_id, phone_e164")
-          .in("tenant_id", tenantIds)
-          .eq("is_primary", true)
-      : { data: [] };
-
-  return new Map((phones ?? []).map((p) => [p.tenant_id, p.phone_e164]));
+export interface ActiveKanbanResult {
+  columns: { active: AccountRow[]; paused: AccountRow[] };
+  total: number;
 }
 
-export async function fetchOnboardingKanbanAccounts(q: string): Promise<OnboardingKanbanResult> {
+async function fetchAccountRows(
+  statuses: string[],
+  q: string,
+): Promise<AccountRow[]> {
   const supabase = await createClient();
 
   let query = supabase
     .from("tenants")
-    .select("id, name, slug, status, timezone, created_at")
-    .in("status", [...ONBOARDING_STATUSES])
+    .select("id, name, slug, status, timezone, created_at, email")
+    .in("status", statuses)
     .order("name", { ascending: true });
 
   if (q) {
@@ -71,24 +65,36 @@ export async function fetchOnboardingKanbanAccounts(q: string): Promise<Onboardi
   const { data: tenants, error } = await query.limit(500);
 
   if (error) {
-    console.error("onboarding kanban query failed:", error.message);
-    return {
-      columns: {
-        company_info: [],
-        billing: [],
-        agents: [],
-        connected_accounts: [],
-        testing: [],
-      },
-      total: 0,
-    };
+    console.error("accounts kanban query failed:", error.message);
+    return [];
   }
 
   const phoneByTenant = await attachPhones(tenants ?? []);
-  const rows: AccountRow[] = (tenants ?? []).map((tenant) => ({
+  return (tenants ?? []).map((tenant) => ({
     ...tenant,
     phone: phoneByTenant.get(tenant.id) ?? null,
+    email: tenant.email ?? null,
   }));
+}
+
+export async function fetchActiveKanbanAccounts(
+  q: string,
+  status: AccountsListParams["status"],
+): Promise<ActiveKanbanResult> {
+  const statuses =
+    status === "all" ? (["active", "paused"] as const) : ([status] as const);
+  const rows = await fetchAccountRows([...statuses], q);
+
+  const columns = {
+    active: rows.filter((row) => row.status === "active"),
+    paused: rows.filter((row) => row.status === "paused"),
+  };
+
+  return { columns, total: rows.length };
+}
+
+export async function fetchOnboardingKanbanAccounts(q: string): Promise<OnboardingKanbanResult> {
+  const rows = await fetchAccountRows([...ONBOARDING_STATUSES], q);
 
   const columns = ONBOARDING_STATUSES.reduce(
     (acc, status) => {
@@ -107,14 +113,30 @@ export async function fetchOnboardingKanbanAccounts(q: string): Promise<Onboardi
   return { columns, total: rows.length };
 }
 
+async function attachPhones(rows: { id: string }[]): Promise<Map<string, string | null>> {
+  const supabase = await createClient();
+  const tenantIds = rows.map((row) => row.id);
+  const { data: phones } =
+    tenantIds.length > 0
+      ? await supabase
+          .from("tenant_phone_numbers")
+          .select("tenant_id, phone_e164")
+          .in("tenant_id", tenantIds)
+          .eq("is_primary", true)
+      : { data: [] };
+
+  return new Map((phones ?? []).map((p) => [p.tenant_id, p.phone_e164]));
+}
+
 export async function fetchAccountsList(
   params: AccountsListParams,
+  options?: { forExport?: boolean },
 ): Promise<AccountsListResult> {
   const supabase = await createClient();
 
   let query = supabase
     .from("tenants")
-    .select("id, name, slug, status, timezone, created_at", { count: "exact" });
+    .select("id, name, slug, status, timezone, created_at, email", { count: "exact" });
 
   if (params.q) {
     const term = params.q.replace(/[%_,]/g, "");
@@ -124,9 +146,34 @@ export async function fetchAccountsList(
   }
 
   if (params.view === "active") {
-    query = query.eq("status", "active");
+    if (params.status === "all") {
+      query = query.in("status", ["active", "paused"]);
+    } else {
+      query = query.eq("status", params.status);
+    }
+  } else if (params.view === "onboarding") {
+    if (params.status !== "all") {
+      query = query.eq("status", params.status);
+    } else {
+      query = query.in("status", [...ONBOARDING_STATUSES]);
+    }
   } else if (params.status !== "all") {
     query = query.eq("status", params.status);
+  }
+
+  if (options?.forExport) {
+    const { data, count, error } = await query.limit(5000);
+    if (error) {
+      console.error("accounts export query failed:", error.message);
+      return { rows: [], total: 0, params };
+    }
+    const phoneByTenant = await attachPhones(data ?? []);
+    const rows: AccountRow[] = (data ?? []).map((tenant) => ({
+      ...tenant,
+      phone: phoneByTenant.get(tenant.id) ?? null,
+      email: tenant.email ?? null,
+    }));
+    return { rows, total: count ?? rows.length, params };
   }
 
   const from = (params.page - 1) * params.perPage;
@@ -147,6 +194,7 @@ export async function fetchAccountsList(
   const rows: AccountRow[] = (tenants ?? []).map((tenant) => ({
     ...tenant,
     phone: phoneByTenant.get(tenant.id) ?? null,
+    email: tenant.email ?? null,
   }));
 
   return {
@@ -154,4 +202,30 @@ export async function fetchAccountsList(
     total: count ?? 0,
     params,
   };
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+export function accountsToCsv(rows: AccountRow[]): string {
+  const header = ["Name", "Account Name", "Status", "Phone", "Email", "Timezone", "Created At"];
+  const lines = [header.join(",")];
+  for (const row of rows) {
+    lines.push(
+      [
+        csvEscape(row.name),
+        csvEscape(row.slug),
+        csvEscape(row.status),
+        csvEscape(row.phone ?? ""),
+        csvEscape(row.email ?? ""),
+        csvEscape(row.timezone),
+        csvEscape(row.created_at),
+      ].join(","),
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }

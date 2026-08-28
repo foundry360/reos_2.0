@@ -24,7 +24,7 @@ function stubContext(from: string, tenantId?: string): ContactContext {
   return {
     phone: from,
     accountId: tenantId ?? "default-tenant",
-    leadStatus: "Qualifying",
+    leadStatus: "New",
     optedOut: false,
   };
 }
@@ -114,7 +114,7 @@ async function intakeContact(
 
   const { data: contact, error: contactError } = await db
     .from("contacts")
-    .insert({ tenant_id: tenantId, lead_status: "Qualifying" })
+    .insert({ tenant_id: tenantId, lead_status: "New" })
     .select("id, tenant_id, first_name, lead_status, ai_summary, opted_out")
     .single();
 

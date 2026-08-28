@@ -18,7 +18,6 @@ export async function applyToolCalls(
       fields.lead_temperature = args.lead_temperature;
     if (typeof args.qualification_score === "number")
       fields.qualification_score = args.qualification_score;
-    if (args.lead_status === "Compliance") fields.opted_out = true;
   }
 
   if (Object.keys(fields).length > 0) {

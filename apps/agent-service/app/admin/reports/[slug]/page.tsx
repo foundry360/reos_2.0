@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCannedReport } from "@/lib/admin/report-catalog";
+import { PageHeading } from "@/components/shell/page-heading";
+import { IconReports } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
 interface PageProps {
@@ -16,10 +18,12 @@ export default async function AdminReportDetailPage({ params }: PageProps) {
   return (
     <>
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>{report.title}</h1>
-          <p className={styles.pageSubtitle}>{report.description}</p>
-        </div>
+        <PageHeading
+          icon={<IconReports />}
+          title={report.title}
+          subtitle={report.description}
+          tone="accent"
+        />
         <div className={styles.pageHeaderActions}>
           <Link href="/admin/reports" className={`${styles.btnSecondary} ${styles.btnPill}`}>
             All reports

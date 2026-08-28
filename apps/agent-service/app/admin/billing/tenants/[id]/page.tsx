@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { BillingTenantContent } from "../../../_components/billing-tenant-content";
 import { BillingTenantSelect } from "../../../_components/billing-tenant-select";
 import { fetchBillingRollup, fetchTenantBillingStats } from "@/lib/admin/billing-stats";
+import { PageHeading } from "@/components/shell/page-heading";
+import { IconCreditCard } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
 interface PageProps {
@@ -21,10 +23,12 @@ export default async function AdminTenantBillingPage({ params }: PageProps) {
   return (
     <>
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>Billing</h1>
-          <p className={styles.pageSubtitle}>{stats.tenant.name}</p>
-        </div>
+        <PageHeading
+          icon={<IconCreditCard />}
+          title="Billing"
+          subtitle={stats.tenant.name}
+          tone="light"
+        />
         <div className={styles.pageHeaderActions}>
           <BillingTenantSelect tenantOptions={rollup.tenantOptions} selectedTenantId={id} />
           <Link href={stats.accountHref} className={`${styles.btnSecondary} ${styles.btnPill}`}>

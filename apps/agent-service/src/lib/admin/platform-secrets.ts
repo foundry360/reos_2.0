@@ -13,6 +13,7 @@ export const PLATFORM_SECRET_KEYS = [
   "twilio_auth_token",
   "stripe_secret_key",
   "stripe_webhook_secret",
+  "resend_api_key",
 ] as const;
 
 export type PlatformSecretKey = (typeof PLATFORM_SECRET_KEYS)[number];
@@ -42,6 +43,7 @@ export interface IntegrationsOverview {
     configured: boolean;
     source: IntegrationSource;
   };
+  resend: PlatformSecretStatus;
 }
 
 interface SecretRow {
@@ -126,6 +128,8 @@ function envFallback(key: PlatformSecretKey): string | null {
       return env.STRIPE_SECRET_KEY?.trim() || null;
     case "stripe_webhook_secret":
       return env.STRIPE_WEBHOOK_SECRET?.trim() || null;
+    case "resend_api_key":
+      return env.RESEND_API_KEY?.trim() || null;
     default:
       return null;
   }
@@ -161,13 +165,14 @@ async function buildSecretStatus(key: PlatformSecretKey): Promise<PlatformSecret
 
 
 export async function fetchIntegrationsOverview(): Promise<IntegrationsOverview> {
-  const [openai, accountSid, authToken, stripeSecretKey, stripeWebhookSecret] =
+  const [openai, accountSid, authToken, stripeSecretKey, stripeWebhookSecret, resend] =
     await Promise.all([
       buildSecretStatus("openai_api_key"),
       buildSecretStatus("twilio_account_sid"),
       buildSecretStatus("twilio_auth_token"),
       buildSecretStatus("stripe_secret_key"),
       buildSecretStatus("stripe_webhook_secret"),
+      buildSecretStatus("resend_api_key"),
     ]);
 
   const twilioConfigured = accountSid.configured && authToken.configured;
@@ -201,6 +206,7 @@ export async function fetchIntegrationsOverview(): Promise<IntegrationsOverview>
       configured: stripeConfigured,
       source: stripeSource,
     },
+    resend,
   };
 }
 

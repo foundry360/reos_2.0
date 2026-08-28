@@ -4,8 +4,8 @@ import { THEME_COOKIE } from "@/lib/theme";
 export function ThemeScript() {
   const script = `
 (function () {
-  var isLogin = /^\\/login(\\/|$)/.test(window.location.pathname);
-  if (isLogin) {
+  var isAuthSurface = /^\\/(login|set-password)(\\/|$)/.test(window.location.pathname);
+  if (isAuthSurface) {
     document.documentElement.dataset.theme = 'light';
     document.documentElement.style.colorScheme = 'light';
     return;

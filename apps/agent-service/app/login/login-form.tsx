@@ -17,7 +17,7 @@ export function LoginForm() {
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const [error, setError] = useState<string | null>(
     authError === "auth_callback_failed"
-      ? "Sign-in link expired or was invalid. Please try again."
+      ? "That invite or sign-in link is expired or invalid. Request a fresh invite from admin and open it in a private window."
       : null,
   );
 
@@ -48,6 +48,32 @@ export function LoginForm() {
     }
 
     window.location.href = next;
+  }
+
+  async function handleForgotPassword(e: React.MouseEvent) {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError("Enter your email address first.");
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    const supabase = createClient();
+    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/set-password")}`;
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo,
+    });
+
+    setLoading(false);
+
+    if (resetError) {
+      setError(resetError.message);
+      return;
+    }
+
+    setMagicLinkSent(true);
   }
 
   async function handleMagicLink() {
@@ -140,9 +166,21 @@ export function LoginForm() {
               />
               Remember me
             </label>
-            <a className={styles.link} href="mailto:support@foundry360.com">
+            <button
+              type="button"
+              className={styles.link}
+              onClick={handleForgotPassword}
+              disabled={loading}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                font: "inherit",
+              }}
+            >
               Forgot your password?
-            </a>
+            </button>
           </div>
         </form>
 

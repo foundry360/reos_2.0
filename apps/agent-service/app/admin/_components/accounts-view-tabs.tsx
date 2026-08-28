@@ -24,6 +24,14 @@ export function AccountsViewTabs({ params }: AccountsViewTabsProps) {
           view: tab.id,
           status: "all",
           page: 1,
+          layout:
+            tab.id === "onboarding"
+              ? params.view === "onboarding"
+                ? params.layout
+                : "kanban"
+              : params.view === "active"
+                ? params.layout
+                : "list",
         })}`;
 
         return (

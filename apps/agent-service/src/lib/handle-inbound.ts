@@ -31,12 +31,11 @@ function isOptOutMessage(body: string): boolean {
 }
 
 async function applyCompliance(ctx: ContactContext, body: string): Promise<boolean> {
-  if (ctx.optedOut || ctx.leadStatus === "Compliance") return true;
+  if (ctx.optedOut) return true;
   if (!isOptOutMessage(body)) return false;
   if (ctx.contactId) {
     await updateContactFields(ctx.contactId, {
       opted_out: true,
-      lead_status: "Compliance",
     });
   }
   return true;
@@ -97,7 +96,7 @@ export async function handleInboundSms(sms: InboundSms): Promise<OutboundSms> {
 
   if (await applyCompliance(ctx, sms.body)) {
     return {
-      reply: ctx.optedOut || ctx.leadStatus === "Compliance" ? "" : "You have been unsubscribed.",
+      reply: ctx.optedOut ? "" : "You have been unsubscribed.",
       playbook: "none",
       contactId: ctx.contactId,
     };

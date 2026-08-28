@@ -10,6 +10,8 @@ import { fetchTenantUsageSummary } from "@/lib/admin/billing-stats";
 import { buildSetupChecklist } from "@/lib/admin/setup-checklist";
 import { getTenantConfig } from "@/lib/admin/tenant-config";
 import { getTenantUsers } from "@/lib/admin/tenant-users";
+import { PageHeading } from "@/components/shell/page-heading";
+import { IconBuilding } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
 interface PageProps {
@@ -82,9 +84,7 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
   return (
     <>
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>{tenant.name}</h1>
-        </div>
+        <PageHeading icon={<IconBuilding />} title={tenant.name} tone="brand" />
         <div className={styles.pageHeaderActions}>
           <Link href="/admin" className={`${styles.btnPrimary} ${styles.btnPill}`}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">

@@ -1,14 +1,13 @@
 /** Agent playbooks — mirrors GHL Concierge / Scheduler / Follow-Up routing. */
 export type AgentPlaybook = "concierge" | "scheduler" | "follow_up" | "none";
 
-/** Salesforce Lead_Status__c picklist values. */
+/** Lead pipeline statuses. */
 export type LeadStatus =
-  | "Qualifying"
-  | "Ready_to_Book"
-  | "Nurture"
-  | "Booked"
-  | "Handoff"
-  | "Compliance";
+  | "New"
+  | "Working"
+  | "Contacted"
+  | "Qualified"
+  | "Converted";
 
 export interface ContactContext {
   contactId?: string;
@@ -25,10 +24,9 @@ export interface ContactContext {
  * Port of docs/prompts/coordinator.md (GHL REOS reference).
  */
 export function resolvePlaybook(ctx: ContactContext): AgentPlaybook {
-  if (ctx.optedOut || ctx.leadStatus === "Compliance") return "none";
-  if (ctx.leadStatus === "Handoff") return "none";
-  if (ctx.leadStatus === "Ready_to_Book") return "scheduler";
-  if (ctx.leadStatus === "Booked") return "follow_up";
-  if (ctx.leadStatus === "Nurture") return "follow_up";
+  if (ctx.optedOut) return "none";
+  if (ctx.leadStatus === "Converted") return "none";
+  if (ctx.leadStatus === "Qualified") return "scheduler";
+  if (ctx.leadStatus === "Contacted") return "follow_up";
   return "concierge";
 }

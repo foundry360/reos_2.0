@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { resolveProfileAvatarUrl, userInitials } from "@/lib/user-display";
+import { profileInitials, resolveProfileAvatarUrl } from "@/lib/user-display";
 import styles from "./shell.module.css";
 
 interface UserAvatarProps {
   email: string;
+  displayName?: string | null;
   avatarUrl?: string | null;
   className?: string;
 }
 
-export function UserAvatar({ email, avatarUrl, className }: UserAvatarProps) {
+export function UserAvatar({ email, displayName, avatarUrl, className }: UserAvatarProps) {
   const [imageFailed, setImageFailed] = useState(false);
   const resolvedAvatarUrl = resolveProfileAvatarUrl(avatarUrl);
 
@@ -27,6 +28,8 @@ export function UserAvatar({ email, avatarUrl, className }: UserAvatarProps) {
   }
 
   return (
-    <span className={`${styles.avatar} ${className ?? ""}`}>{userInitials(email)}</span>
+    <span className={`${styles.avatar} ${className ?? ""}`}>
+      {profileInitials(displayName, email)}
+    </span>
   );
 }

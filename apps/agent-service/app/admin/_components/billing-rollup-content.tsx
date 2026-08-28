@@ -12,50 +12,21 @@ import {
 import {
   formatUsdFromCents,
   type BillingRollupStats,
-  type UsageCategoryTotal,
 } from "@/lib/admin/billing-stats";
 import styles from "@/components/shell/shell.module.css";
-
-function CategoryBreakdown({ items }: { items: UsageCategoryTotal[] }) {
-  const max = Math.max(1, ...items.map((item) => item.amountCents));
-
-  return (
-    <div className={styles.billingCategoryList}>
-      {items.map((item) => (
-        <div key={item.category} className={styles.billingCategoryRow}>
-          <span className={styles.billingCategoryLabel}>{item.label}</span>
-          <span className={styles.billingCategoryTrack}>
-            <span
-              className={styles.billingCategoryFill}
-              style={{
-                width: `${item.amountCents === 0 ? 0 : Math.max(8, (item.amountCents / max) * 100)}%`,
-              }}
-            />
-          </span>
-          <span className={styles.billingCategoryValue}>
-            {formatUsdFromCents(item.amountCents)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+import { BillingCategoryBreakdown } from "./billing-category-breakdown";
+import { BillingTenantsTable } from "./billing-tenants-table";
+import type { AdminLayout } from "./admin-layout-toggle";
 
 export function BillingRollupContent({
   stats,
   filterMissing = false,
+  layout = "list",
 }: {
   stats: BillingRollupStats;
   filterMissing?: boolean;
+  layout?: AdminLayout;
 }) {
-  const visibleTenants = filterMissing
-    ? stats.tenants.filter(
-        (tenant) =>
-          !tenant.stripeCustomerId &&
-          (tenant.status === "active" || tenant.status === "testing"),
-      )
-    : stats.tenants;
-
   const topSpender = stats.tenants.find((tenant) => tenant.cycleUsageCents > 0) ?? null;
 
   return (
@@ -112,7 +83,7 @@ export function BillingRollupContent({
               </div>
             </div>
           </div>
-          <CategoryBreakdown items={stats.categoryTotals} />
+          <BillingCategoryBreakdown items={stats.categoryTotals} />
         </section>
 
         <section className={styles.dashCard}>
@@ -159,51 +130,7 @@ export function BillingRollupContent({
         </section>
       </div>
 
-      <section className={styles.tableWrap}>
-        <div className={styles.billingTableHeader}>
-          <div>
-            <h2 className={styles.dashCardTitle}>Tenant usage</h2>
-            <p className={styles.dashCardSubtitle}>Current cycle by account</p>
-          </div>
-        </div>
-        {visibleTenants.length === 0 ? (
-          <p className={styles.empty}>
-            {filterMissing
-              ? "All active and testing accounts have billing configured."
-              : "No accounts yet."}
-          </p>
-        ) : (
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Status</th>
-                <th>Billing</th>
-                <th>Cycle usage</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleTenants.map((tenant) => (
-                <tr key={tenant.id}>
-                  <td>
-                    <Link href={tenant.href} className={styles.tableCellLink}>
-                      {tenant.name}
-                    </Link>
-                    <div className={styles.billingTableSubtext}>{tenant.slug}</div>
-                  </td>
-                  <td>
-                    <AccountStatusBadge status={tenant.status} />
-                  </td>
-                  <td>{tenant.stripeCustomerId ? "Connected" : "Not configured"}</td>
-                  <td className={styles.billingAmountCell}>
-                    {formatUsdFromCents(tenant.cycleUsageCents)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+      <BillingTenantsTable tenants={stats.tenants} filterMissing={filterMissing} layout={layout} />
     </>
   );
 }

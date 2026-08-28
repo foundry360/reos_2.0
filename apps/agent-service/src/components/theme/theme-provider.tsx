@@ -10,8 +10,8 @@ interface ThemeProviderProps {
 
 export function ThemeProvider({ preference, children }: ThemeProviderProps) {
   useEffect(() => {
-    const onLogin = /^\/login(\/|$)/.test(window.location.pathname);
-    if (onLogin) {
+    const onAuthSurface = /^\/(login|set-password)(\/|$)/.test(window.location.pathname);
+    if (onAuthSurface) {
       applyTheme("light");
       return;
     }

@@ -1,3 +1,20 @@
+/** Initials from a display name (first + last) with email fallback. */
+export function profileInitials(
+  displayName: string | null | undefined,
+  email?: string | null,
+): string {
+  const name = displayName?.trim();
+  if (name) {
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  }
+  if (email?.trim()) return userInitials(email);
+  return "?";
+}
+
 export function userInitials(email: string): string {
   const local = email.split("@")[0] ?? "?";
   const parts = local.split(/[._-]+/).filter(Boolean);
@@ -10,7 +27,7 @@ export function userInitials(email: string): string {
 export function accountInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
   return name.slice(0, 2).toUpperCase();
 }

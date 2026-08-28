@@ -19,7 +19,7 @@ const USER_TYPE_OPTIONS: { value: TenantUserRole; label: string }[] = [
 
 interface NewUserModalProps {
   tenants: TenantOption[];
-  trigger?: "pill" | "link";
+  trigger?: "pill" | "link" | "cta";
   linkLabel?: string;
 }
 
@@ -31,6 +31,8 @@ export function NewUserModal({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [tenantId, setTenantId] = useState(tenants[0]?.id ?? "");
   const [name, setName] = useState("");
@@ -52,6 +54,8 @@ export function NewUserModal({
   useEffect(() => {
     if (open) {
       setError(null);
+      setSuccess(null);
+      setInviteUrl(null);
       if (!tenantId && tenants[0]) setTenantId(tenants[0].id);
       document.body.style.overflow = "hidden";
     } else {
@@ -66,6 +70,8 @@ export function NewUserModal({
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+    setInviteUrl(null);
 
     if (!tenantId) {
       setError("Select an account.");
@@ -82,9 +88,24 @@ export function NewUserModal({
         return;
       }
 
-      setOpen(false);
+      setSuccess(result.message ?? "Invite email sent.");
+      if (result.inviteUrl) {
+        setInviteUrl(result.inviteUrl);
+        router.refresh();
+        return;
+      }
       router.refresh();
+      window.setTimeout(() => setOpen(false), 1600);
     });
+  }
+
+  async function copyInviteUrl() {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+    } catch {
+      // ignore
+    }
   }
 
   const tenantOptions = tenants.map((tenant) => ({
@@ -94,15 +115,21 @@ export function NewUserModal({
 
   return (
     <>
-      {trigger === "pill" ? (
+      {trigger === "pill" || trigger === "cta" ? (
         <button
           type="button"
           className={`${styles.btnPrimary} ${styles.btnPill}`}
           onClick={() => setOpen(true)}
           disabled={tenants.length === 0}
         >
-          <IconPlus />
-          New user
+          {trigger === "pill" ? (
+            <>
+              <IconPlus />
+              New user
+            </>
+          ) : (
+            linkLabel === "Add the first one" ? "Add a User" : linkLabel
+          )}
         </button>
       ) : (
         <button type="button" className={styles.modalLinkTrigger} onClick={() => setOpen(true)}>
@@ -126,7 +153,7 @@ export function NewUserModal({
                   New user
                 </h2>
                 <p className={styles.modalSubtitle}>
-                  Adds a user to an account. New users receive an invite email to set their password.
+                  Adds a user to an account and emails them a link to set their password.
                 </p>
               </div>
               <button
@@ -142,7 +169,28 @@ export function NewUserModal({
 
             <form className={styles.modalBody} onSubmit={handleSubmit}>
               {error && <p className={styles.error}>{error}</p>}
+              {success && <p className={styles.success}>{success}</p>}
+              {inviteUrl && (
+                <div className={styles.success} style={{ display: "grid", gap: "0.5rem" }}>
+                  <code style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>{inviteUrl}</code>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    <button type="button" className={styles.btnSecondary} onClick={copyInviteUrl}>
+                      Copy link
+                    </button>
+                    <a
+                      className={styles.btnPrimary}
+                      href={inviteUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open link
+                    </a>
+                  </div>
+                </div>
+              )}
 
+              {!inviteUrl && (
+                <>
               <div className={styles.field}>
                 <label className={styles.label} htmlFor="new-user-account">
                   Account
@@ -152,7 +200,7 @@ export function NewUserModal({
                   value={tenantId}
                   ariaLabel="Account"
                   placeholder="Select account"
-                  disabled={pending || tenants.length === 0}
+                  disabled={pending || tenants.length === 0 || Boolean(success)}
                   onChange={setTenantId}
                   options={tenantOptions}
                 />
@@ -169,7 +217,7 @@ export function NewUserModal({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Jane Smith"
-                  disabled={pending}
+                  disabled={pending || Boolean(success)}
                 />
               </div>
 
@@ -186,7 +234,7 @@ export function NewUserModal({
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="user@example.com"
                   required
-                  disabled={pending}
+                  disabled={pending || Boolean(success)}
                 />
               </div>
 
@@ -198,7 +246,7 @@ export function NewUserModal({
                   id="new-user-phone"
                   name="phone"
                   className={styles.input}
-                  disabled={pending}
+                  disabled={pending || Boolean(success)}
                 />
               </div>
 
@@ -211,11 +259,13 @@ export function NewUserModal({
                   name="userType"
                   value={userType}
                   ariaLabel="User type"
-                  disabled={pending}
+                  disabled={pending || Boolean(success)}
                   onChange={(value) => setUserType(value as TenantUserRole)}
                   options={USER_TYPE_OPTIONS}
                 />
               </div>
+                </>
+              )}
 
               <div className={styles.modalFooter}>
                 <button
@@ -224,11 +274,13 @@ export function NewUserModal({
                   onClick={() => setOpen(false)}
                   disabled={pending}
                 >
-                  Cancel
+                  {success || inviteUrl ? "Done" : "Cancel"}
                 </button>
-                <button type="submit" className={styles.btnPrimary} disabled={pending}>
-                  {pending ? "Adding…" : "Add user"}
-                </button>
+                {!success && !inviteUrl && (
+                  <button type="submit" className={styles.btnPrimary} disabled={pending}>
+                    {pending ? "Sending…" : "Add user"}
+                  </button>
+                )}
               </div>
             </form>
           </div>

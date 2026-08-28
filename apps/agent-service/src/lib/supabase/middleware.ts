@@ -29,11 +29,19 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isLogin = pathname.startsWith("/login");
-  const isAuthCallback = pathname.startsWith("/auth/callback");
+  const isSetPassword = pathname.startsWith("/set-password");
+  const isAuthRoute = pathname.startsWith("/auth/");
   const isPublicApi =
     pathname.startsWith("/api/webhooks") || pathname === "/api/health";
 
-  if (!user && !isLogin && !isAuthCallback && !isPublicApi && !pathname.startsWith("/api/")) {
+  if (
+    !user &&
+    !isLogin &&
+    !isSetPassword &&
+    !isAuthRoute &&
+    !isPublicApi &&
+    !pathname.startsWith("/api/")
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);

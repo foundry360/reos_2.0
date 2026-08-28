@@ -50,7 +50,7 @@ export function UserMenu({
         aria-haspopup="menu"
         aria-label="Account menu"
       >
-        <UserAvatar email={email} avatarUrl={avatarUrl} />
+        <UserAvatar email={email} displayName={displayName} avatarUrl={avatarUrl} />
         {!compact && (
           <>
             <span className={styles.avatarMeta}>
@@ -67,7 +67,12 @@ export function UserMenu({
       {open && (
         <div className={styles.menuDropdown} role="menu">
           <div className={styles.menuHeader}>
-            <UserAvatar email={email} avatarUrl={avatarUrl} className={styles.menuAvatarImg} />
+            <UserAvatar
+              email={email}
+              displayName={displayName}
+              avatarUrl={avatarUrl}
+              className={styles.menuAvatarImg}
+            />
             <div>
               <span className={styles.menuName}>{name}</span>
               <span className={styles.menuEmail}>{email}</span>

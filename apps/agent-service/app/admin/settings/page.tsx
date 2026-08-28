@@ -4,6 +4,8 @@ import { getCurrentProfile } from "@/lib/profile/server";
 import { AccountSettingsForm } from "./_components/account-settings-form";
 import { AppearanceSettings } from "./_components/appearance-settings";
 import { UserManagement } from "./_components/user-management";
+import { PageHeading } from "@/components/shell/page-heading";
+import { IconSettings } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
 export default async function AdminSettingsPage() {
@@ -16,12 +18,12 @@ export default async function AdminSettingsPage() {
   return (
     <>
       <div className={styles.pageHeader}>
-        <div>
-          <h1 className={styles.pageTitle}>Settings</h1>
-          <p className={styles.pageSubtitle}>
-            Manage your account, appearance, and platform admins.
-          </p>
-        </div>
+        <PageHeading
+          icon={<IconSettings />}
+          title="Settings"
+          subtitle="Manage your account, appearance, and platform admins."
+          tone="dark"
+        />
       </div>
 
       <div className={styles.settingsPageStack}>

@@ -3,16 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { requirePlatformAdmin } from "@/lib/admin/auth";
-import { findUserIdByEmail } from "@/lib/admin/platform-admin-actions";
+import { findAuthUserByEmail } from "@/lib/admin/platform-admin-actions";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { TenantUserRole } from "@/lib/admin/tenant-users";
 import { parsePhoneForStorage } from "@/lib/phone-display";
+import { sendPasswordSetupEmail } from "@/lib/auth/send-password-setup-email";
+import { buildAcceptInviteUrl } from "@/lib/auth/invite-token";
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
   invited?: boolean;
+  message?: string;
+  /** Present when email could not be sent (e.g. Supabase rate limit). */
+  inviteUrl?: string;
 }
 
 function revalidateTenant(tenantId: string) {
@@ -24,6 +29,15 @@ function revalidateTenant(tenantId: string) {
 function readRole(value: string): TenantUserRole | null {
   if (value === "owner" || value === "agent" || value === "viewer") return value;
   return null;
+}
+
+function resolveAppOrigin(headerStore: Headers): string {
+  const origin = headerStore.get("origin");
+  if (origin) return origin;
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+  if (host) return `${proto}://${host}`;
+  return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
 
 export async function updateTenantUserAction(formData: FormData): Promise<ActionResult> {
@@ -94,38 +108,44 @@ export async function createTenantUserAction(formData: FormData): Promise<Action
   const admin = getSupabaseAdmin();
   if (!admin) return { ok: false, error: "Server configuration error (Supabase admin)." };
 
-  let userId = await findUserIdByEmail(admin, email);
-  let invited = false;
+  const headerStore = await headers();
+  const origin = resolveAppOrigin(headerStore);
 
-  if (!userId) {
-    const headerStore = await headers();
-    const origin = headerStore.get("origin") ?? "http://localhost:3000";
+  const existingUser = await findAuthUserByEmail(admin, email);
+  let userId = existingUser?.id ?? null;
 
-    const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(
-      email,
-      {
-        redirectTo: `${origin}/auth/callback?next=/`,
-      },
-    );
+  if (userId) {
+    const { data: existingMembership } = await supabase
+      .from("memberships")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (inviteError) return { ok: false, error: inviteError.message };
-
-    userId = inviteData.user?.id ?? null;
-    invited = true;
+    if (existingMembership) {
+      const resent = await sendPasswordSetupEmail(admin, email, origin, userId);
+      if (!resent.ok) return { ok: false, error: resent.error };
+      if (!resent.emailed) {
+        return {
+          ok: true,
+          invited: true,
+          inviteUrl: buildAcceptInviteUrl(origin, email),
+          message:
+            "Supabase email rate limit hit. Open this invite link in a private window (email will work again after the limit resets, or add custom SMTP).",
+        };
+      }
+      return {
+        ok: true,
+        invited: true,
+        message:
+          "User is already on this account. A fresh password setup email was sent.",
+      };
+    }
   }
 
-  if (!userId) return { ok: false, error: "Could not resolve user for that email." };
-
-  const { data: existingMembership } = await supabase
-    .from("memberships")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (existingMembership) {
-    return { ok: false, error: "That user is already on this account." };
-  }
+  const invited = await sendPasswordSetupEmail(admin, email, origin, userId);
+  if (!invited.ok) return { ok: false, error: invited.error };
+  userId = invited.userId;
 
   const { error: membershipError } = await supabase.from("memberships").insert({
     tenant_id: tenantId,
@@ -151,7 +171,23 @@ export async function createTenantUserAction(formData: FormData): Promise<Action
   if (auditError) return { ok: false, error: auditError.message };
 
   revalidateTenant(tenantId);
-  return { ok: true, invited };
+
+  if (!invited.emailed) {
+    return {
+      ok: true,
+      invited: true,
+      inviteUrl: buildAcceptInviteUrl(origin, email),
+      message:
+        "User added, but Supabase email rate limit hit. Open this invite link in a private window for now.",
+    };
+  }
+
+  return {
+    ok: true,
+    invited: true,
+    message:
+      "Invite email sent. They should open the link, set a password, then enter the workspace.",
+  };
 }
 
 export async function deleteTenantUserAction(formData: FormData): Promise<ActionResult> {
@@ -174,5 +210,44 @@ export async function deleteTenantUserAction(formData: FormData): Promise<Action
   if (error) return { ok: false, error: error.message };
 
   revalidateTenant(tenantId);
+  revalidatePath("/admin/users");
+  return { ok: true };
+}
+
+export async function deleteTenantUsersAction(
+  items: { tenantId: string; membershipId: string }[],
+): Promise<ActionResult> {
+  await requirePlatformAdmin();
+
+  const unique = items.filter(
+    (item, index, all) =>
+      item.tenantId.trim() &&
+      item.membershipId.trim() &&
+      all.findIndex(
+        (other) =>
+          other.tenantId === item.tenantId && other.membershipId === item.membershipId,
+      ) === index,
+  );
+
+  if (unique.length === 0) {
+    return { ok: false, error: "No users selected." };
+  }
+
+  const supabase = await createClient();
+  for (const item of unique) {
+    const { error } = await supabase
+      .from("memberships")
+      .delete()
+      .eq("id", item.membershipId.trim())
+      .eq("tenant_id", item.tenantId.trim());
+
+    if (error) return { ok: false, error: error.message };
+  }
+
+  for (const tenantId of new Set(unique.map((item) => item.tenantId.trim()))) {
+    revalidateTenant(tenantId);
+  }
+
+  revalidatePath("/admin/users");
   return { ok: true };
 }

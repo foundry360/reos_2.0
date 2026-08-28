@@ -13,34 +13,9 @@ import {
 import {
   formatUsdFromCents,
   type TenantBillingStats,
-  type UsageCategoryTotal,
 } from "@/lib/admin/billing-stats";
 import styles from "@/components/shell/shell.module.css";
-
-function CategoryBreakdown({ items }: { items: UsageCategoryTotal[] }) {
-  const max = Math.max(1, ...items.map((item) => item.amountCents));
-
-  return (
-    <div className={styles.billingCategoryList}>
-      {items.map((item) => (
-        <div key={item.category} className={styles.billingCategoryRow}>
-          <span className={styles.billingCategoryLabel}>{item.label}</span>
-          <span className={styles.billingCategoryTrack}>
-            <span
-              className={styles.billingCategoryFill}
-              style={{
-                width: `${item.amountCents === 0 ? 0 : Math.max(8, (item.amountCents / max) * 100)}%`,
-              }}
-            />
-          </span>
-          <span className={styles.billingCategoryValue}>
-            {formatUsdFromCents(item.amountCents)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+import { BillingCategoryBreakdown } from "./billing-category-breakdown";
 
 export function BillingTenantContent({ stats }: { stats: TenantBillingStats }) {
   return (
@@ -86,7 +61,7 @@ export function BillingTenantContent({ stats }: { stats: TenantBillingStats }) {
           />
           <div className={styles.dashCardBody}>
             <p className={styles.dashCardSubtitle}>Twilio, AI, and other costs</p>
-            <CategoryBreakdown items={stats.categoryTotals} />
+            <BillingCategoryBreakdown items={stats.categoryTotals} />
             {stats.totalUsageCents === 0 && (
               <p className={styles.billingEmptyHint}>
                 Usage events will appear here once SMS and AI metering is enabled.

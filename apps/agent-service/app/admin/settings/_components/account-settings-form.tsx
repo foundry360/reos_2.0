@@ -98,6 +98,7 @@ export function AccountSettingsForm({
         <div className={styles.settingsPhotoRow}>
           <UserAvatar
             email={email}
+            displayName={displayName}
             avatarUrl={avatarUrl}
             className={styles.settingsAvatar}
           />

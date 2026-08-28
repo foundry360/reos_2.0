@@ -3,14 +3,16 @@ import {
   isOpenAIConfiguredAsync,
   isTwilioConfiguredAsync,
 } from "@/lib/admin/platform-credentials";
+import { isResendConfigured } from "@/lib/admin/resend";
 import { isStripeConfiguredAsync } from "@/lib/admin/stripe";
 import { isSupabaseConfigured, getEnv } from "@/lib/env";
 
 export async function GET() {
-  const [openai, twilio, stripe] = await Promise.all([
+  const [openai, twilio, stripe, resend] = await Promise.all([
     isOpenAIConfiguredAsync(),
     isTwilioConfiguredAsync(),
     isStripeConfiguredAsync(),
+    isResendConfigured(),
   ]);
 
   return NextResponse.json({
@@ -20,5 +22,6 @@ export async function GET() {
     supabase: isSupabaseConfigured(getEnv()),
     twilio,
     stripe,
+    resend,
   });
 }

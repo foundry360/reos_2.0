@@ -43,6 +43,13 @@ export interface UsersListResult {
   params: UsersListParams;
 }
 
+export interface UsersKanbanResult {
+  columns: Record<"owner" | "agent" | "viewer", UserRow[]>;
+  total: number;
+}
+
+const USER_KANBAN_ROLES = ["owner", "agent", "viewer"] as const;
+
 interface MembershipQueryRow {
   id: string;
   user_id: string;
@@ -181,6 +188,7 @@ async function fetchMembershipPage(
   supabase: Awaited<ReturnType<typeof createClient>>,
   params: UsersListParams,
   searchFilter: string | null,
+  forExport = false,
 ): Promise<{ memberships: MembershipQueryRow[]; total: number }> {
   let query = supabase.from("memberships").select(
     `
@@ -218,7 +226,9 @@ async function fetchMembershipPage(
   const from = (params.page - 1) * params.perPage;
   const to = from + params.perPage - 1;
 
-  const { data, count, error } = await query.range(from, to);
+  const { data, count, error } = forExport
+    ? await query.limit(5000)
+    : await query.range(from, to);
 
   if (error) {
     console.error("users list query failed:", error.message);
@@ -235,6 +245,7 @@ async function fetchMembershipPageSortedByName(
   supabase: Awaited<ReturnType<typeof createClient>>,
   params: UsersListParams,
   searchFilter: string | null,
+  forExport = false,
 ): Promise<{ memberships: MembershipQueryRow[]; total: number }> {
   let query = supabase.from("memberships").select(
     `
@@ -277,7 +288,9 @@ async function fetchMembershipPageSortedByName(
   });
 
   const from = (params.page - 1) * params.perPage;
-  const pageRows = sorted.slice(from, from + params.perPage);
+  const pageRows = forExport
+    ? sorted.slice(0, 5000)
+    : sorted.slice(from, from + params.perPage);
 
   const membershipById = new Map(memberships.map((row) => [row.id, row]));
   const pageMemberships = pageRows.flatMap((row) => {
@@ -291,9 +304,13 @@ async function fetchMembershipPageSortedByName(
   };
 }
 
-export async function fetchUsersList(params: UsersListParams): Promise<UsersListResult> {
+export async function fetchUsersList(
+  params: UsersListParams,
+  options?: { forExport?: boolean },
+): Promise<UsersListResult> {
   await requirePlatformAdmin();
   const supabase = await createClient();
+  const forExport = options?.forExport ?? false;
 
   let searchFilter: string | null = null;
   if (params.q) {
@@ -305,8 +322,8 @@ export async function fetchUsersList(params: UsersListParams): Promise<UsersList
 
   const { memberships, total } =
     params.sort === "name"
-      ? await fetchMembershipPageSortedByName(supabase, params, searchFilter)
-      : await fetchMembershipPage(supabase, params, searchFilter);
+      ? await fetchMembershipPageSortedByName(supabase, params, searchFilter, forExport)
+      : await fetchMembershipPage(supabase, params, searchFilter, forExport);
 
   const userIds = [...new Set(memberships.map((row) => row.user_id))];
   const [profilesByUserId, emailByUserId] = await Promise.all([
@@ -321,4 +338,46 @@ export async function fetchUsersList(params: UsersListParams): Promise<UsersList
     total,
     params,
   };
+}
+
+export async function fetchUsersKanban(params: UsersListParams): Promise<UsersKanbanResult> {
+  const result = await fetchUsersList(
+    { ...params, page: 1, perPage: 100, sort: "name", dir: "asc" },
+    { forExport: true },
+  );
+
+  const columns = USER_KANBAN_ROLES.reduce(
+    (acc, role) => {
+      acc[role] = result.rows.filter((row) => row.userType === role);
+      return acc;
+    },
+    { owner: [], agent: [], viewer: [] } as Record<"owner" | "agent" | "viewer", UserRow[]>,
+  );
+
+  return { columns, total: result.total };
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+export function usersToCsv(rows: UserRow[]): string {
+  const header = ["Name", "Email", "Account", "User Type", "Phone", "Created At"];
+  const lines = [header.join(",")];
+  for (const row of rows) {
+    lines.push(
+      [
+        csvEscape(row.name),
+        csvEscape(row.email),
+        csvEscape(row.tenantName),
+        csvEscape(row.userTypeLabel),
+        csvEscape(row.phone ?? ""),
+        csvEscape(row.createdAt),
+      ].join(","),
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }

@@ -25,14 +25,7 @@ const CRM_TOOLS: ChatCompletionTool[] = [
           ai_summary: { type: "string" },
           lead_status: {
             type: "string",
-            enum: [
-              "Qualifying",
-              "Ready_to_Book",
-              "Nurture",
-              "Booked",
-              "Handoff",
-              "Compliance",
-            ],
+            enum: ["New", "Working", "Contacted", "Qualified", "Converted"],
           },
           lead_temperature: {
             type: "string",

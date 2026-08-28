@@ -4,10 +4,12 @@ export type UserSortColumn = (typeof USER_SORT_COLUMNS)[number];
 export type SortDirection = "asc" | "desc";
 export const PAGE_SIZES = [25, 50, 75, 100] as const;
 export type PageSize = (typeof PAGE_SIZES)[number];
+export type UsersLayout = "list" | "kanban";
 
 export interface UsersListParams {
   q: string;
   role: "all" | "owner" | "agent" | "viewer";
+  layout: UsersLayout;
   sort: UserSortColumn;
   dir: SortDirection;
   page: number;
@@ -33,6 +35,9 @@ export function parseUsersListParams(
   const role =
     roleRaw === "owner" || roleRaw === "agent" || roleRaw === "viewer" ? roleRaw : "all";
 
+  const layoutRaw = readParam(searchParams.layout);
+  const layout: UsersLayout = layoutRaw === "kanban" ? "kanban" : "list";
+
   const perPageRaw = Number(readParam(searchParams.perPage));
   const perPage = PAGE_SIZES.includes(perPageRaw as PageSize)
     ? (perPageRaw as PageSize)
@@ -44,6 +49,7 @@ export function parseUsersListParams(
   return {
     q: readParam(searchParams.q).trim(),
     role,
+    layout,
     sort,
     dir,
     page,
@@ -55,6 +61,7 @@ export function buildUsersListQuery(params: UsersListParams): string {
   const qs = new URLSearchParams();
   if (params.q) qs.set("q", params.q);
   if (params.role !== "all") qs.set("role", params.role);
+  if (params.layout === "kanban") qs.set("layout", "kanban");
   if (params.sort !== "created_at") qs.set("sort", params.sort);
   if (params.dir !== "desc") qs.set("dir", params.dir);
   if (params.page !== 1) qs.set("page", String(params.page));

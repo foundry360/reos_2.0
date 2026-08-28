@@ -23,6 +23,8 @@ interface AccountAddUserModalProps {
 export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -47,6 +49,8 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
+    setInviteUrl(null);
 
     const formData = new FormData(e.currentTarget);
     formData.set("tenantId", tenantId);
@@ -57,9 +61,24 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
         setError(result.error ?? "Could not add user.");
         return;
       }
-      onClose();
+      setSuccess(result.message ?? "Invite email sent.");
+      if (result.inviteUrl) {
+        setInviteUrl(result.inviteUrl);
+        router.refresh();
+        return;
+      }
       router.refresh();
+      window.setTimeout(() => onClose(), 1600);
     });
+  }
+
+  async function copyInviteUrl() {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+    } catch {
+      // ignore
+    }
   }
 
   return (
@@ -77,7 +96,7 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               Add user
             </h2>
             <p className={styles.modalSubtitle}>
-              Adds a user to this account. New users receive an invite email to set their password.
+              Adds a user to this account and emails them a link to set their password.
             </p>
           </div>
           <button
@@ -93,7 +112,23 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
 
         <form className={styles.modalBody} onSubmit={handleSubmit}>
           {error && <p className={styles.error}>{error}</p>}
+          {success && <p className={styles.success}>{success}</p>}
+          {inviteUrl && (
+            <div className={styles.success} style={{ display: "grid", gap: "0.5rem" }}>
+              <code style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>{inviteUrl}</code>
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button type="button" className={styles.btnSecondary} onClick={copyInviteUrl}>
+                  Copy link
+                </button>
+                <a className={styles.btnPrimary} href={inviteUrl} target="_blank" rel="noreferrer">
+                  Open link
+                </a>
+              </div>
+            </div>
+          )}
 
+          {!inviteUrl && (
+            <>
           <div className={styles.field}>
             <label className={styles.label} htmlFor="add-user-name">
               Name
@@ -105,7 +140,7 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Jane Smith"
-              disabled={pending}
+              disabled={pending || Boolean(success)}
             />
           </div>
 
@@ -122,7 +157,7 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               onChange={(e) => setEmail(e.target.value)}
               placeholder="user@example.com"
               required
-              disabled={pending}
+              disabled={pending || Boolean(success)}
             />
           </div>
 
@@ -134,7 +169,7 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               id="add-user-phone"
               name="phone"
               className={styles.input}
-              disabled={pending}
+              disabled={pending || Boolean(success)}
             />
           </div>
 
@@ -147,11 +182,13 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               name="userType"
               value={userType}
               ariaLabel="User type"
-              disabled={pending}
+              disabled={pending || Boolean(success)}
               onChange={(value) => setUserType(value as TenantUserRole)}
               options={USER_TYPE_OPTIONS}
             />
           </div>
+            </>
+          )}
 
           <div className={styles.modalFooter}>
             <button
@@ -160,11 +197,13 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               onClick={onClose}
               disabled={pending}
             >
-              Cancel
+              {success || inviteUrl ? "Done" : "Cancel"}
             </button>
-            <button type="submit" className={styles.btnPrimary} disabled={pending}>
-              {pending ? "Adding…" : "Add user"}
-            </button>
+            {!success && !inviteUrl && (
+              <button type="submit" className={styles.btnPrimary} disabled={pending}>
+                {pending ? "Sending…" : "Add user"}
+              </button>
+            )}
           </div>
         </form>
       </div>

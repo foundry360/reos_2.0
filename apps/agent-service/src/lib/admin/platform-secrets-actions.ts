@@ -92,6 +92,21 @@ export async function clearStripeStoredSecretsAction(): Promise<ActionResult> {
   return clearStoredSecretAction("stripe_secret_key");
 }
 
+export async function saveResendKeyAction(formData: FormData): Promise<ActionResult> {
+  const admin = await requirePlatformAdmin();
+  const apiKey = String(formData.get("apiKey") ?? "");
+
+  const result = await savePlatformSecret("resend_api_key", apiKey, admin.id);
+  if (!result.ok) return result;
+
+  revalidateIntegrations();
+  return { ok: true };
+}
+
+export async function clearResendStoredKeyAction(): Promise<ActionResult> {
+  return clearStoredSecretAction("resend_api_key");
+}
+
 export async function testStripeConnectionAction(): Promise<
   ActionResult & { mode?: "test" | "live" }
 > {

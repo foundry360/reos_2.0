@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import styles from "./shell.module.css";
 
 const STORAGE_KEY = "reos-sidebar-collapsed";
 
 interface ShellLayoutProps {
   sidebar: ReactNode;
+  secondarySidebar?: ReactNode;
   children: ReactNode;
 }
 
@@ -24,8 +26,15 @@ function IconSidebarToggle() {
   );
 }
 
-export function ShellLayout({ sidebar, children }: ShellLayoutProps) {
+export function ShellLayout({ sidebar, secondarySidebar, children }: ShellLayoutProps) {
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const hasSubnav =
+    Boolean(secondarySidebar) &&
+    (pathname === "/leads" ||
+      pathname.startsWith("/leads/") ||
+      pathname === "/contacts" ||
+      pathname.startsWith("/contacts/"));
 
   useEffect(() => {
     try {
@@ -51,6 +60,7 @@ export function ShellLayout({ sidebar, children }: ShellLayoutProps) {
     <div
       className={styles.shellLayout}
       data-sidebar-collapsed={collapsed ? "true" : undefined}
+      data-has-subnav={hasSubnav ? "true" : undefined}
     >
       <aside className={styles.sidebar}>
         <div className={styles.sidebarNav}>{sidebar}</div>
@@ -72,6 +82,7 @@ export function ShellLayout({ sidebar, children }: ShellLayoutProps) {
           </button>
         </div>
       </aside>
+      {hasSubnav ? <aside className={styles.subnav}>{secondarySidebar}</aside> : null}
       <main className={styles.main}>{children}</main>
     </div>
   );

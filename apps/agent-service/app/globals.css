@@ -21,6 +21,8 @@ html[data-theme="light"] {
   --shell-hover-accent: #d6e2eb;
   --shell-border: #d6e2eb;
   --shell-border-strong: #487095;
+  --shell-control-border: #c5d5e3;
+  --shell-control-border-hover: #487095;
   --shell-text: #022342;
   --shell-text-secondary: #647586;
   --shell-muted: #647586;
@@ -42,13 +44,18 @@ html[data-theme="light"] {
   --btn-secondary-text: #487095;
   --btn-secondary-hover-bg: #d6e2eb;
   --btn-secondary-hover-border: #5f82a0;
+  --shell-blue: var(--brand);
+  --shell-blue-dark: var(--brand-dark);
   --chevron-active-mix: 45%;
   --chevron-active-base: #ffffff;
   --chevron-pending-mix: 20%;
   --chevron-pending-base: var(--shell-surface-muted);
   --chevron-pending-text-mix: 65%;
-  --dash-stat-icon-green: var(--palette-mint);
-  --dash-signal-icon-amber: var(--palette-orange);
+  --kanban-scrollbar-track: var(--shell-hover);
+  --kanban-scrollbar-thumb: #c5d5e3;
+  --kanban-board-scrollbar-track: var(--shell-content-bg);
+  --dash-stat-icon-green: var(--brand-light);
+  --dash-signal-icon-amber: var(--brand-dark);
   --dash-signal-icon-cyan: var(--palette-cyan-alt);
   --dash-signal-icon-violet: var(--palette-purple);
   --dash-live-label: #487095;
@@ -64,26 +71,27 @@ html[data-theme="light"] {
   --palette-cyan-alt: #5f82a0;
   --palette-cyan-soft: #d6e2eb;
   --palette-cyan-text: #0b3557;
-  --palette-orange: #9a7d54;
-  --palette-orange-soft: #f2ebe3;
-  --palette-orange-text: #6b5638;
-  --palette-coral: #a67a6a;
-  --palette-coral-soft: #f5ece9;
+  /* Legacy token names — mapped to blues/grays (no green/gold) */
+  --palette-orange: #647586;
+  --palette-orange-soft: #edf3f7;
+  --palette-orange-text: #0b3557;
+  --palette-coral: #487095;
+  --palette-coral-soft: #d6e2eb;
   --palette-violet: #5f82a0;
   --palette-violet-soft: #d6e2eb;
   --palette-violet-text: #0b3557;
-  --palette-mint: #4a7282;
-  --palette-mint-soft: #e2ebf0;
-  --palette-mint-text: #355a68;
+  --palette-mint: #5f82a0;
+  --palette-mint-soft: #d6e2eb;
+  --palette-mint-text: #0b3557;
 }
 
-/* Dark theme — Huemint blue/purple on neutral charcoal (no #023435) */
+/* Dark theme — blue and gray on neutral charcoal */
 html[data-theme="dark"] {
   color-scheme: dark;
   --brand: #55a9db;
   --brand-dark: #4496c7;
   --brand-light: #7bbde5;
-  --brand-accent: #72679a;
+  --brand-accent: #5f82a0;
   --brand-tint: rgba(85, 169, 219, 0.18);
   --shell-bg: #0c0c0c;
   --shell-content-bg: #0c0c0c;
@@ -92,7 +100,9 @@ html[data-theme="dark"] {
   --shell-hover: #282828;
   --shell-hover-accent: rgba(85, 169, 219, 0.16);
   --shell-border: #3a3a3a;
-  --shell-border-strong: #72679a;
+  --shell-border-strong: #525252;
+  --shell-control-border: rgba(255, 254, 250, 0.14);
+  --shell-control-border-hover: rgba(255, 254, 250, 0.24);
   --shell-text: #fffefa;
   --shell-text-secondary: #e8e7df;
   --shell-muted: #a8a8a8;
@@ -109,43 +119,50 @@ html[data-theme="dark"] {
   --shell-header-control-hover: rgba(255, 254, 250, 0.12);
   --dropdown-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
   --dropdown-shadow-strong: 0 20px 48px rgba(0, 0, 0, 0.68);
-  --btn-secondary-border: var(--shell-text);
-  --btn-secondary-bg: var(--shell-surface-muted);
-  --btn-secondary-text: var(--shell-text);
+  --btn-secondary-border: var(--shell-control-border);
+  --btn-secondary-bg: transparent;
+  --btn-secondary-text: var(--shell-text-secondary);
   --btn-secondary-hover-bg: var(--shell-hover);
-  --btn-secondary-hover-border: var(--shell-text);
+  --btn-secondary-hover-border: var(--shell-control-border-hover);
+  --shell-blue: var(--brand);
+  --shell-blue-dark: var(--brand-dark);
   --chevron-active-mix: 55%;
   --chevron-active-base: var(--shell-surface-muted);
   --chevron-pending-mix: 32%;
   --chevron-pending-base: var(--shell-surface);
   --chevron-pending-text-mix: 45%;
-  --dash-stat-icon-green: var(--palette-mint-text);
-  --dash-signal-icon-amber: var(--palette-orange);
-  --dash-signal-icon-cyan: var(--palette-cyan-text);
-  --dash-signal-icon-violet: var(--palette-purple);
-  --dash-live-label: #9ec9bb;
+  --kanban-scrollbar-track: var(--shell-hover);
+  --kanban-scrollbar-thumb: #383838;
+  --kanban-board-scrollbar-track: var(--shell-content-bg);
+  --dash-stat-icon-green: var(--brand-light);
+  --dash-signal-icon-amber: var(--shell-muted);
+  --dash-signal-icon-cyan: var(--brand-light);
+  --dash-signal-icon-violet: var(--brand-light);
+  --dash-live-label: #7bbde5;
   --shell-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.22), 0 10px 28px rgba(0, 0, 0, 0.28);
-  --palette-purple: #8f86b0;
-  --palette-purple-soft: rgba(114, 103, 154, 0.22);
-  --palette-purple-text: #c2bade;
-  --palette-periwinkle: #8b98e8;
-  --palette-periwinkle-soft: rgba(123, 140, 222, 0.18);
-  --palette-periwinkle-text: #a8b4eb;
-  --palette-cyan: #2dd8f0;
-  --palette-cyan-alt: #1acceb;
-  --palette-cyan-soft: rgba(19, 208, 239, 0.16);
-  --palette-cyan-text: #5ee0f5;
-  --palette-orange: #ffb020;
-  --palette-orange-soft: rgba(255, 159, 0, 0.16);
-  --palette-orange-text: #ffc04d;
-  --palette-coral: #ff8566;
-  --palette-coral-soft: rgba(255, 107, 74, 0.16);
-  --palette-violet: #b5a8ff;
-  --palette-violet-soft: rgba(165, 148, 255, 0.16);
-  --palette-violet-text: #c9bfff;
-  --palette-mint: #4de0be;
-  --palette-mint-soft: rgba(61, 217, 180, 0.16);
-  --palette-mint-text: #6ee8c9;
+  /* Semantic icon tones — blue / gray family (aligned with light theme) */
+  --palette-purple: #5f82a0;
+  --palette-purple-soft: rgba(85, 169, 219, 0.18);
+  --palette-purple-text: #7bbde5;
+  --palette-periwinkle: #5f82a0;
+  --palette-periwinkle-soft: rgba(85, 169, 219, 0.16);
+  --palette-periwinkle-text: #7bbde5;
+  --palette-cyan: #55a9db;
+  --palette-cyan-alt: #7bbde5;
+  --palette-cyan-soft: rgba(85, 169, 219, 0.16);
+  --palette-cyan-text: #7bbde5;
+  /* Legacy token names — mapped to blues/grays (no green/gold) */
+  --palette-orange: #a8a8a8;
+  --palette-orange-soft: rgba(168, 168, 168, 0.16);
+  --palette-orange-text: #c8c8c8;
+  --palette-coral: #5f82a0;
+  --palette-coral-soft: rgba(95, 130, 160, 0.16);
+  --palette-violet: #7bbde5;
+  --palette-violet-soft: rgba(123, 189, 229, 0.16);
+  --palette-violet-text: #7bbde5;
+  --palette-mint: #7bbde5;
+  --palette-mint-soft: rgba(123, 189, 229, 0.16);
+  --palette-mint-text: #7bbde5;
 }
 
 html,
@@ -190,4 +207,61 @@ html:not([data-theme="dark"]) [data-reos-header] {
 html[data-theme="dark"] [data-reos-header] {
   background: var(--shell-header-bg) !important;
   background-color: var(--shell-header-bg) !important;
+}
+
+/* Kanban scrollbars — global classes so webkit pseudo-elements apply reliably */
+.kanban-board-scroll,
+.kanban-column-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--kanban-scrollbar-thumb) var(--kanban-scrollbar-track);
+}
+
+.kanban-board-scroll {
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-color: var(--kanban-scrollbar-thumb) var(--kanban-board-scrollbar-track);
+}
+
+.kanban-column-scroll {
+  overflow-y: scroll;
+}
+
+.kanban-board-scroll::-webkit-scrollbar,
+.kanban-column-scroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.kanban-board-scroll::-webkit-scrollbar-corner,
+.kanban-column-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.kanban-board-scroll::-webkit-scrollbar-track {
+  background: var(--kanban-board-scrollbar-track);
+}
+
+.kanban-column-scroll::-webkit-scrollbar-track {
+  background: var(--kanban-scrollbar-track);
+}
+
+.kanban-board-scroll::-webkit-scrollbar-thumb,
+.kanban-column-scroll::-webkit-scrollbar-thumb {
+  background: var(--kanban-scrollbar-thumb);
+  border-radius: 999px;
+}
+
+.kanban-board-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid var(--kanban-board-scrollbar-track);
+}
+
+.kanban-column-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid var(--kanban-scrollbar-track);
+}
+
+.kanban-board-scroll::-webkit-scrollbar-thumb:hover,
+.kanban-column-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--kanban-scrollbar-thumb) 85%, var(--shell-muted));
 }

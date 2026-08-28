@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { invitePlatformAdminAction } from "@/lib/admin/platform-admin-actions";
 import type { PlatformAdminRow } from "@/lib/admin/platform-admin-actions";
+import { PlatformAdminsTable } from "./platform-admins-table";
 import styles from "@/components/shell/shell.module.css";
 
 interface UserManagementProps {
@@ -79,31 +80,7 @@ export function UserManagement({ admins, currentUserId }: UserManagementProps) {
 
       <section className={styles.settingsSection}>
         <h2 className={styles.settingsSectionTitle}>Platform admins</h2>
-        {!admins.length ? (
-          <p className={styles.emptyInline}>No platform admins found.</p>
-        ) : (
-          <table className={styles.tableCompact}>
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Added</th>
-              </tr>
-            </thead>
-            <tbody>
-              {admins.map((admin) => (
-                <tr key={admin.userId}>
-                  <td>
-                    {admin.email}
-                    {admin.userId === currentUserId && (
-                      <span className={styles.youBadge}>You</span>
-                    )}
-                  </td>
-                  <td>{new Date(admin.createdAt).toLocaleDateString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <PlatformAdminsTable admins={admins} currentUserId={currentUserId} />
       </section>
     </div>
   );

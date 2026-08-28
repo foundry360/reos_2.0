@@ -16,6 +16,20 @@ export async function findUserIdByEmail(
   admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
   email: string,
 ): Promise<string | null> {
+  const user = await findAuthUserByEmail(admin, email);
+  return user?.id ?? null;
+}
+
+export async function findAuthUserByEmail(
+  admin: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  email: string,
+): Promise<{
+  id: string;
+  email: string;
+  lastSignInAt: string | null;
+  emailConfirmedAt: string | null;
+} | null> {
+  const normalized = email.toLowerCase();
   let page = 1;
   const perPage = 200;
 
@@ -24,9 +38,16 @@ export async function findUserIdByEmail(
     if (error || !data.users.length) break;
 
     const match = data.users.find(
-      (user) => user.email?.toLowerCase() === email.toLowerCase(),
+      (user) => user.email?.toLowerCase() === normalized,
     );
-    if (match?.id) return match.id;
+    if (match?.id) {
+      return {
+        id: match.id,
+        email: match.email ?? normalized,
+        lastSignInAt: match.last_sign_in_at ?? null,
+        emailConfirmedAt: match.email_confirmed_at ?? null,
+      };
+    }
 
     if (data.users.length < perPage) break;
     page += 1;
@@ -162,6 +183,47 @@ export async function invitePlatformAdminAction(
       return { ok: false, error: "That user is already a platform admin." };
     }
     return { ok: false, error: insertError.message };
+  }
+
+  revalidatePath("/admin/settings");
+  return { ok: true };
+}
+
+export async function removePlatformAdminsAction(
+  userIds: string[],
+): Promise<{ ok: boolean; error?: string }> {
+  const current = await requirePlatformAdmin();
+
+  const unique = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) {
+    return { ok: false, error: "No admins selected." };
+  }
+
+  if (unique.includes(current.id)) {
+    return { ok: false, error: "You cannot remove your own platform admin access." };
+  }
+
+  const admin = getSupabaseAdmin();
+  if (!admin) {
+    return { ok: false, error: "Server configuration error (Supabase admin)." };
+  }
+
+  const { count, error: countError } = await admin
+    .from("platform_admins")
+    .select("*", { count: "exact", head: true });
+
+  if (countError) {
+    return { ok: false, error: countError.message };
+  }
+
+  const remaining = (count ?? 0) - unique.length;
+  if (remaining < 1) {
+    return { ok: false, error: "At least one platform admin must remain." };
+  }
+
+  for (const userId of unique) {
+    const { error } = await admin.from("platform_admins").delete().eq("user_id", userId);
+    if (error) return { ok: false, error: error.message };
   }
 
   revalidatePath("/admin/settings");

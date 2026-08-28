@@ -1,5 +1,6 @@
 import Link from "next/link";
 import styles from "./shell.module.css";
+import { GlobalSearch } from "./global-search";
 import { UserMenu } from "./user-menu";
 import type { UserProfile } from "@/lib/profile/server";
 
@@ -11,6 +12,7 @@ interface ShellHeaderProps {
   accountHref?: string;
   tenantAppHref?: string;
   adminLink?: boolean;
+  showGlobalSearch?: boolean;
 }
 
 export function ShellHeader({
@@ -21,14 +23,25 @@ export function ShellHeader({
   accountHref,
   tenantAppHref,
   adminLink,
+  showGlobalSearch = false,
 }: ShellHeaderProps) {
   return (
-    <header className={styles.appHeader} data-reos-header="">
+    <header
+      className={`${styles.appHeader} ${showGlobalSearch ? styles.appHeaderWithSearch : ""}`}
+      data-reos-header=""
+    >
       <Link href={logoHref} className={styles.headerBrand}>
         <span className={styles.logoMark}>R2</span>
         <span>REOS</span>
         {logoSub && <span className={styles.logoSub}>{logoSub}</span>}
       </Link>
+
+      {showGlobalSearch && (
+        <div className={styles.headerSearch}>
+          <GlobalSearch />
+        </div>
+      )}
+
       <div className={styles.headerActions}>
         {adminLink && (
           <Link href="/admin" className={styles.headerAdminLink}>
