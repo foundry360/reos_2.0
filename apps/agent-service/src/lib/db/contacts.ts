@@ -44,6 +44,35 @@ async function resolveTenantByToNumber(to?: string): Promise<string | null> {
   return data?.tenant_id ?? null;
 }
 
+async function resolveTenantByMetaRecipient(
+  channel: "messenger" | "instagram",
+  recipientId?: string,
+): Promise<string | null> {
+  if (!recipientId) return null;
+  const db = getSupabaseAdmin();
+  if (!db) return null;
+
+  const { data: byPage } = await db
+    .from("channel_accounts")
+    .select("tenant_id")
+    .eq("channel", channel)
+    .eq("status", "connected")
+    .eq("external_page_id", recipientId)
+    .maybeSingle();
+
+  if (byPage?.tenant_id) return byPage.tenant_id;
+
+  const { data: byAccount } = await db
+    .from("channel_accounts")
+    .select("tenant_id")
+    .eq("channel", channel)
+    .eq("status", "connected")
+    .eq("external_account_id", recipientId)
+    .maybeSingle();
+
+  return byAccount?.tenant_id ?? null;
+}
+
 async function findIdentityContact(
   tenantId: string,
   channel: InboundChannel["channel"],
@@ -145,11 +174,15 @@ async function intakeContact(
   };
 }
 
-/** Resolve tenant + contact for an inbound message. Creates contact on first SMS (Intake). */
+/** Resolve tenant + contact for an inbound message. Creates contact on first touch (Intake). */
 export async function resolveInboundContact(
   inbound: InboundChannel,
 ): Promise<ContactContext> {
-  const tenantId = await resolveTenantByToNumber(inbound.to);
+  const tenantId =
+    inbound.channel === "sms"
+      ? await resolveTenantByToNumber(inbound.to)
+      : await resolveTenantByMetaRecipient(inbound.channel, inbound.to);
+
   if (!tenantId) return stubContext(inbound.from);
 
   const existing = await findIdentityContact(

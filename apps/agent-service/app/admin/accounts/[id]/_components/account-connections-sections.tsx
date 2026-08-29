@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   disconnectTenantBillingAction,
   disconnectTenantChannelAction,
@@ -9,9 +9,16 @@ import {
   linkTenantStripeCustomerAction,
   updateTenantAgentToggleAction,
 } from "@/lib/admin/tenant-config-actions";
+import {
+  completeMetaPageConnectionAction,
+  ensureMetaPageWebhooksAction,
+  listMetaPagesForTenantAction,
+} from "@/lib/meta/meta-actions";
+import type { MetaPageOption } from "@/lib/meta/pages";
 import { formatPhoneDisplay } from "@/lib/phone-display";
 import type { TenantChannelStatus, TenantConfig } from "@/lib/admin/tenant-config";
 import { ConnectStripeModal } from "./connect-stripe-modal";
+import { SelectMetaPageModal } from "./select-meta-page-modal";
 import styles from "@/components/shell/shell.module.css";
 
 interface AccountConnectionsSectionsProps {
@@ -40,6 +47,36 @@ const INTEGRATION_CHANNEL_DESCRIPTIONS: Record<ConnectedIntegrationChannel, stri
   email: "Connect the tenant's Gmail inbox",
   calendar: "Connect Google Calendar for scheduling",
 };
+
+const INTEGRATION_CHANNEL_ICONS: Record<ConnectedIntegrationChannel, string> = {
+  email: "/integrations/gmail.png",
+  calendar: "/integrations/google-calendar.png",
+};
+
+const SOCIAL_CHANNEL_ICONS: Record<SocialChannel, string> = {
+  messenger: "/integrations/facebook.png",
+  instagram: "/integrations/instagram.png",
+};
+
+function ConnectionBrandIcon({
+  src,
+  label,
+}: {
+  src: string;
+  label: string;
+}) {
+  return (
+    // Brand marks for channel rows; decorative next to the text label.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      title={label}
+      className={styles.connectionBrandIcon}
+    />
+  );
+}
 
 function ConnectionReadyCheck({ label = "Connected" }: { label?: string }) {
   return (
@@ -167,6 +204,8 @@ function getChannelStatus(
       channel,
       status: "disconnected",
       accountLabel: null,
+      externalPageId: null,
+      awaitingPageSelection: false,
     }
   );
 }
@@ -187,7 +226,8 @@ function getConnectedSocialChannelCount(tenant: TenantConfig): number {
   return tenant.channelAccounts.filter(
     (entry) =>
       (entry.channel === "messenger" || entry.channel === "instagram") &&
-      entry.status === "connected",
+      entry.status === "connected" &&
+      !entry.awaitingPageSelection,
   ).length;
 }
 
@@ -205,10 +245,15 @@ function integrationChannelMeta(channel: TenantChannelStatus): string {
 }
 
 function socialChannelMeta(channel: TenantChannelStatus): string {
+  if (channel.awaitingPageSelection) {
+    return channel.channel === "instagram"
+      ? "Select a Page with Instagram to finish"
+      : "Select a Facebook Page to finish";
+  }
   if (channel.status === "connected") {
     const label = channel.accountLabel?.trim();
     if (!label) return "Connected";
-    return label.startsWith("@") ? label : `@${label}`;
+    return label.startsWith("@") ? label : label;
   }
   if (channel.status === "error") return "Connection error";
   return "Not connected";
@@ -216,14 +261,94 @@ function socialChannelMeta(channel: TenantChannelStatus): string {
 
 export function AccountConnectionsSections({ tenant }: AccountConnectionsSectionsProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [openSections, setOpenSections] = useState<Set<ConnectionSection>>(() => new Set());
   const [stripeModalOpen, setStripeModalOpen] = useState(false);
   const [stripeLinkError, setStripeLinkError] = useState<string | null>(null);
+  const [metaPageChannel, setMetaPageChannel] = useState<SocialChannel | null>(null);
+  const [metaPages, setMetaPages] = useState<MetaPageOption[]>([]);
+  const [metaPagesLoading, setMetaPagesLoading] = useState(false);
+  const [metaPageError, setMetaPageError] = useState<string | null>(null);
+  const [metaPickerAutoOpened, setMetaPickerAutoOpened] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const twilioConnected = Boolean(tenant.primaryPhone);
   const stripeLinked = Boolean(tenant.stripeCustomerId);
   const stripeConnected = tenant.stripeBillingReady;
+
+  useEffect(() => {
+    if (metaPickerAutoOpened) return;
+
+    const select = searchParams.get("meta_select_page");
+    if (select === "messenger" || select === "instagram") {
+      setMetaPickerAutoOpened(true);
+      void openMetaPagePicker(select);
+      return;
+    }
+
+    const awaiting = SOCIAL_CHANNELS.find(
+      (channel) => getChannelStatus(tenant, channel).awaitingPageSelection,
+    );
+    if (awaiting) {
+      setMetaPickerAutoOpened(true);
+      void openMetaPagePicker(awaiting);
+    }
+  }, [searchParams, tenant, metaPickerAutoOpened]);
+
+  useEffect(() => {
+    for (const channel of SOCIAL_CHANNELS) {
+      const status = getChannelStatus(tenant, channel);
+      if (status.status === "connected" && !status.awaitingPageSelection && status.externalPageId) {
+        void ensureMetaPageWebhooksAction(tenant.id, channel);
+      }
+    }
+  }, [tenant]);
+
+  async function openMetaPagePicker(channel: SocialChannel) {
+    setMetaPageChannel(channel);
+    setMetaPageError(null);
+    setMetaPages([]);
+    setMetaPagesLoading(true);
+    setOpenSections((current) => new Set(current).add("social"));
+
+    const result = await listMetaPagesForTenantAction(tenant.id, channel);
+    setMetaPagesLoading(false);
+
+    if (!result.ok) {
+      setMetaPageError(result.error);
+      return;
+    }
+
+    setMetaPages(result.pages);
+  }
+
+  function closeMetaPagePicker() {
+    setMetaPageChannel(null);
+    setMetaPages([]);
+    setMetaPageError(null);
+    setMetaPagesLoading(false);
+  }
+
+  function confirmMetaPage(pageId: string) {
+    if (!metaPageChannel) return;
+    const channel = metaPageChannel;
+
+    const formData = new FormData();
+    formData.set("tenantId", tenant.id);
+    formData.set("channel", channel);
+    formData.set("pageId", pageId);
+
+    startTransition(async () => {
+      const result = await completeMetaPageConnectionAction(formData);
+      if (!result.ok) {
+        setMetaPageError(result.error ?? "Could not connect Facebook Page.");
+        return;
+      }
+      closeMetaPagePicker();
+      router.replace(`/admin/accounts/${tenant.id}`);
+      router.refresh();
+    });
+  }
 
   function toggleSection(id: ConnectionSection) {
     setOpenSections((current) => {
@@ -319,6 +444,10 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
     return (
       <ul className={styles.connectionsList}>
         <li className={styles.connectionRow}>
+          <ConnectionBrandIcon
+            src="/integrations/twilio.png"
+            label="Twilio SMS"
+          />
           <div className={styles.connectionMeta}>
             <span className={styles.connectionName}>Twilio SMS</span>
             <span className={styles.connectionDesc}>
@@ -340,9 +469,11 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
           const status = getChannelStatus(tenant, channel);
           const connected = status.status === "connected";
           const label = INTEGRATION_CHANNEL_LABELS[channel];
+          const icon = INTEGRATION_CHANNEL_ICONS[channel];
 
           return (
             <li key={channel} className={styles.connectionRow}>
+              <ConnectionBrandIcon src={icon} label={label} />
               <div className={styles.connectionMeta}>
                 <span className={styles.connectionName}>{label}</span>
                 <span className={styles.connectionDesc}>
@@ -400,6 +531,7 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
         </li>
 
         <li className={styles.connectionRow}>
+          <ConnectionBrandIcon src="/integrations/stripe.png" label="Stripe" />
           <div className={styles.connectionMeta}>
             <span className={styles.connectionName}>Stripe</span>
             <span className={styles.connectionDesc}>
@@ -435,15 +567,18 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
       <ul className={styles.connectionsList}>
         {SOCIAL_CHANNELS.map((channel) => {
           const status = getChannelStatus(tenant, channel);
-          const connected = status.status === "connected";
+          const awaiting = status.awaitingPageSelection;
+          const fullyConnected = status.status === "connected" && !awaiting;
           const label = channel === "messenger" ? "Facebook Messenger" : "Instagram";
+          const icon = SOCIAL_CHANNEL_ICONS[channel];
 
           return (
             <li key={channel} className={styles.connectionRow}>
+              <ConnectionBrandIcon src={icon} label={label} />
               <div className={styles.connectionMeta}>
                 <span className={styles.connectionName}>{label}</span>
                 <span className={styles.connectionDesc}>
-                  {connected ? (
+                  {fullyConnected ? (
                     <span className={styles.connectionDescRow}>
                       <span>{socialChannelMeta(status)}</span>
                       <ConnectionReadyCheck />
@@ -453,13 +588,36 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
                   )}
                 </span>
               </div>
-              <ConnectionButton
-                connected={connected}
-                name={label}
-                pending={pending}
-                onConnect={() => connectSocialChannel(channel)}
-                onDisconnect={() => disconnectChannel(channel)}
-              />
+              {awaiting ? (
+                <div className={styles.connectionDescRow}>
+                  <button
+                    type="button"
+                    className={`${styles.connectionTextBtn} ${styles.connectionTextBtnConnect}`}
+                    aria-label={`Select page for ${label}`}
+                    disabled={pending}
+                    onClick={() => void openMetaPagePicker(channel)}
+                  >
+                    Select page
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.connectionTextBtn} ${styles.connectionTextBtnDisconnect}`}
+                    aria-label={`Disconnect ${label}`}
+                    disabled={pending}
+                    onClick={() => disconnectChannel(channel)}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ) : (
+                <ConnectionButton
+                  connected={fullyConnected}
+                  name={label}
+                  pending={pending}
+                  onConnect={() => connectSocialChannel(channel)}
+                  onDisconnect={() => disconnectChannel(channel)}
+                />
+              )}
             </li>
           );
         })}
@@ -484,6 +642,20 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
           setStripeLinkError(null);
         }}
         onConfirm={confirmLinkBilling}
+      />
+
+      <SelectMetaPageModal
+        open={metaPageChannel !== null}
+        channel={metaPageChannel ?? "messenger"}
+        pages={metaPages}
+        loading={metaPagesLoading}
+        pending={pending}
+        error={metaPageError}
+        onClose={() => {
+          if (pending) return;
+          closeMetaPagePicker();
+        }}
+        onConfirm={confirmMetaPage}
       />
 
       {SECTIONS.map((section) => {

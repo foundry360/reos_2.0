@@ -4827,6 +4827,15 @@ html[data-theme="dark"] .accordionIconSocial {
   border-bottom: none;
 }
 
+.connectionBrandIcon {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.4rem;
+  object-fit: contain;
+  flex-shrink: 0;
+  background: transparent;
+}
+
 .connectionIconBadge {
   display: inline-flex;
   align-items: center;

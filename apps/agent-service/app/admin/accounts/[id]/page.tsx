@@ -18,7 +18,7 @@ interface PageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<{
     created?: string;
-    meta_connected?: string;
+    meta_select_page?: string;
     meta_error?: string;
     google_connected?: string;
     google_error?: string;
@@ -27,7 +27,6 @@ interface PageProps {
 }
 
 function channelFeedbackMessage(searchParams: {
-  meta_connected?: string;
   meta_error?: string;
   google_connected?: string;
   google_error?: string;
@@ -46,12 +45,6 @@ function channelFeedbackMessage(searchParams: {
   }
   if (searchParams.google_error) {
     return { kind: "error", text: searchParams.google_error };
-  }
-  if (searchParams.meta_connected === "messenger") {
-    return { kind: "success", text: "Facebook Messenger connected." };
-  }
-  if (searchParams.meta_connected === "instagram") {
-    return { kind: "success", text: "Instagram connected." };
   }
   if (searchParams.meta_error === "not_configured") {
     return {

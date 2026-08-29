@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { AccountConnectionsSections } from "./account-connections-sections";
 import { AccountUsersSection } from "./account-users-section";
 import type { TenantConfig } from "@/lib/admin/tenant-config";
@@ -72,7 +72,9 @@ export function AccountGeneralInfoTab({ tenant, users }: AccountGeneralInfoTabPr
         )}
       </section>
 
-      <AccountConnectionsSections tenant={tenant} />
+      <Suspense fallback={null}>
+        <AccountConnectionsSections tenant={tenant} />
+      </Suspense>
     </div>
   );
 }

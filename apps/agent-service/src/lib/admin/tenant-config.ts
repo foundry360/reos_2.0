@@ -19,6 +19,8 @@ export interface TenantChannelStatus {
   channel: "messenger" | "instagram" | "email" | "calendar";
   status: "connected" | "disconnected" | "error";
   accountLabel: string | null;
+  externalPageId: string | null;
+  awaitingPageSelection: boolean;
 }
 
 export interface TenantContact {
@@ -98,7 +100,7 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
       .order("created_at", { ascending: true }),
     supabase
       .from("channel_accounts")
-      .select("channel, status, external_account_id, metadata")
+      .select("channel, status, external_page_id, external_account_id, metadata")
       .eq("tenant_id", tenantId),
   ]);
 
@@ -122,7 +124,16 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
   ).map(
     (channel) => {
       const row = channelsResult.data?.find((entry) => entry.channel === channel);
-      const metadata = row?.metadata as { label?: string } | null;
+      const metadata = row?.metadata as {
+        label?: string;
+        awaiting_page_selection?: boolean;
+      } | null;
+      const externalPageId = row?.external_page_id?.trim() || null;
+      const status = (row?.status as TenantChannelStatus["status"]) ?? "disconnected";
+      const awaitingPageSelection =
+        (channel === "messenger" || channel === "instagram") &&
+        status === "connected" &&
+        (!externalPageId || metadata?.awaiting_page_selection === true);
       const accountLabel =
         metadata?.label?.trim() ||
         row?.external_account_id?.trim() ||
@@ -130,8 +141,10 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
 
       return {
         channel,
-        status: (row?.status as TenantChannelStatus["status"]) ?? "disconnected",
+        status,
         accountLabel,
+        externalPageId,
+        awaitingPageSelection,
       };
     },
   );

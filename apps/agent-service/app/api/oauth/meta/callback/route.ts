@@ -3,10 +3,20 @@ import { isPlatformAdmin } from "@/lib/admin/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
+  buildCompletedMetaChannelRow,
+  buildPendingMetaChannelRow,
+} from "@/lib/meta/channel-account";
+import {
   decodeMetaOAuthState,
   exchangeMetaOAuthCode,
   isMetaOAuthConfigured,
 } from "@/lib/meta/oauth";
+import {
+  exchangeMetaLongLivedUserToken,
+  fetchMetaPages,
+  filterMetaPagesForChannel,
+} from "@/lib/meta/pages";
+import { subscribeMetaPageToAppWebhooks } from "@/lib/meta/subscribe";
 
 function accountRedirect(
   request: NextRequest,
@@ -55,33 +65,78 @@ export async function GET(request: NextRequest) {
 
   try {
     const redirectUri = new URL("/api/oauth/meta/callback", request.url).toString();
-    const token = await exchangeMetaOAuthCode(code, redirectUri);
+    const shortLived = await exchangeMetaOAuthCode(code, redirectUri);
+
+    let userAccessToken = shortLived.accessToken;
+    let expiresIn = shortLived.expiresIn;
+    try {
+      const longLived = await exchangeMetaLongLivedUserToken(shortLived.accessToken);
+      userAccessToken = longLived.accessToken;
+      expiresIn = longLived.expiresIn;
+    } catch {
+      // Short-lived token still works for page listing; continue.
+    }
+
+    const pages = filterMetaPagesForChannel(await fetchMetaPages(userAccessToken), state.channel);
 
     const admin = getSupabaseAdmin();
     if (!admin) {
       return accountRedirect(request, state.tenantId, { meta_error: "server_config" });
     }
 
-    const { error } = await admin.from("channel_accounts").upsert(
-      {
-        tenant_id: state.tenantId,
+    if (pages.length === 0) {
+      return accountRedirect(request, state.tenantId, {
+        meta_error:
+          state.channel === "instagram"
+            ? "No Facebook Pages with a linked Instagram professional account were found."
+            : "No Facebook Pages were found for this Facebook account.",
+      });
+    }
+
+    if (pages.length === 1) {
+      const row = buildCompletedMetaChannelRow({
+        tenantId: state.tenantId,
         channel: state.channel,
-        status: "connected",
-        metadata: {
-          access_token: token.accessToken,
-          expires_in: token.expiresIn,
-          connected_at: new Date().toISOString(),
-          connected_by: user.id,
-        },
-      },
-      { onConflict: "tenant_id,channel" },
-    );
+        page: pages[0],
+        userAccessToken,
+        expiresIn,
+        connectedBy: user.id,
+      });
+
+      const { error } = await admin.from("channel_accounts").upsert(row, {
+        onConflict: "tenant_id,channel",
+      });
+
+      if (error) {
+        return accountRedirect(request, state.tenantId, { meta_error: error.message });
+      }
+
+      try {
+        await subscribeMetaPageToAppWebhooks(pages[0].id, pages[0].accessToken);
+      } catch (error) {
+        console.error("Meta Page webhook subscribe failed:", error);
+      }
+
+      return accountRedirect(request, state.tenantId);
+    }
+
+    const pendingRow = buildPendingMetaChannelRow({
+      tenantId: state.tenantId,
+      channel: state.channel,
+      userAccessToken,
+      expiresIn,
+      connectedBy: user.id,
+    });
+
+    const { error } = await admin.from("channel_accounts").upsert(pendingRow, {
+      onConflict: "tenant_id,channel",
+    });
 
     if (error) {
       return accountRedirect(request, state.tenantId, { meta_error: error.message });
     }
 
-    return accountRedirect(request, state.tenantId, { meta_connected: state.channel });
+    return accountRedirect(request, state.tenantId, { meta_select_page: state.channel });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Meta OAuth failed.";
     return accountRedirect(request, state.tenantId, { meta_error: message });
