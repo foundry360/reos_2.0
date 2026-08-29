@@ -263,8 +263,8 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
     runAction(() => disconnectTenantChannelAction(formData));
   }
 
-  function connectIntegrationChannel(_channel: ConnectedIntegrationChannel) {
-    window.alert("Gmail and Google Calendar are coming soon.");
+  function connectIntegrationChannel(channel: ConnectedIntegrationChannel) {
+    window.location.href = `/api/oauth/google/start?tenantId=${encodeURIComponent(tenant.id)}&channel=${channel}`;
   }
 
   function connectSocialChannel(channel: SocialChannel) {
