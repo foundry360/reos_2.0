@@ -39,13 +39,17 @@ export function buildMetaOAuthUrl(state: MetaOAuthState, redirectUri: string): s
     throw new Error("Meta OAuth is not configured.");
   }
 
-  const scopes = [
-    "pages_show_list",
-    "pages_messaging",
-    "pages_manage_metadata",
-    "instagram_basic",
-    "instagram_manage_messages",
-  ];
+  // Do not request deprecated scopes (e.g. instagram_basic) — Meta returns Invalid Scopes.
+  const scopes =
+    state.channel === "instagram"
+      ? [
+          "pages_show_list",
+          "pages_manage_metadata",
+          "pages_messaging",
+          "instagram_manage_messages",
+          "business_management",
+        ]
+      : ["pages_show_list", "pages_messaging", "pages_manage_metadata"];
 
   const params = new URLSearchParams({
     client_id: env.META_APP_ID,
