@@ -26,7 +26,7 @@ export default async function AdminReportDetailPage({ params }: PageProps) {
         />
         <div className={styles.pageHeaderActions}>
           <Link href="/admin/reports" className={`${styles.btnSecondary} ${styles.btnPill}`}>
-            All reports
+            All Reports
           </Link>
         </div>
       </div>

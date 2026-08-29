@@ -113,7 +113,7 @@ export function ConnectStripeModal({
               onClick={() => onConfirm(stripeCustomerId.trim())}
               disabled={!canConnect || pending}
             >
-              {pending ? "Linking…" : "Link customer"}
+              {pending ? "Linking…" : "Link Customer"}
             </button>
           </div>
         </div>

@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LeadRowActions } from "./lead-row-actions";
 import { LeadsPagination } from "./leads-pagination";
-import { PersonActivityTrigger } from "./person-activity-trigger";
 import { deleteLeadsAction } from "@/lib/crm/crm-actions";
 import {
   personBasePath,
@@ -253,11 +252,12 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                         {accountInitials(lead.name)}
                       </span>
                       <div className={styles.tableCellPersonMain}>
-                        <Link href={`${basePath}/${lead.id}`} className={styles.tableCellLink}>
+                        <Link
+                          href={`${basePath}/${lead.id}`}
+                          className={styles.contactLink}
+                        >
                           <span className={styles.tableCellName}>{lead.name}</span>
                         </Link>
-                        <span className={styles.tableCellPersonDivider} aria-hidden="true" />
-                        <PersonActivityTrigger personName={lead.name} kind={kind} />
                       </div>
                     </div>
                   </td>

@@ -193,7 +193,7 @@ export function EditOpportunityModal({
         <div className={styles.modalHeader}>
           <div>
             <h2 id="edit-opportunity-title" className={styles.modalTitle}>
-              Edit opportunity
+              Edit Opportunity
             </h2>
             <p className={styles.modalSubtitle}>Update details for this opportunity.</p>
           </div>
@@ -406,7 +406,7 @@ export function EditOpportunityModal({
               className={styles.btnPrimary}
               disabled={pending || contactOptions.length === 0}
             >
-              {pending ? "Saving…" : "Save changes"}
+              {pending ? "Saving…" : "Save Changes"}
             </button>
           </div>
         </form>

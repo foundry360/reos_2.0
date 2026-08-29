@@ -1,8 +1,10 @@
 import Link from "next/link";
 import styles from "./shell.module.css";
 import { GlobalSearch } from "./global-search";
+import { NotificationsMenu } from "./notifications-menu";
 import { UserMenu } from "./user-menu";
 import type { UserProfile } from "@/lib/profile/server";
+import type { UserNotification } from "@/lib/notifications/types";
 
 interface ShellHeaderProps {
   logoHref: string;
@@ -13,6 +15,7 @@ interface ShellHeaderProps {
   tenantAppHref?: string;
   adminLink?: boolean;
   showGlobalSearch?: boolean;
+  notifications?: UserNotification[];
 }
 
 export function ShellHeader({
@@ -24,6 +27,7 @@ export function ShellHeader({
   tenantAppHref,
   adminLink,
   showGlobalSearch = false,
+  notifications = [],
 }: ShellHeaderProps) {
   return (
     <header
@@ -48,6 +52,7 @@ export function ShellHeader({
             Admin
           </Link>
         )}
+        <NotificationsMenu initialNotifications={notifications} />
         <UserMenu
           email={email}
           displayName={profile.displayName}

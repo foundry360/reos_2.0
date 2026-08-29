@@ -46,6 +46,8 @@ html[data-theme="light"] {
   --btn-secondary-hover-border: #5f82a0;
   --shell-blue: var(--brand);
   --shell-blue-dark: var(--brand-dark);
+  --contact-link: #55a9db;
+  --contact-link-hover: #3d8fc4;
   --chevron-active-mix: 45%;
   --chevron-active-base: #ffffff;
   --chevron-pending-mix: 20%;
@@ -127,6 +129,8 @@ html[data-theme="dark"] {
   --btn-secondary-hover-border: var(--shell-control-border-hover);
   --shell-blue: var(--brand);
   --shell-blue-dark: var(--brand-dark);
+  --contact-link: #55a9db;
+  --contact-link-hover: #3d8fc4;
   --chevron-active-mix: 55%;
   --chevron-active-base: var(--shell-surface-muted);
   --chevron-pending-mix: 32%;

@@ -54,7 +54,7 @@ export function UserManagement({ admins, currentUserId }: UserManagementProps) {
         <form className={styles.settingsFormWide} onSubmit={handleSubmit}>
           <div className={styles.field}>
             <label className={styles.label} htmlFor="adminEmail">
-              Add platform admin
+              Add Platform Admin
             </label>
             <div className={styles.inlineFieldRow}>
               <input
@@ -68,7 +68,7 @@ export function UserManagement({ admins, currentUserId }: UserManagementProps) {
                 disabled={pending}
               />
               <button type="submit" className={styles.btnPrimary} disabled={pending}>
-                {pending ? "Sending…" : "Send invite"}
+                {pending ? "Sending…" : "Send Invite"}
               </button>
             </div>
             <p className={styles.hint}>

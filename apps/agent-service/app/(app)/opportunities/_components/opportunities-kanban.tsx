@@ -13,6 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { OpportunityRowActions } from "./opportunity-row-actions";
@@ -29,6 +30,15 @@ import {
 import { displayValue } from "@/lib/display-value";
 import { accountInitials } from "@/lib/user-display";
 import styles from "@/components/shell/shell.module.css";
+
+const STAGE_BADGE_CLASS: Record<OpportunityStage, string> = {
+  New: styles.badgeLeadNew,
+  AI_Qualifying: styles.badgeLeadWorking,
+  Qualified: styles.badgeLeadQualified,
+  Appointment_Set: styles.badgeLeadContacted,
+  Nurture: styles.badgeLeadWorking,
+  Closed_Won: styles.badgeLeadConverted,
+};
 
 function PriorityLabel({ priority }: { priority: OpportunityPriority | null }) {
   if (!priority) return null;
@@ -118,6 +128,12 @@ function moveOpportunity(
   return next;
 }
 
+function contactHref(row: OpportunityRow): string | null {
+  if (!row.contactId) return null;
+  if (row.contactRecordType === "contact") return `/contacts/${row.contactId}`;
+  return `/leads/${row.contactId}`;
+}
+
 function OpportunityCardBody({
   opportunity,
   contactOptions,
@@ -129,11 +145,15 @@ function OpportunityCardBody({
   agentOptions: SelectOption[];
   showActions?: boolean;
 }) {
+  const contactUrl = contactHref(opportunity);
+
   return (
     <>
       <div className={styles.kanbanCardTop}>
-        <span className={styles.kanbanCardMeta}>
-          {displayValue(opportunity.contactName)}
+        <span
+          className={`${styles.badge} ${styles.kanbanCardTag} ${STAGE_BADGE_CLASS[opportunity.stage]}`}
+        >
+          {opportunity.stageLabel}
         </span>
         {showActions ? (
           <OpportunityRowActions
@@ -144,27 +164,55 @@ function OpportunityCardBody({
           />
         ) : null}
       </div>
-      <strong className={styles.kanbanCardTitle}>{opportunity.name}</strong>
+      <Link
+        href={`/opportunities/${opportunity.id}`}
+        className={styles.kanbanCardTitleLink}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        {opportunity.name}
+      </Link>
       <div className={styles.kanbanCardContact}>
-        <span className={styles.kanbanCardContactText}>
-          {formatUsd(opportunity.amountCents)}
-        </span>
-        {opportunity.priority ? (
-          <span className={styles.kanbanCardContactText}>
-            <PriorityLabel priority={opportunity.priority} />
+        {opportunity.contactName ? (
+          <span className={styles.kanbanCardContactRow}>
+            {contactUrl ? (
+              <Link
+                href={contactUrl}
+                className={`${styles.kanbanCardContactText} ${styles.contactLink}`}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {opportunity.contactName}
+              </Link>
+            ) : (
+              <span className={styles.kanbanCardContactText}>
+                {opportunity.contactName}
+              </span>
+            )}
           </span>
         ) : null}
+        <span className={styles.kanbanCardContactRow}>
+          <span className={styles.kanbanCardContactText}>
+            {formatUsd(opportunity.amountCents)}
+          </span>
+          {opportunity.priority ? (
+            <span className={styles.kanbanCardContactText}>
+              <PriorityLabel priority={opportunity.priority} />
+            </span>
+          ) : null}
+        </span>
       </div>
       <div className={styles.kanbanCardFooter}>
         <time className={styles.kanbanCardDate} dateTime={opportunity.updatedAt}>
           Updated {formatShortDate(opportunity.updatedAt)}
         </time>
-        <span
-          className={`${styles.kanbanCardAvatar} ${styles.opportunityInitialsAvatar}`}
-          aria-hidden="true"
-        >
-          {accountInitials(opportunity.name)}
-        </span>
+        {opportunity.contactName ? (
+          <span
+            className={`${styles.kanbanCardAvatar} ${styles.personInitialsAvatar}`}
+            title={opportunity.contactName}
+            aria-label={opportunity.contactName}
+          >
+            {accountInitials(opportunity.contactName)}
+          </span>
+        ) : null}
       </div>
     </>
   );

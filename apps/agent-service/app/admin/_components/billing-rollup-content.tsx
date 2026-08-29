@@ -99,7 +99,7 @@ export function BillingRollupContent({
             </div>
             {stats.missingBillingCount > 0 && (
               <Link href="/admin/billing?attention=missing" className={styles.dashCardLink}>
-                View all
+                View All
               </Link>
             )}
           </div>

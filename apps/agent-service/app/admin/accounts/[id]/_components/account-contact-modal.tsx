@@ -88,10 +88,10 @@ export function AccountContactModal({ tenant, mode, onClose }: AccountContactMod
 
   const modalTitle =
     mode.type === "add"
-      ? "Add contact"
+      ? "Add Contact"
       : mode.type === "primary"
-        ? "Edit primary contact"
-        : "Edit contact";
+        ? "Edit Primary Contact"
+        : "Edit Contact";
 
   const modalSubtitle =
     mode.type === "add"
@@ -263,7 +263,7 @@ export function AccountContactModal({ tenant, mode, onClose }: AccountContactMod
               Cancel
             </button>
             <button type="submit" className={styles.btnPrimary} disabled={pending}>
-              {pending ? "Saving…" : mode.type === "add" ? "Add contact" : "Save contact"}
+              {pending ? "Saving…" : mode.type === "add" ? "Add Contact" : "Save Contact"}
             </button>
           </div>
         </form>

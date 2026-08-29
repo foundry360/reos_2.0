@@ -4,6 +4,7 @@ import { isPlatformAdmin } from "@/lib/admin/auth";
 import { getImpersonatedTenantId, stopImpersonation } from "@/lib/admin/actions";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentProfile } from "@/lib/profile/server";
+import { listUserNotifications } from "@/lib/notifications/notifications";
 import { TenantShell } from "./_components/tenant-shell";
 import styles from "@/components/shell/shell.module.css";
 
@@ -22,7 +23,10 @@ export default async function AppLayout({
   }
 
   const platformAdmin = await isPlatformAdmin(user.id);
-  const profile = await getCurrentProfile(user.id, user.email);
+  const [profile, notifications] = await Promise.all([
+    getCurrentProfile(user.id, user.email),
+    listUserNotifications(user.id, { limit: 25 }),
+  ]);
   const impersonateId = await getImpersonatedTenantId();
 
   let impersonatedTenant: { name: string } | null = null;
@@ -56,6 +60,7 @@ export default async function AppLayout({
       email={user.email}
       profile={profile}
       showAdminLink={platformAdmin}
+      notifications={notifications}
       impersonateBanner={impersonateBanner}
     >
       {children}

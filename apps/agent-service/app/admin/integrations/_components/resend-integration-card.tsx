@@ -109,7 +109,7 @@ export function ResendIntegrationCard({ overview }: { overview: IntegrationsOver
             className={styles.btnPrimary}
             disabled={!overview.encryptionEnabled || pending || apiKey.trim().length === 0}
           >
-            {pending ? "Saving…" : "Save key"}
+            {pending ? "Saving…" : "Save Key"}
           </button>
           {overview.resend.source === "database" && (
             <button

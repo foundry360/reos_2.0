@@ -1,100 +1,130 @@
+import { ExportTasksButton } from "./_components/export-tasks-button";
 import { NewTaskModal } from "./_components/new-task-modal";
+import { TasksHeaderActions } from "./_components/tasks-header-actions";
+import { TasksTable } from "./_components/tasks-table";
 import { EmptyState } from "@/components/shell/empty-state";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconTasks } from "@/components/shell/sidebar-nav";
-import { fetchTasksList, listLeadOptionsForTenant } from "@/lib/crm/crm-lists";
+import { fetchTasksListPaged, parseTasksListParams } from "@/lib/crm/tasks-list";
+import { tasksListSections } from "@/lib/crm/tasks-list-params";
+import {
+  listAgentOptionsForTenant,
+  listLeadOptionsForTenant,
+  listOpportunityOptionsForTenant,
+} from "@/lib/crm/crm-lists";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
-import { displayValue } from "@/lib/display-value";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
 import styles from "@/components/shell/shell.module.css";
 
-function formatDueDate(value: string | null): string {
-  if (!value) return displayValue(null);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
+interface PageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function TasksPage() {
+export default async function TasksPage({ searchParams }: PageProps) {
+  const resolved = await searchParams;
+  const params = parseTasksListParams(resolved);
   const { tenantId, reason } = await resolveCurrentTenant();
 
   if (!tenantId) {
     return (
       <>
         <div className={styles.pageHeader}>
-          <PageHeading
-            icon={<IconTasks />}
-            title="Tasks"
-            tone="light"
-          />
+          <PageHeading icon={<IconTasks />} title="Tasks" tone="task" />
         </div>
         <p className={styles.empty}>{workspaceUnavailableMessage(reason)}</p>
       </>
     );
   }
 
-  const [rows, leadOptions] = await Promise.all([
-    fetchTasksList(tenantId),
-    listLeadOptionsForTenant(),
-  ]);
+  const sections = tasksListSections(params);
+  const showUpcoming = sections.includes("upcoming");
+  const showCompleted = sections.includes("completed");
+
+  const upcomingParams = {
+    ...params,
+    status: "open" as const,
+    page: params.page,
+  };
+  const completedParams = {
+    ...params,
+    status: "done" as const,
+    page: params.cpage,
+  };
+
+  const [upcomingResult, completedResult, leadOptions, opportunityOptions, agentOptions] =
+    await Promise.all([
+      showUpcoming
+        ? fetchTasksListPaged(tenantId, upcomingParams)
+        : Promise.resolve(null),
+      showCompleted
+        ? fetchTasksListPaged(tenantId, completedParams)
+        : Promise.resolve(null),
+      listLeadOptionsForTenant(),
+      listOpportunityOptionsForTenant(),
+      listAgentOptionsForTenant(),
+    ]);
+
+  const hasFilters = params.q.length > 0 || params.view !== "all";
+  const listHasRows =
+    (upcomingResult?.total ?? 0) > 0 || (completedResult?.total ?? 0) > 0;
 
   return (
     <>
       <div className={styles.pageHeader}>
-        <PageHeading
-          icon={<IconTasks />}
-          title="Tasks"
-          tone="light"
-        />
+        <PageHeading icon={<IconTasks />} title="Tasks" tone="task" />
         <div className={styles.pageHeaderActions}>
-          <NewTaskModal leadOptions={leadOptions} />
+          <TasksHeaderActions params={params} />
+          <ExportTasksButton params={params} />
+          <NewTaskModal
+            leadOptions={leadOptions}
+            opportunityOptions={opportunityOptions}
+            agentOptions={agentOptions}
+          />
         </div>
       </div>
 
-      {rows.length === 0 ? (
+      {!listHasRows && !hasFilters ? (
         <EmptyState
           title="Stay on top of every follow-up"
           description="Add tasks so nothing slips through the cracks."
-          action={<NewTaskModal trigger="cta" leadOptions={leadOptions} />}
+          action={
+            <NewTaskModal
+              trigger="cta"
+              leadOptions={leadOptions}
+              opportunityOptions={opportunityOptions}
+              agentOptions={agentOptions}
+            />
+          }
         />
+      ) : !listHasRows && hasFilters ? (
+        <EmptyState compact title="No tasks match your filters." />
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Title</th>
-                <th>Lead</th>
-                <th>Status</th>
-                <th>Due</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <span className={styles.tableCellName}>{row.title}</span>
-                  </td>
-                  <td>{row.contactName ?? displayValue(null)}</td>
-                  <td>
-                    <span
-                      className={`${styles.badge} ${
-                        row.status === "done" ? styles.badgeLeadConverted : styles.badgeLeadNew
-                      }`}
-                    >
-                      {row.status === "done" ? "Done" : "Open"}
-                    </span>
-                  </td>
-                  <td>{formatDueDate(row.dueAt)}</td>
-                  <td>
-                    <time dateTime={row.updatedAt}>{formatRelativeTime(row.updatedAt)}</time>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className={styles.tasksTablesStack}>
+          {showUpcoming && upcomingResult ? (
+            <TasksTable
+              title="Upcoming"
+              rows={upcomingResult.rows}
+              params={params}
+              total={upcomingResult.total}
+              pageKey="page"
+              emptyLabel={
+                params.view === "due_soon"
+                  ? "No tasks due in the next 7 days."
+                  : params.view === "overdue"
+                    ? "No overdue tasks."
+                    : "No upcoming tasks."
+              }
+            />
+          ) : null}
+          {showCompleted && completedResult ? (
+            <TasksTable
+              title="Completed"
+              rows={completedResult.rows}
+              params={params}
+              total={completedResult.total}
+              pageKey="cpage"
+              emptyLabel="No completed tasks."
+            />
+          ) : null}
         </div>
       )}
     </>

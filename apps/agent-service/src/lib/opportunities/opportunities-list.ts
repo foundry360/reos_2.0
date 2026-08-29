@@ -184,6 +184,26 @@ export interface OpportunitiesListResult {
   params: OpportunitiesListParams;
 }
 
+export async function fetchOpportunityById(
+  tenantId: string,
+  opportunityId: string,
+): Promise<OpportunityRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("opportunities")
+    .select(SELECT_FIELDS)
+    .eq("tenant_id", tenantId)
+    .eq("id", opportunityId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("opportunity detail failed:", error.message);
+    return null;
+  }
+  if (!data) return null;
+  return mapOpportunityRow(data);
+}
+
 export async function fetchOpportunitiesList(
   tenantId: string,
   params: OpportunitiesListParams,

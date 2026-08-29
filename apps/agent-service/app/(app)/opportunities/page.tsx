@@ -7,7 +7,7 @@ import { OpportunitiesPipelineMenu } from "./_components/opportunities-pipeline-
 import { OpportunitiesTable } from "./_components/opportunities-table";
 import { EmptyState } from "@/components/shell/empty-state";
 import { PageHeading } from "@/components/shell/page-heading";
-import { IconPipeline } from "@/components/shell/sidebar-nav";
+import { IconOpportunities } from "@/components/shell/sidebar-nav";
 import {
   listAgentOptionsForTenant,
   listLeadOptionsForTenant,
@@ -33,7 +33,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
     return (
       <>
         <div className={styles.pageHeader}>
-          <PageHeading icon={<IconPipeline />} title="Opportunities" tone="opportunity" />
+          <PageHeading icon={<IconOpportunities />} title="Opportunities" tone="opportunity" />
         </div>
         <p className={styles.empty}>{workspaceUnavailableMessage(reason)}</p>
       </>
@@ -70,7 +70,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
     <div className={showKanbanLayout ? styles.kanbanPage : undefined}>
       <div className={styles.pageHeader}>
         <PageHeading
-          icon={<IconPipeline />}
+          icon={<IconOpportunities />}
           title={<OpportunitiesPipelineMenu params={params} />}
           tone="opportunity"
         />

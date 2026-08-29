@@ -75,10 +75,10 @@ export default async function AdminDashboardPage() {
         <PageHeading icon={<IconLayoutDashboard />} title="Platform console" tone="dark" />
         <div className={styles.pageHeaderActions}>
           <Link href="/admin" className={styles.btnSecondary}>
-            View accounts
+            View Accounts
           </Link>
           <Link href="/admin/accounts/new" className={styles.btnPrimary}>
-            + New account
+            + New Account
           </Link>
         </div>
       </div>
@@ -96,10 +96,10 @@ export default async function AdminDashboardPage() {
             </p>
             <div className={styles.dashHeroActions}>
               <Link href="/admin?view=onboarding&status=testing" className={styles.btnPrimary}>
-                Review testing
+                Review Testing
               </Link>
               <Link href="/admin?view=onboarding" className={styles.btnSecondary}>
-                Open onboarding
+                Open Onboarding
               </Link>
             </div>
           </div>
@@ -171,7 +171,7 @@ export default async function AdminDashboardPage() {
             }
             action={
               <Link href="/admin?view=onboarding" className={styles.dashCardLink}>
-                View all
+                View All
               </Link>
             }
           />

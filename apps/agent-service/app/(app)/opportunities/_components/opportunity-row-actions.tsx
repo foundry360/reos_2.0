@@ -51,9 +51,19 @@ export function OpportunityRowActions({
       <RowActionsMenu
         ariaLabel={`Actions for ${opportunity.name}`}
         disabled={pending}
-        estimatedHeight={96}
+        estimatedHeight={128}
         stopDrag={stopDrag}
       >
+        <button
+          type="button"
+          className={styles.dropdownItem}
+          role="menuitem"
+          onClick={() => {
+            router.push(`/opportunities/${opportunity.id}`);
+          }}
+        >
+          View
+        </button>
         <button
           type="button"
           className={styles.dropdownItem}

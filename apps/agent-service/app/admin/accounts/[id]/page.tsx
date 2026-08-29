@@ -96,7 +96,7 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
                 strokeLinejoin="round"
               />
             </svg>
-            Back to accounts
+            Back To Accounts
           </Link>
         </div>
       </div>

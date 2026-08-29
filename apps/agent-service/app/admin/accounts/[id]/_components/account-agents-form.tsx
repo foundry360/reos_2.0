@@ -112,7 +112,7 @@ export function AccountAgentsForm({ tenantId, agents }: AccountAgentsFormProps) 
             ))}
           </div>
 
-          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save agents" />
+          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save Agents" />
         </form>
       )}
     </>

@@ -8,13 +8,18 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type CSSProperties,
   type InputHTMLAttributes,
 } from "react";
+import { createPortal } from "react-dom";
 import styles from "./shell.module.css";
 
 type DateInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "onChange"> & {
   value?: string;
   onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+  /** Override the trigger label (still stores ISO `value`). */
+  formatDisplay?: (value: string) => string;
+  emptyLabel?: string;
 };
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
@@ -79,22 +84,6 @@ function buildCalendarDays(month: Date): Date[] {
   });
 }
 
-function findClipParent(element: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = element.parentElement;
-  while (node) {
-    const { overflow, overflowX, overflowY } = getComputedStyle(node);
-    if (
-      [overflow, overflowX, overflowY].some(
-        (value) => value === "auto" || value === "scroll" || value === "hidden",
-      )
-    ) {
-      return node;
-    }
-    node = node.parentElement;
-  }
-  return null;
-}
-
 function IconCalendar() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -130,6 +119,8 @@ export function DateInput({
   onChange,
   disabled = false,
   className,
+  formatDisplay,
+  emptyLabel = "Select a date",
   "aria-label": ariaLabel,
 }: DateInputProps) {
   const generatedId = useId();
@@ -137,7 +128,8 @@ export function DateInput({
   const stringValue = typeof value === "string" ? value : "";
   const selectedDate = parseIsoDate(stringValue);
   const [open, setOpen] = useState(false);
-  const [menuPlacement, setMenuPlacement] = useState<"down" | "up">("down");
+  const [mounted, setMounted] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({});
   const [visibleMonth, setVisibleMonth] = useState(() =>
     startOfMonth(selectedDate ?? new Date()),
   );
@@ -145,7 +137,11 @@ export function DateInput({
   const panelRef = useRef<HTMLDivElement>(null);
 
   const empty = !stringValue;
-  const displayLabel = empty ? "Select a date" : formatDisplayDate(stringValue);
+  const displayLabel = empty
+    ? emptyLabel
+    : formatDisplay
+      ? formatDisplay(stringValue)
+      : formatDisplayDate(stringValue);
   const today = useMemo(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -157,6 +153,10 @@ export function DateInput({
   }).format(visibleMonth);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
     setVisibleMonth(startOfMonth(parseIsoDate(stringValue) ?? new Date()));
   }, [open, stringValue]);
@@ -165,9 +165,10 @@ export function DateInput({
     if (!open) return;
 
     function onDocClick(event: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     }
 
     function onKeyDown(event: KeyboardEvent) {
@@ -185,27 +186,75 @@ export function DateInput({
   useLayoutEffect(() => {
     if (!open || !rootRef.current || !panelRef.current) return;
 
-    const triggerRect = rootRef.current.getBoundingClientRect();
-    const menuHeight = panelRef.current.offsetHeight;
     const gap = 8;
-    const clipParent = findClipParent(rootRef.current);
-    const boundaryBottom = clipParent
-      ? clipParent.getBoundingClientRect().bottom
-      : window.innerHeight;
-    const boundaryTop = clipParent ? clipParent.getBoundingClientRect().top : 0;
-    const spaceBelow = boundaryBottom - triggerRect.bottom - gap;
-    const spaceAbove = triggerRect.top - boundaryTop - gap;
+    const margin = 8;
+    const triggerRect = rootRef.current.getBoundingClientRect();
+    const panelRect = panelRef.current.getBoundingClientRect();
+    const menuHeight = panelRect.height || panelRef.current.offsetHeight;
+    const menuWidth = Math.min(
+      Math.max(triggerRect.width, 280),
+      Math.min(312, window.innerWidth - margin * 2),
+    );
 
-    if (spaceBelow < menuHeight && spaceAbove >= menuHeight) {
-      setMenuPlacement("up");
-      return;
-    }
-    if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
-      setMenuPlacement("up");
-      return;
-    }
-    setMenuPlacement("down");
+    const spaceBelow = window.innerHeight - triggerRect.bottom - gap - margin;
+    const spaceAbove = triggerRect.top - gap - margin;
+    const placeUp = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+
+    let top = placeUp
+      ? triggerRect.top - gap - menuHeight
+      : triggerRect.bottom + gap;
+    top = Math.max(margin, Math.min(top, window.innerHeight - menuHeight - margin));
+
+    let left = triggerRect.left;
+    left = Math.max(margin, Math.min(left, window.innerWidth - menuWidth - margin));
+
+    setPanelStyle({
+      position: "fixed",
+      top,
+      left,
+      width: menuWidth,
+      zIndex: 400,
+    });
   }, [open, visibleMonth]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function reposition() {
+      if (!rootRef.current || !panelRef.current) return;
+      const gap = 8;
+      const margin = 8;
+      const triggerRect = rootRef.current.getBoundingClientRect();
+      const menuHeight = panelRef.current.offsetHeight;
+      const menuWidth = Math.min(
+        Math.max(triggerRect.width, 280),
+        Math.min(312, window.innerWidth - margin * 2),
+      );
+      const spaceBelow = window.innerHeight - triggerRect.bottom - gap - margin;
+      const spaceAbove = triggerRect.top - gap - margin;
+      const placeUp = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+      let top = placeUp
+        ? triggerRect.top - gap - menuHeight
+        : triggerRect.bottom + gap;
+      top = Math.max(margin, Math.min(top, window.innerHeight - menuHeight - margin));
+      let left = triggerRect.left;
+      left = Math.max(margin, Math.min(left, window.innerWidth - menuWidth - margin));
+      setPanelStyle({
+        position: "fixed",
+        top,
+        left,
+        width: menuWidth,
+        zIndex: 400,
+      });
+    }
+
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [open]);
 
   function emitChange(next: string) {
     if (!onChange) return;
@@ -230,6 +279,82 @@ export function DateInput({
     selectDate(today);
   }
 
+  const panel =
+    open && mounted
+      ? createPortal(
+          <div
+            ref={panelRef}
+            className={styles.datePickerPanel}
+            style={panelStyle}
+            role="dialog"
+            aria-label="Choose date"
+          >
+            <div className={styles.datePickerHeader}>
+              <button
+                type="button"
+                className={styles.datePickerNavBtn}
+                aria-label="Previous month"
+                onClick={() => setVisibleMonth((month) => addMonths(month, -1))}
+              >
+                <IconChevron direction="left" />
+              </button>
+              <p className={styles.datePickerMonthLabel}>{monthLabel}</p>
+              <button
+                type="button"
+                className={styles.datePickerNavBtn}
+                aria-label="Next month"
+                onClick={() => setVisibleMonth((month) => addMonths(month, 1))}
+              >
+                <IconChevron direction="right" />
+              </button>
+            </div>
+
+            <div className={styles.datePickerWeekdays} aria-hidden="true">
+              {WEEKDAYS.map((day) => (
+                <span key={day} className={styles.datePickerWeekday}>
+                  {day}
+                </span>
+              ))}
+            </div>
+
+            <div className={styles.datePickerGrid}>
+              {days.map((day) => {
+                const inMonth = day.getMonth() === visibleMonth.getMonth();
+                const isSelected = selectedDate ? sameDay(day, selectedDate) : false;
+                const isToday = sameDay(day, today);
+                return (
+                  <button
+                    key={toIsoDate(day)}
+                    type="button"
+                    className={[
+                      styles.datePickerDay,
+                      inMonth ? "" : styles.datePickerDayMuted,
+                      isSelected ? styles.datePickerDaySelected : "",
+                      isToday && !isSelected ? styles.datePickerDayToday : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => selectDate(day)}
+                  >
+                    {day.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className={styles.datePickerFooter}>
+              <button type="button" className={styles.datePickerFooterBtn} onClick={clearDate}>
+                Clear
+              </button>
+              <button type="button" className={styles.datePickerFooterBtn} onClick={selectToday}>
+                Today
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
+
   return (
     <div className={`${styles.datePicker} ${className ?? ""}`} ref={rootRef}>
       {name ? <input type="hidden" name={name} value={stringValue} /> : null}
@@ -250,79 +375,7 @@ export function DateInput({
           <IconCalendar />
         </span>
       </button>
-
-      {open ? (
-        <div
-          ref={panelRef}
-          className={`${styles.datePickerPanel} ${
-            menuPlacement === "up" ? styles.datePickerPanelUp : ""
-          }`}
-          role="dialog"
-          aria-label="Choose date"
-        >
-          <div className={styles.datePickerHeader}>
-            <button
-              type="button"
-              className={styles.datePickerNavBtn}
-              aria-label="Previous month"
-              onClick={() => setVisibleMonth((month) => addMonths(month, -1))}
-            >
-              <IconChevron direction="left" />
-            </button>
-            <p className={styles.datePickerMonthLabel}>{monthLabel}</p>
-            <button
-              type="button"
-              className={styles.datePickerNavBtn}
-              aria-label="Next month"
-              onClick={() => setVisibleMonth((month) => addMonths(month, 1))}
-            >
-              <IconChevron direction="right" />
-            </button>
-          </div>
-
-          <div className={styles.datePickerWeekdays} aria-hidden="true">
-            {WEEKDAYS.map((day) => (
-              <span key={day} className={styles.datePickerWeekday}>
-                {day}
-              </span>
-            ))}
-          </div>
-
-          <div className={styles.datePickerGrid}>
-            {days.map((day) => {
-              const inMonth = day.getMonth() === visibleMonth.getMonth();
-              const isSelected = selectedDate ? sameDay(day, selectedDate) : false;
-              const isToday = sameDay(day, today);
-              return (
-                <button
-                  key={toIsoDate(day)}
-                  type="button"
-                  className={[
-                    styles.datePickerDay,
-                    inMonth ? "" : styles.datePickerDayMuted,
-                    isSelected ? styles.datePickerDaySelected : "",
-                    isToday && !isSelected ? styles.datePickerDayToday : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => selectDate(day)}
-                >
-                  {day.getDate()}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className={styles.datePickerFooter}>
-            <button type="button" className={styles.datePickerFooterBtn} onClick={clearDate}>
-              Clear
-            </button>
-            <button type="button" className={styles.datePickerFooterBtn} onClick={selectToday}>
-              Today
-            </button>
-          </div>
-        </div>
-      ) : null}
+      {panel}
     </div>
   );
 }

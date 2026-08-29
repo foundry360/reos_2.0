@@ -9,6 +9,12 @@ create table if not exists public.contact_activities (
   title text not null,
   body text,
   occurred_at timestamptz not null default now(),
+  related_entity_type text
+    check (
+      related_entity_type is null
+      or related_entity_type in ('contact', 'lead', 'opportunity', 'task')
+    ),
+  related_entity_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

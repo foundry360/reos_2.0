@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentProfile } from "@/lib/profile/server";
+import { getNotificationPreferences } from "@/lib/notifications/notifications";
 import { AccountSettingsForm } from "../../admin/settings/_components/account-settings-form";
 import { AppearanceSettings } from "../../admin/settings/_components/appearance-settings";
+import { NotificationSettings } from "./_components/notification-settings";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconSettings } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
@@ -17,7 +19,10 @@ export default async function TenantSettingsPage() {
     redirect("/login?next=/settings");
   }
 
-  const profile = await getCurrentProfile(user.id, user.email);
+  const [profile, notificationPreferences] = await Promise.all([
+    getCurrentProfile(user.id, user.email),
+    getNotificationPreferences(user.id),
+  ]);
 
   return (
     <>
@@ -25,7 +30,7 @@ export default async function TenantSettingsPage() {
         <PageHeading
           icon={<IconSettings />}
           title="Settings"
-          subtitle="Manage your account and appearance."
+          subtitle="Manage your account, appearance, and notifications."
           tone="dark"
         />
       </div>
@@ -41,6 +46,10 @@ export default async function TenantSettingsPage() {
 
         <div className={styles.card}>
           <AppearanceSettings themePreference={profile.themePreference} />
+        </div>
+
+        <div className={styles.card}>
+          <NotificationSettings initialPreferences={notificationPreferences} />
         </div>
       </div>
     </>

@@ -32,7 +32,7 @@ export default async function AdminTenantBillingPage({ params }: PageProps) {
         <div className={styles.pageHeaderActions}>
           <BillingTenantSelect tenantOptions={rollup.tenantOptions} selectedTenantId={id} />
           <Link href={stats.accountHref} className={`${styles.btnSecondary} ${styles.btnPill}`}>
-            Open account
+            Open Account
           </Link>
         </div>
       </div>

@@ -159,7 +159,7 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
           }}
           disabled={editing}
         >
-          <span>Overview</span>
+          <span>{singular} Details</span>
           <AccordionChevron open={open} />
         </button>
         {!editing && (

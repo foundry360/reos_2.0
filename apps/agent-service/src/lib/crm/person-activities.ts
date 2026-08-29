@@ -11,6 +11,8 @@ export type ActivityType = (typeof ACTIVITY_TYPE_OPTIONS)[number]["value"];
 /** Includes system-generated types not shown in the log-activity picker. */
 export type StoredActivityType = ActivityType | "opportunity" | "contact";
 
+export type ActivityRelatedEntityType = "contact" | "lead" | "opportunity" | "task";
+
 export function isActivityType(value: string): value is ActivityType {
   return ACTIVITY_TYPE_OPTIONS.some((option) => option.value === value);
 }
@@ -27,6 +29,25 @@ export function formatActivityTypeLabel(type: string): string {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
+export function activityEntityHref(
+  entityType: string | null | undefined,
+  entityId: string | null | undefined,
+): string | null {
+  if (!entityType || !entityId) return null;
+  switch (entityType) {
+    case "opportunity":
+      return `/opportunities/${entityId}`;
+    case "contact":
+      return `/contacts/${entityId}`;
+    case "lead":
+      return `/leads/${entityId}`;
+    case "task":
+      return "/tasks";
+    default:
+      return null;
+  }
+}
+
 export interface PersonActivityItem {
   id: string;
   source: "activity" | "message" | "task";
@@ -35,6 +56,9 @@ export interface PersonActivityItem {
   title: string;
   body: string | null;
   occurredAt: string;
+  href: string | null;
+  /** When set, the card timestamp is shown as a due date. */
+  timeKind?: "due";
 }
 
 export interface PersonTaskSummary {
@@ -42,6 +66,8 @@ export interface PersonTaskSummary {
   title: string;
   status: "open" | "done";
   dueAt: string | null;
+  startAt: string | null;
+  endAt: string | null;
   notes: string | null;
   updatedAt: string;
   createdAt: string;

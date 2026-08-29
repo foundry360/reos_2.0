@@ -187,7 +187,7 @@ export function AccountUsersTable({ tenantId, users }: AccountUsersTableProps) {
           onClick={() => setAddingUser(true)}
         >
           <IconPlus />
-          Add user
+          Add User
         </button>
       </div>
 

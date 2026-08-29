@@ -1,18 +1,21 @@
 import { requirePlatformAdmin } from "@/lib/admin/auth";
 import { listPlatformAdmins } from "@/lib/admin/platform-admin-actions";
 import { getCurrentProfile } from "@/lib/profile/server";
+import { getNotificationPreferences } from "@/lib/notifications/notifications";
 import { AccountSettingsForm } from "./_components/account-settings-form";
 import { AppearanceSettings } from "./_components/appearance-settings";
 import { UserManagement } from "./_components/user-management";
+import { NotificationSettings } from "../../(app)/settings/_components/notification-settings";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconSettings } from "@/components/shell/sidebar-nav";
 import styles from "@/components/shell/shell.module.css";
 
 export default async function AdminSettingsPage() {
   const admin = await requirePlatformAdmin();
-  const [profile, admins] = await Promise.all([
+  const [profile, admins, notificationPreferences] = await Promise.all([
     getCurrentProfile(admin.id, admin.email),
     listPlatformAdmins(),
+    getNotificationPreferences(admin.id),
   ]);
 
   return (
@@ -21,7 +24,7 @@ export default async function AdminSettingsPage() {
         <PageHeading
           icon={<IconSettings />}
           title="Settings"
-          subtitle="Manage your account, appearance, and platform admins."
+          subtitle="Manage your account, appearance, notifications, and platform admins."
           tone="dark"
         />
       </div>
@@ -37,6 +40,10 @@ export default async function AdminSettingsPage() {
 
         <div className={styles.card}>
           <AppearanceSettings themePreference={profile.themePreference} />
+        </div>
+
+        <div className={styles.card}>
+          <NotificationSettings initialPreferences={notificationPreferences} />
         </div>
 
         <div className={styles.card}>

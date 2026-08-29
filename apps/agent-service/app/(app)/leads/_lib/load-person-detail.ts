@@ -89,7 +89,7 @@ export async function loadPersonDetail(
   const [opportunityRows, tasks, activities] = await Promise.all([
     fetchOpportunitiesForContact(tenantId, contact.id),
     fetchTasksForContact(tenantId, contact.id),
-    fetchActivitiesForContact(tenantId, contact.id, { limit: 50 }),
+    fetchActivitiesForContact(tenantId, contact.id, { limit: 50, personKind: kind }),
   ]);
 
   return {

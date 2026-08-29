@@ -144,7 +144,7 @@ export function AccountComplianceForm({ tenantId, agents }: AccountComplianceFor
             </div>
           </div>
 
-          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save compliance" />
+          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save Compliance" />
         </form>
       )}
     </>

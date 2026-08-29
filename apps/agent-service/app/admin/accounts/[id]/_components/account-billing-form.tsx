@@ -110,7 +110,7 @@ export function AccountBillingForm({ tenant }: AccountBillingFormProps) {
             />
           </div>
 
-          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save billing" />
+          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save Billing" />
         </form>
       )}
     </>

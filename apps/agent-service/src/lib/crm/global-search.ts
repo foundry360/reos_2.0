@@ -110,7 +110,7 @@ export async function searchTenantGlobal(query: string): Promise<GlobalSearchRes
       id: opp.id,
       title: opp.name,
       subtitle: opp.stage ? String(opp.stage).replaceAll("_", " ") : "Opportunity",
-      href: "/opportunities",
+      href: `/opportunities/${opp.id}`,
     });
   }
 

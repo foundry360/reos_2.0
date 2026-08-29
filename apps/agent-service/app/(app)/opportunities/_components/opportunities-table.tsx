@@ -264,13 +264,18 @@ export function OpportunitiesTable({
                         {accountInitials(opportunity.name)}
                       </span>
                       <div className={styles.tableCellPersonMain}>
-                        <span className={styles.tableCellName}>{opportunity.name}</span>
+                        <Link
+                          href={`/opportunities/${opportunity.id}`}
+                          className={`${styles.tableCellName} ${styles.tableCellLink}`}
+                        >
+                          {opportunity.name}
+                        </Link>
                       </div>
                     </div>
                   </td>
                   <td>
                     {href && opportunity.contactName ? (
-                      <Link href={href} className={styles.tableCellLink}>
+                      <Link href={href} className={styles.contactLink}>
                         {opportunity.contactName}
                       </Link>
                     ) : (

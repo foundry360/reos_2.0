@@ -5,6 +5,7 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { searchTenantGlobalAction } from "@/lib/crm/global-search-actions";
 import type { GlobalSearchResult } from "@/lib/crm/global-search";
+import { ActivityTypeIcon } from "./activity-date-feed";
 import styles from "./shell.module.css";
 
 const TYPE_LABEL: Record<GlobalSearchResult["type"], string> = {
@@ -26,10 +27,18 @@ export function GlobalSearch() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  function closeSearch() {
+    setOpen(false);
+    setQuery("");
+    setResults([]);
+    setError(null);
+    setActiveIndex(0);
+  }
+
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
-        setOpen(false);
+        closeSearch();
       }
     }
     document.addEventListener("mousedown", onDocClick);
@@ -64,8 +73,7 @@ export function GlobalSearch() {
   }, [query]);
 
   function goTo(href: string) {
-    setOpen(false);
-    setQuery("");
+    closeSearch();
     router.push(href);
   }
 
@@ -76,7 +84,8 @@ export function GlobalSearch() {
     }
 
     if (e.key === "Escape") {
-      setOpen(false);
+      closeSearch();
+      e.currentTarget.blur();
       return;
     }
 
@@ -144,16 +153,18 @@ export function GlobalSearch() {
               aria-selected={index === activeIndex}
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => {
-                setOpen(false);
-                setQuery("");
+                closeSearch();
               }}
             >
-              <span className={styles.globalSearchItemType}>{TYPE_LABEL[result.type]}</span>
+              <ActivityTypeIcon type={result.type} />
               <span className={styles.globalSearchItemBody}>
                 <span className={styles.globalSearchItemTitle}>{result.title}</span>
-                {result.subtitle && (
-                  <span className={styles.globalSearchItemSubtitle}>{result.subtitle}</span>
-                )}
+                <span className={styles.globalSearchItemMeta}>
+                  <span className={styles.globalSearchItemType}>{TYPE_LABEL[result.type]}</span>
+                  {result.subtitle ? (
+                    <span className={styles.globalSearchItemSubtitle}>{result.subtitle}</span>
+                  ) : null}
+                </span>
               </span>
             </Link>
           ))}

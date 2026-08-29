@@ -106,7 +106,7 @@ export function UserMenu({
                 type="submit"
                 className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
               >
-                Sign out
+                Sign Out
               </button>
             </form>
           </div>

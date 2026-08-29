@@ -93,7 +93,7 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
         <div className={styles.modalHeader}>
           <div>
             <h2 id="add-account-user-title" className={styles.modalTitle}>
-              Add user
+              Add User
             </h2>
             <p className={styles.modalSubtitle}>
               Adds a user to this account and emails them a link to set their password.
@@ -118,10 +118,10 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
               <code style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>{inviteUrl}</code>
               <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                 <button type="button" className={styles.btnSecondary} onClick={copyInviteUrl}>
-                  Copy link
+                  Copy Link
                 </button>
                 <a className={styles.btnPrimary} href={inviteUrl} target="_blank" rel="noreferrer">
-                  Open link
+                  Open Link
                 </a>
               </div>
             </div>
@@ -201,7 +201,7 @@ export function AccountAddUserModal({ tenantId, onClose }: AccountAddUserModalPr
             </button>
             {!success && !inviteUrl && (
               <button type="submit" className={styles.btnPrimary} disabled={pending}>
-                {pending ? "Sending…" : "Add user"}
+                {pending ? "Sending…" : "Add User"}
               </button>
             )}
           </div>

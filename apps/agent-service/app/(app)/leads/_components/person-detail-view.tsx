@@ -16,12 +16,16 @@ import type {
   PersonActivityItem,
   PersonDetailData,
   PersonOpportunitySummary,
-  PersonTaskSummary,
 } from "../_lib/person-detail-types";
 import { NewActivityModal } from "./new-activity-modal";
 import { NewOpportunityModal } from "../../opportunities/_components/new-opportunity-modal";
 import { NewTaskModal } from "../../tasks/_components/new-task-modal";
-import { IconPlus } from "@/components/shell/sidebar-nav";
+import { ExpandableTasksList } from "../../tasks/_components/expandable-tasks-list";
+import { EmptyState } from "@/components/shell/empty-state";
+import {
+  ActivityDateFeed,
+  ActivityTypeIcon,
+} from "@/components/shell/activity-date-feed";
 
 export type { PersonDetailData };
 
@@ -213,15 +217,6 @@ function EmptyBlock({ title, description }: { title: string; description: string
   );
 }
 
-function formatDueDate(value: string | null): string {
-  if (!value) return displayValue(null);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
 function ActivityList({
   activities,
   limit,
@@ -232,9 +227,10 @@ function ActivityList({
   const rows = limit != null ? activities.slice(0, limit) : activities;
   return (
     <ul className={styles.personLinkedList}>
-      {rows.map((activity) => (
-        <li key={activity.id}>
-          <div className={`${styles.personLinkedItem} ${styles.personActivityItem}`}>
+      {rows.map((activity) => {
+        const content = (
+          <>
+            <ActivityTypeIcon type={activity.type} />
             <span className={styles.personLinkedItemMain}>
               <span className={styles.personLinkedItemTitle}>{activity.title}</span>
               <span className={styles.personLinkedItemMeta}>
@@ -245,35 +241,21 @@ function ActivityList({
             <time className={styles.personLinkedItemTime} dateTime={activity.occurredAt}>
               {formatRelativeTime(activity.occurredAt)}
             </time>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}
+          </>
+        );
 
-function TaskList({ tasks }: { tasks: PersonTaskSummary[] }) {
-  return (
-    <ul className={styles.personLinkedList}>
-      {tasks.map((task) => (
-        <li key={task.id}>
-          <Link
-            href="/tasks"
-            className={`${styles.personLinkedItem} ${styles.personTaskItem}`}
-          >
-            <span className={styles.personLinkedItemMain}>
-              <span className={styles.personLinkedItemTitle}>{task.title}</span>
-              <span className={styles.personLinkedItemMeta}>
-                {task.status === "done" ? "Done" : "Open"}
-                {task.dueAt ? ` · Due ${formatDueDate(task.dueAt)}` : ""}
-              </span>
-            </span>
-            <time className={styles.personLinkedItemTime} dateTime={task.updatedAt}>
-              {formatRelativeTime(task.updatedAt)}
-            </time>
-          </Link>
-        </li>
-      ))}
+        return (
+          <li key={activity.id}>
+            {activity.href ? (
+              <Link href={activity.href} className={styles.personLinkedItem}>
+                {content}
+              </Link>
+            ) : (
+              <div className={styles.personLinkedItem}>{content}</div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -290,9 +272,10 @@ function OpportunityList({
       {opportunities.map((opportunity) => (
         <li key={opportunity.id}>
           <Link
-            href="/opportunities"
-            className={`${compact ? styles.personAssociationItem : styles.personLinkedItem} ${styles.personOpportunityItem}`}
+            href={`/opportunities/${opportunity.id}`}
+            className={compact ? styles.personAssociationItem : styles.personLinkedItem}
           >
+            <ActivityTypeIcon type="opportunity" />
             <span className={compact ? styles.personAssociationItemMain : styles.personLinkedItemMain}>
               <span className={compact ? styles.personAssociationItemTitle : styles.personLinkedItemTitle}>
                 {opportunity.name}
@@ -359,17 +342,61 @@ export function PersonDetailView({
     }
   }
 
-  const addActivity = (
-    <NewActivityModal contactId={person.id} trigger="secondary" linkLabel="Add" />
-  );
-
   const addTask = (
     <NewTaskModal
       leadOptions={[contactOption]}
+      agentOptions={agentOptions}
       defaultContactId={person.id}
       lockContact
       trigger="secondary"
       linkLabel="Add"
+    />
+  );
+
+  const addTaskCta = (
+    <NewTaskModal
+      leadOptions={[contactOption]}
+      agentOptions={agentOptions}
+      defaultContactId={person.id}
+      lockContact
+      trigger="cta"
+      linkLabel="Add the first one"
+    />
+  );
+
+  const addNote = (
+    <NewActivityModal
+      contactId={person.id}
+      defaultActivityType="note"
+      lockActivityType
+      trigger="secondary"
+      linkLabel="Add Note"
+    />
+  );
+
+  const addNoteCta = (
+    <NewActivityModal
+      contactId={person.id}
+      defaultActivityType="note"
+      lockActivityType
+      trigger="cta"
+      linkLabel="Add a Note"
+    />
+  );
+
+  const addActivity = (
+    <NewActivityModal
+      contactId={person.id}
+      trigger="secondary"
+      linkLabel="Add"
+    />
+  );
+
+  const addActivityCta = (
+    <NewActivityModal
+      contactId={person.id}
+      trigger="cta"
+      linkLabel="Log an Activity"
     />
   );
 
@@ -420,18 +447,47 @@ export function PersonDetailView({
             </div>
 
             <div className={styles.personQuickActions}>
-              {QUICK_ACTIONS.map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  className={styles.personQuickAction}
-                  disabled
-                  title="Coming soon"
-                >
-                  <span className={styles.personQuickActionIcon}>{action.icon}</span>
-                  <span>{action.label}</span>
-                </button>
-              ))}
+              {QUICK_ACTIONS.map((action) => {
+                if (action.id === "note") {
+                  return (
+                    <NewActivityModal
+                      key={action.id}
+                      contactId={person.id}
+                      defaultActivityType="note"
+                      lockActivityType
+                      trigger="quickAction"
+                      linkLabel="Note"
+                      triggerIcon={action.icon}
+                    />
+                  );
+                }
+                if (action.id === "task") {
+                  return (
+                    <NewTaskModal
+                      key={action.id}
+                      leadOptions={[contactOption]}
+                      agentOptions={agentOptions}
+                      defaultContactId={person.id}
+                      lockContact
+                      trigger="quickAction"
+                      linkLabel="Task"
+                      triggerIcon={action.icon}
+                    />
+                  );
+                }
+                return (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className={styles.personQuickAction}
+                    disabled
+                    title="Coming soon"
+                  >
+                    <span className={styles.personQuickActionIcon}>{action.icon}</span>
+                    <span>{action.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 
@@ -491,10 +547,9 @@ export function PersonDetailView({
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Recent activities</h2>
-                  {addActivity}
                 </div>
                 {person.activities.length > 0 ? (
-                  <ActivityList activities={person.activities} limit={6} />
+                  <ActivityList activities={person.activities} limit={5} />
                 ) : (
                   <EmptyBlock
                     title="No activities yet"
@@ -524,7 +579,7 @@ export function PersonDetailView({
                   {addTask}
                 </div>
                 {person.tasks.length > 0 ? (
-                  <TaskList tasks={person.tasks} />
+                  <ExpandableTasksList tasks={person.tasks} />
                 ) : (
                   <EmptyBlock
                     title="No associated tasks"
@@ -540,15 +595,21 @@ export function PersonDetailView({
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Activities</h2>
-                  {addActivity}
+                  {person.activities.length > 0 ? addActivity : null}
                 </div>
                 {person.activities.length > 0 ? (
-                  <ActivityList activities={person.activities} />
-                ) : (
-                  <EmptyBlock
-                    title="No activities yet"
-                    description="Notes, calls, emails, SMS, and tasks for this record will appear here."
+                  <ActivityDateFeed
+                    activities={person.activities}
+                    formatTime={formatRelativeTime}
                   />
+                ) : (
+                  <div className={styles.personFeedEmptyState}>
+                    <EmptyState
+                      title="Keep every touchpoint in one place"
+                      description="Log notes, calls, emails, and meetings so the full story stays with this record."
+                      action={addActivityCta}
+                    />
+                  </div>
                 )}
               </section>
             </div>
@@ -559,14 +620,13 @@ export function PersonDetailView({
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Messaging</h2>
-                  <button type="button" className={styles.btnSecondary} disabled>
-                    New message
-                  </button>
                 </div>
-                <EmptyBlock
-                  title="No messages yet"
-                  description="SMS and email conversations with this record will appear here."
-                />
+                <div className={styles.personFeedEmptyState}>
+                  <EmptyState
+                    title="Start the conversation"
+                    description="SMS and email threads with this record will show up here."
+                  />
+                </div>
               </section>
             </div>
           ) : null}
@@ -576,19 +636,30 @@ export function PersonDetailView({
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Notes</h2>
-                  <button
-                    type="button"
-                    className={`${styles.btnSecondary} ${styles.btnPill}`}
-                    disabled
-                  >
-                    <IconPlus />
-                    Add
-                  </button>
+                  {person.activities.some(
+                    (item) => item.source === "activity" && item.type === "note",
+                  )
+                    ? addNote
+                    : null}
                 </div>
-                <EmptyBlock
-                  title="No notes yet"
-                  description="Capture context and follow-ups for this record."
-                />
+                {person.activities.filter(
+                  (item) => item.source === "activity" && item.type === "note",
+                ).length > 0 ? (
+                  <ActivityDateFeed
+                    activities={person.activities.filter(
+                      (item) => item.source === "activity" && item.type === "note",
+                    )}
+                    formatTime={formatRelativeTime}
+                  />
+                ) : (
+                  <div className={styles.personFeedEmptyState}>
+                    <EmptyState
+                      title="Capture what matters"
+                      description="Keep context and follow-ups for this record in one place."
+                      action={addNoteCta}
+                    />
+                  </div>
+                )}
               </section>
             </div>
           ) : null}
@@ -598,15 +669,18 @@ export function PersonDetailView({
               <section className={styles.personCenterCard}>
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Tasks</h2>
-                  {addTask}
+                  {person.tasks.length > 0 ? addTask : null}
                 </div>
                 {person.tasks.length > 0 ? (
-                  <TaskList tasks={person.tasks} />
+                  <ExpandableTasksList tasks={person.tasks} />
                 ) : (
-                  <EmptyBlock
-                    title="No tasks yet"
-                    description="Create follow-ups and to-dos tied to this record."
-                  />
+                  <div className={styles.personFeedEmptyState}>
+                    <EmptyState
+                      title="Stay on top of every follow-up"
+                      description="Create tasks so every next step for this contact has an owner."
+                      action={addTaskCta}
+                    />
+                  </div>
                 )}
               </section>
             </div>
@@ -638,7 +712,7 @@ export function PersonDetailView({
                   />
                 )}
                 <button type="button" className={styles.personAiAskBtn} disabled>
-                  Ask a question
+                  Ask A Question
                 </button>
               </div>
             )}

@@ -31,8 +31,8 @@ function IconKanban() {
 }
 
 const OPTIONS: { id: AdminLayout; label: string; icon: ReactNode }[] = [
-  { id: "list", label: "List view", icon: <IconList /> },
-  { id: "kanban", label: "Kanban view", icon: <IconKanban /> },
+  { id: "list", label: "List View", icon: <IconList /> },
+  { id: "kanban", label: "Kanban View", icon: <IconKanban /> },
 ];
 
 interface AdminLayoutToggleProps {

@@ -176,7 +176,7 @@ export function SetPasswordClient() {
                   </div>
 
                   <button className={styles.btnPrimary} type="submit" disabled={loading}>
-                    {loading ? "Saving…" : "Save password and continue"}
+                    {loading ? "Saving…" : "Save Password And Continue"}
                   </button>
                 </form>
               )}
@@ -184,7 +184,7 @@ export function SetPasswordClient() {
               {!email && (
                 <p style={{ margin: "1rem 0 0", textAlign: "center" }}>
                   <a className={styles.link} href="/login">
-                    Back to login
+                    Back To Login
                   </a>
                 </p>
               )}

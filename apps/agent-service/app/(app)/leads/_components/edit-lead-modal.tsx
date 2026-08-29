@@ -210,7 +210,7 @@ export function EditLeadModal({ lead, kind = "lead", onClose }: EditLeadModalPro
               Cancel
             </button>
             <button type="submit" className={styles.btnPrimary} disabled={pending}>
-              {pending ? "Saving…" : "Save changes"}
+              {pending ? "Saving…" : "Save Changes"}
             </button>
           </div>
         </form>

@@ -80,7 +80,7 @@ export function NewAccountModal({
           {trigger === "pill" ? (
             <>
               <IconPlus />
-              New account
+              New Account
             </>
           ) : (
             linkLabel === "Create the first one" ? "Add an Account" : linkLabel
@@ -105,7 +105,7 @@ export function NewAccountModal({
             <div className={styles.modalHeader}>
               <div>
                 <h2 id="new-account-title" className={styles.modalTitle}>
-                  New account
+                  New Account
                 </h2>
                 <p className={styles.modalSubtitle}>Creates a new tenant account.</p>
               </div>
@@ -208,7 +208,7 @@ export function NewAccountModal({
                   Cancel
                 </button>
                 <button type="submit" className={styles.btnPrimary} disabled={pending}>
-                  {pending ? "Creating…" : "Create account"}
+                  {pending ? "Creating…" : "Create Account"}
                 </button>
               </div>
             </form>

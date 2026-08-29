@@ -125,7 +125,7 @@ export function NewUserModal({
           {trigger === "pill" ? (
             <>
               <IconPlus />
-              New user
+              New User
             </>
           ) : (
             linkLabel === "Add the first one" ? "Add a User" : linkLabel
@@ -150,7 +150,7 @@ export function NewUserModal({
             <div className={styles.modalHeader}>
               <div>
                 <h2 id="new-user-title" className={styles.modalTitle}>
-                  New user
+                  New User
                 </h2>
                 <p className={styles.modalSubtitle}>
                   Adds a user to an account and emails them a link to set their password.
@@ -175,7 +175,7 @@ export function NewUserModal({
                   <code style={{ fontSize: "0.75rem", wordBreak: "break-all" }}>{inviteUrl}</code>
                   <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                     <button type="button" className={styles.btnSecondary} onClick={copyInviteUrl}>
-                      Copy link
+                      Copy Link
                     </button>
                     <a
                       className={styles.btnPrimary}
@@ -183,7 +183,7 @@ export function NewUserModal({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Open link
+                      Open Link
                     </a>
                   </div>
                 </div>
@@ -278,7 +278,7 @@ export function NewUserModal({
                 </button>
                 {!success && !inviteUrl && (
                   <button type="submit" className={styles.btnPrimary} disabled={pending}>
-                    {pending ? "Sending…" : "Add user"}
+                    {pending ? "Sending…" : "Add User"}
                   </button>
                 )}
               </div>

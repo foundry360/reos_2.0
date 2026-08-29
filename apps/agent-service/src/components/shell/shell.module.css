@@ -82,7 +82,218 @@
 .headerActions {
   display: flex;
   align-items: center;
+  gap: 0.55rem;
+}
+
+.headerIconBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--shell-header-text, #fff);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.headerIconBtn:hover,
+.headerIconBtnActive {
+  background: var(--shell-header-control-hover, rgba(255, 255, 255, 0.12));
+  border-color: transparent;
+  color: var(--shell-header-text, #fff);
+}
+
+.notificationsMenu {
+  position: relative;
+}
+
+.notificationsBadge {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.1rem;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--shell-header-bg, #022342);
+}
+
+.notificationsDropdown {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 50;
+  width: min(22.5rem, calc(100vw - 1.5rem));
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  border-radius: 14px;
+  box-shadow: var(--dropdown-shadow-strong);
+  overflow: hidden;
+  color: var(--shell-text);
+}
+
+.notificationsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 0.75rem;
+  padding: 0.9rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.notificationsTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--shell-text);
+}
+
+.notificationsSubtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.notificationsHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+}
+
+.notificationsTextBtn {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--shell-blue);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.notificationsTextBtn:hover {
+  text-decoration: underline;
+}
+
+.notificationsTextBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.notificationsEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 1.25rem 1rem 1.15rem;
+}
+
+.notificationsEmptyTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--shell-text);
+}
+
+.notificationsEmptyText {
+  margin: 0 0 0.35rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--shell-muted);
+}
+
+.notificationsList {
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem;
+  max-height: min(24rem, 60vh);
+  overflow: auto;
+}
+
+.notificationsFooter {
+  display: flex;
+  justify-content: center;
+  padding: 0.65rem 0.85rem 0.85rem;
+  border-top: 1px solid var(--shell-border);
+}
+
+.notificationsItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.notificationsItem:hover {
+  background: var(--shell-hover);
+}
+
+.notificationsItemUnread {
+  background: color-mix(in srgb, var(--brand-tint) 55%, transparent);
+}
+
+.notificationsItemUnread:hover {
+  background: color-mix(in srgb, var(--brand-tint) 75%, transparent);
+}
+
+.notificationsItemTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.notificationsItemCategory {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+}
+
+.notificationsItemTime {
+  font-size: 0.6875rem;
+  color: var(--shell-muted);
+  flex-shrink: 0;
+}
+
+.notificationsItemTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--shell-text);
+  line-height: 1.35;
+}
+
+.notificationsItemBody {
+  font-size: 0.8125rem;
+  color: var(--shell-muted);
+  line-height: 1.4;
 }
 
 .headerSearch {
@@ -190,15 +401,16 @@
   background: var(--shell-hover);
 }
 
-.globalSearchItemType {
+.globalSearchItem .dealActivityAvatar {
+  width: 1.85rem;
+  height: 1.85rem;
+  margin-top: 0.05rem;
   flex-shrink: 0;
-  min-width: 5.5rem;
-  margin-top: 0.1rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--shell-muted);
+}
+
+.globalSearchItem .dealActivityAvatar svg {
+  width: 14px;
+  height: 14px;
 }
 
 .globalSearchItemBody {
@@ -214,9 +426,29 @@
   color: var(--shell-text);
 }
 
+.globalSearchItemMeta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  min-width: 0;
+}
+
+.globalSearchItemType {
+  flex-shrink: 0;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+}
+
 .globalSearchItemSubtitle {
   font-size: 0.75rem;
   color: var(--shell-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 860px) {
@@ -226,10 +458,6 @@
 
   .appHeaderWithSearch .headerBrand span:not(.logoMark) {
     display: none;
-  }
-
-  .globalSearchItemType {
-    min-width: 4.5rem;
   }
 }
 
@@ -714,7 +942,7 @@ html[data-theme="dark"] .dropdownOptionActive {
   width: 100%;
   padding: 0.55rem 0.85rem;
   border: 1px solid var(--shell-border-strong);
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--shell-input-bg);
   color: var(--shell-text);
   font-size: 0.875rem;
@@ -739,6 +967,7 @@ html[data-theme="dark"] .dropdownOptionActive {
   min-width: 4.75rem;
   padding: 0.42rem 0.55rem;
   font-size: 0.8125rem;
+  border-radius: 999px;
 }
 
 .dropdownSelectTriggerInline {
@@ -989,6 +1218,11 @@ html[data-theme="dark"] .menuItemDanger:hover {
   background: #16b29b;
 }
 
+.pageTitleIconTask {
+  background: #f6d73c;
+  color: var(--brand);
+}
+
 .pageTitle {
   margin: 0;
   font-size: 1.35rem;
@@ -1136,6 +1370,7 @@ html[data-theme="dark"] .menuItemDanger:hover {
   overflow-x: hidden;
   overflow-y: auto;
   background: rgba(0, 0, 0, 0.45);
+  text-align: left;
 }
 
 .modalPanel {
@@ -1144,9 +1379,10 @@ html[data-theme="dark"] .menuItemDanger:hover {
   margin: auto;
   overflow: hidden;
   background: var(--shell-surface);
-  border: 1px solid var(--shell-border);
-  border-radius: 14px;
+  border: 1px solid var(--shell-header-bg);
+  border-radius: 12px;
   box-shadow: var(--dropdown-shadow-strong);
+  text-align: left;
 }
 
 .modalPanelWide {
@@ -1219,25 +1455,61 @@ html[data-theme="dark"] .menuItemDanger:hover {
 
 .modalHeader {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  padding: 1.15rem 1.25rem;
-  border-bottom: 1px solid var(--shell-border);
-  background: var(--shell-surface-muted);
-  border-radius: 13px 13px 0 0;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--shell-header-border);
+  background: var(--shell-header-bg);
+  color: var(--shell-header-text);
+  border-radius: 11px 11px 0 0;
+}
+
+.modalHeaderText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
 .modalTitle {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.9375rem;
   font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: normal;
+  color: var(--shell-header-text);
+  text-align: left;
 }
 
 .modalSubtitle {
-  margin: 0.25rem 0 0;
-  font-size: 0.8125rem;
-  color: var(--shell-muted);
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: normal;
+  color: var(--shell-header-muted);
+  text-align: left;
+}
+
+.modalHeader .iconBtn {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--shell-header-text);
+}
+
+.modalHeader .iconBtn:hover:not(:disabled) {
+  background: var(--shell-header-control-hover);
+  color: var(--shell-header-text);
+  border-color: transparent;
+}
+
+.modalHeader .iconBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .modalConfirmHint {
@@ -1257,6 +1529,10 @@ html[data-theme="dark"] .menuItemDanger:hover {
   margin-top: 0.5rem;
   padding-top: 0.85rem;
   border-top: 1px solid var(--shell-border);
+}
+
+.modalFooterSplit {
+  justify-content: space-between;
 }
 
 .srOnly {
@@ -1291,10 +1567,26 @@ html[data-theme="dark"] .menuItemDanger:hover {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--shell-border);
-  background: var(--shell-surface);
-  border-radius: 13px 13px 0 0;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--shell-header-border);
+  background: var(--shell-header-bg);
+  color: var(--shell-header-text);
+  border-radius: 11px 11px 0 0;
+}
+
+.importModalTop .iconBtn {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--shell-header-text);
+}
+
+.importModalTop .iconBtn:hover:not(:disabled) {
+  background: var(--shell-header-control-hover);
+  color: var(--shell-header-text);
+  border-color: transparent;
 }
 
 .importStepper {
@@ -1315,7 +1607,7 @@ html[data-theme="dark"] .menuItemDanger:hover {
 
 .importStepperChevron {
   margin: 0 0.35rem 0 0.15rem;
-  color: var(--shell-muted);
+  color: var(--shell-header-muted);
   font-size: 1.1rem;
   line-height: 1;
 }
@@ -1327,27 +1619,27 @@ html[data-theme="dark"] .menuItemDanger:hover {
   width: 1.55rem;
   height: 1.55rem;
   border-radius: 999px;
-  border: 1.5px solid var(--shell-border-strong, var(--shell-border));
-  background: var(--shell-surface);
-  color: var(--shell-muted);
+  border: 1.5px solid color-mix(in srgb, var(--shell-header-text) 35%, transparent);
+  background: transparent;
+  color: var(--shell-header-muted);
   font-size: 0.75rem;
   font-weight: 700;
 }
 
 .importStepperDotActive {
-  border-color: #22c55e;
-  background: #22c55e;
+  border-color: var(--brand-light);
+  background: var(--brand-light);
   color: #fff;
 }
 
 .importStepperLabel {
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--shell-muted);
+  color: var(--shell-header-muted);
 }
 
 .importStepperLabelActive {
-  color: var(--shell-text);
+  color: var(--shell-header-text);
   font-weight: 600;
 }
 
@@ -2390,9 +2682,33 @@ html[data-theme="dark"] .menuItemDanger:hover {
   text-decoration: underline;
 }
 
+.table a.contactLink,
+a.contactLink.tableCellLink {
+  color: var(--contact-link, #55a9db);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.table a.contactLink:hover,
+a.contactLink.tableCellLink:hover {
+  color: var(--contact-link-hover, #3d8fc4);
+  text-decoration: none;
+}
+
 .tableCellLink {
   font-weight: 500;
   color: var(--shell-blue);
+}
+
+.contactLink {
+  color: var(--contact-link, #55a9db);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contactLink:hover {
+  color: var(--contact-link-hover, #3d8fc4);
+  text-decoration: none;
 }
 
 .tableSortHeader {
@@ -2581,6 +2897,16 @@ html[data-theme="dark"] .menuItemDanger:hover {
 
 .badgeLeadConverted {
   background: #6b7280;
+  color: #ffffff;
+}
+
+.badgeTaskOpen {
+  background: #f6d73c;
+  color: var(--brand, #022342);
+}
+
+.badgeTaskDone {
+  background: #16b29b;
   color: #ffffff;
 }
 
@@ -2848,7 +3174,7 @@ html[data-theme="dark"] .emptyStateLine {
   margin-top: 1.35rem;
 }
 
-.emptyStateAction button {
+.emptyStateAction > button {
   min-width: 9.5rem;
   padding: 0.65rem 1.35rem;
   font-size: 0.9rem;
@@ -2940,6 +3266,7 @@ html[data-theme="dark"] .layoutToggleBtnActive {
   border: 1px solid var(--shell-border-strong);
   border-radius: 8px;
   font-size: 0.875rem;
+  font-family: inherit;
   background: var(--shell-input-bg);
   color: var(--shell-text);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -3007,10 +3334,8 @@ html[data-theme="dark"] .layoutToggleBtnActive {
 }
 
 .datePickerPanel {
-  position: absolute;
-  top: calc(100% + 0.45rem);
-  left: 0;
-  z-index: 90;
+  position: fixed;
+  z-index: 400;
   width: min(100%, 19.5rem);
   min-width: 17.5rem;
   padding: 0.75rem;
@@ -3018,11 +3343,6 @@ html[data-theme="dark"] .layoutToggleBtnActive {
   border: 1px solid var(--shell-border);
   border-radius: 14px;
   box-shadow: var(--dropdown-shadow-strong);
-}
-
-.datePickerPanelUp {
-  top: auto;
-  bottom: calc(100% + 0.45rem);
 }
 
 .datePickerHeader {
@@ -3144,8 +3464,68 @@ html[data-theme="dark"] .layoutToggleBtnActive {
   text-decoration: underline;
 }
 
-.modalPanel .datePickerPanel {
-  z-index: 95;
+.timePicker {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.timePickerPanel {
+  position: fixed;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  max-height: min(18rem, calc(100vh - 1rem));
+  overflow: hidden;
+  padding: 0.4rem 0 0;
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  border-radius: 14px;
+  box-shadow: var(--dropdown-shadow-strong);
+}
+
+.timePickerList {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.15rem 0.35rem 0.35rem;
+}
+
+.timePickerOption {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--shell-text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timePickerOption:hover {
+  background: var(--shell-hover);
+}
+
+.timePickerOptionSelected,
+.timePickerOptionSelected:hover {
+  background: var(--brand-tint);
+  color: var(--shell-blue);
+  font-weight: 600;
+}
+
+.timePickerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  padding: 0.55rem 0.75rem 0.65rem;
+  border-top: 1px solid var(--shell-border);
 }
 
 .select {
@@ -3466,6 +3846,99 @@ html[data-theme="dark"] .menuError {
   margin: 0 0 1rem;
   font-size: 0.8125rem;
   color: var(--shell-muted);
+}
+
+.notificationToggleStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 40rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--shell-surface);
+}
+
+.notificationToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.notificationToggleRow:last-child {
+  border-bottom: none;
+}
+
+.notificationToggleCopy {
+  min-width: 0;
+}
+
+.notificationToggleLabel {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--shell-text);
+}
+
+.notificationToggleDesc {
+  margin: 0.2rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--shell-muted);
+}
+
+.toggleSwitch {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 1.55rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--shell-border-strong);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.toggleSwitch:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--shell-border-strong) 70%, var(--shell-text) 30%);
+}
+
+.toggleSwitchOn {
+  background: #16b29b;
+}
+
+.toggleSwitchOn:hover:not(:disabled) {
+  background: #129985;
+}
+
+.toggleSwitch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-tint);
+}
+
+.toggleSwitch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.toggleSwitchThumb {
+  position: absolute;
+  top: 0.15rem;
+  left: 0.15rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: transform 0.15s ease;
+}
+
+.toggleSwitchOn .toggleSwitchThumb {
+  transform: translateX(1.2rem);
 }
 
 .settingsPhotoRow {
@@ -4799,6 +5272,18 @@ html[data-theme="dark"] .accordionIconSocial {
   border-radius: 10px;
   background: var(--shell-surface-muted);
   cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.checkboxCard:hover,
+.checkboxRow:hover {
+  border-color: var(--shell-border-strong);
+}
+
+.checkboxCardChecked {
+  border-color: var(--shell-blue);
+  box-shadow: 0 0 0 1px var(--shell-blue);
+  background: color-mix(in srgb, var(--brand-tint) 55%, var(--shell-surface));
 }
 
 .checkboxRow {
@@ -4807,8 +5292,43 @@ html[data-theme="dark"] .accordionIconSocial {
 
 .checkboxCard input,
 .checkboxRow input {
-  margin-top: 0.15rem;
+  appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0.15rem 0 0;
   flex-shrink: 0;
+  border: 2px solid var(--shell-border-strong);
+  border-radius: 4px;
+  background: var(--shell-input-bg, var(--shell-surface));
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.checkboxCard input:hover,
+.checkboxRow input:hover {
+  border-color: var(--shell-blue);
+}
+
+.checkboxCard input:checked,
+.checkboxRow input:checked {
+  border-color: var(--shell-blue);
+  background-color: var(--shell-blue);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M3.5 8.5l3 3 6-6.5' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 0.75rem 0.75rem;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.checkboxCard input:focus-visible,
+.checkboxRow input:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-tint);
+}
+
+.checkboxCard input:disabled,
+.checkboxRow input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .checkboxCard span,
@@ -4840,6 +5360,10 @@ html[data-theme="dark"] .accordionIconSocial {
   border-radius: 8px;
   background: var(--shell-input-bg);
   color: var(--shell-text);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.45;
   resize: vertical;
 }
 
@@ -5782,17 +6306,34 @@ a.dashSignalItem:hover {
 }
 
 .kanbanCardTitleLink {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   font-size: 0.9375rem;
   font-weight: 700;
   color: var(--shell-text);
   line-height: 1.35;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .kanbanCardTitleLink:hover {
   color: var(--brand);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.kanbanCardTitleLink.contactLink {
+  color: var(--contact-link, #55a9db);
+}
+
+.kanbanCardTitleLink.contactLink:hover {
+  color: var(--contact-link-hover, #3d8fc4);
+  text-decoration: none;
 }
 
 .kanbanCardFooter {
@@ -5832,6 +6373,17 @@ a.dashSignalItem:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.kanbanCardContactText.contactLink,
+a.kanbanCardContactText.contactLink {
+  color: var(--contact-link, #55a9db);
+  font-weight: 600;
+}
+
+.kanbanCardContactText.contactLink:hover,
+a.kanbanCardContactText.contactLink:hover {
+  color: var(--contact-link-hover, #3d8fc4);
 }
 
 .kanbanCardMeta {
@@ -6645,6 +7197,10 @@ html[data-theme="dark"] .billingWalletIconBadge {
   cursor: pointer;
 }
 
+.personQuickAction:hover:not(:disabled) {
+  color: var(--shell-text);
+}
+
 .personQuickAction:disabled {
   opacity: 0.55;
   cursor: not-allowed;
@@ -6975,6 +7531,33 @@ html[data-theme="dark"] .billingWalletIconBadge {
   color: var(--shell-muted);
 }
 
+.personTasksStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.personTasksSection {
+  min-width: 0;
+}
+
+.personTasksSectionTitle {
+  margin: 0 0 0.55rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+}
+
+.dealActivityFeed.personTasksStack {
+  gap: 1.15rem;
+}
+
+.personTasksSection .dealActivityList {
+  gap: 0.55rem;
+}
+
 .personLinkedList,
 .personAssociationList {
   list-style: none;
@@ -6996,7 +7579,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
 .personLinkedItem,
 .personAssociationItem {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
   width: 100%;
@@ -7007,21 +7590,6 @@ html[data-theme="dark"] .billingWalletIconBadge {
   text-decoration: none;
   color: inherit;
   transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.personOpportunityItem {
-  border-left: 3px solid #16b29b;
-  border-radius: 0 10px 10px 0;
-}
-
-.personActivityItem {
-  border-left: 3px solid #fa8f59;
-  border-radius: 0 10px 10px 0;
-}
-
-.personTaskItem {
-  border-left: 3px solid #f6d73c;
-  border-radius: 0 10px 10px 0;
 }
 
 .personAssociationItem {
@@ -7039,6 +7607,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  flex: 1;
   min-width: 0;
 }
 
@@ -7050,6 +7619,22 @@ html[data-theme="dark"] .billingWalletIconBadge {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.personLinkedItemTitleLink {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--shell-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.personLinkedItemTitleLink:hover {
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .personAssociationItemTitle {
@@ -7066,6 +7651,8 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex-shrink: 0;
   font-size: 0.75rem;
   color: var(--shell-muted);
+  padding-top: 0.15rem;
+  text-align: right;
 }
 
 @media (max-width: 1100px) {
@@ -7096,5 +7683,1351 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
   .personQuickActions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ── Opportunity deal detail (HubSpot-style) ── */
+
+.dealDetailPage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.dealDetailNav {
+  display: flex;
+  align-items: center;
+}
+
+.dealDetailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.dealDetailTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.dealDetailTitle {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--shell-text);
+  letter-spacing: -0.02em;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dealDetailHeaderActions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dealDetailTabs {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.dealDetailTab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.55rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: var(--shell-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dealDetailTab:hover {
+  color: var(--shell-text);
+}
+
+.dealDetailTabActive {
+  color: #16b29b;
+}
+
+.dealDetailTabActive::after {
+  content: "";
+  position: absolute;
+  left: 0.55rem;
+  right: 0.55rem;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: #16b29b;
+}
+
+.dealDetailLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.95fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.dealDetailMain,
+.dealDetailSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.dealCard {
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  border-radius: 12px;
+  box-shadow: var(--shell-card-shadow);
+}
+
+.dealPipelineCard {
+  padding: 0.9rem 1rem 1rem;
+}
+
+.dealPipelineTop {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.dealMetaPills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.dealMetaPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #16b29b 12%, var(--shell-surface));
+  color: #0f766e;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+html[data-theme="dark"] .dealMetaPill {
+  background: color-mix(in srgb, #16b29b 22%, var(--shell-surface));
+  color: #5eead4;
+}
+
+.dealPipelineTrack {
+  display: flex;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.dealPipelineStep {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.35rem;
+  margin-left: -0.45rem;
+  padding: 0.45rem 1rem 0.45rem 1.25rem;
+  background: var(--shell-hover);
+  color: var(--shell-muted);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
+}
+
+.dealPipelineStep:first-child {
+  margin-left: 0;
+  padding-left: 0.85rem;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+}
+
+.dealPipelineStep:last-child {
+  padding-right: 0.85rem;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 12px 50%);
+}
+
+.dealPipelineStepActive {
+  background: #16b29b;
+  color: #fff;
+}
+
+.dealPipelineStepBtn {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.dealPipelineStepBtn:disabled {
+  cursor: wait;
+  opacity: 0.8;
+}
+
+.dealPipelineStep:hover .dealPipelineStepBtn:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.dealActivityCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dealFeedHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.9rem;
+  border-bottom: 1px solid var(--shell-border);
+  flex-wrap: wrap;
+}
+
+.dealFeedHeader .personDetailTabs {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+}
+
+.dealFeedHeader .personDetailTabActive {
+  color: #16b29b;
+}
+
+.dealFeedHeader .personDetailTabActive::after {
+  background: #16b29b;
+}
+
+.dealFeedSearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  min-width: 11rem;
+  max-width: 16rem;
+  margin: 0.45rem 0;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--shell-muted);
+}
+
+.dealFeedSearch:focus-within {
+  border-color: color-mix(in srgb, #16b29b 55%, var(--shell-border));
+  background: transparent;
+  color: var(--shell-text);
+}
+
+.dealFeedSearchIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.dealFeedSearchInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0;
+}
+
+.dealFeedSearchInput::placeholder {
+  color: var(--shell-muted);
+}
+
+.dealFeedSearchInput::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.dealFeedAction {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin: 0.45rem 0;
+}
+
+.dealFeedEmptyState {
+  padding: 1.5rem 1rem 2rem;
+}
+
+.dealFeedEmptyState .emptyState {
+  margin: 0 auto;
+}
+
+/* Opportunity feed CTAs use deal green */
+.dealFeedEmptyState .emptyStateAction > button {
+  background: #16b29b;
+  color: #fff;
+}
+
+.dealFeedEmptyState .emptyStateAction > button:hover:not(:disabled) {
+  background: #129985;
+}
+
+.personFeedEmptyState {
+  padding: 1.5rem 1rem 2rem;
+}
+
+.personFeedEmptyState .emptyState {
+  margin: 0 auto;
+}
+
+.personCenterCard .dealActivityFeed {
+  padding: 0;
+}
+
+.dealActivityFeed {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+  padding: 0.85rem 0.9rem 1rem;
+}
+
+.dealActivityGroup {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.dealActivityGroupTrigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.15rem 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dealActivityGroupTrigger:hover .dealActivityGroupHeading {
+  color: var(--shell-text);
+}
+
+.dealActivityGroupHeading {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+  line-height: 1.2;
+  margin-right: auto;
+}
+
+.dealActivityGroupPanel {
+  min-width: 0;
+}
+
+.dealActivityList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.dealActivityFeed .dealActivityList {
+  padding: 0;
+}
+
+.dealActivityTreeItem {
+  position: relative;
+  min-width: 0;
+}
+
+.dealActivityItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.75rem 0.95rem;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  background: var(--shell-surface);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dealActivityItem:hover {
+  border-color: var(--shell-border-strong);
+  background: var(--shell-hover);
+}
+
+.dealActivityNoteTrigger {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.dealActivityNoteChevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--shell-muted);
+  padding-top: 0.15rem;
+}
+
+.dealActivityNoteEdit {
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: stretch;
+  cursor: default;
+}
+
+.dealActivityNoteEdit:hover {
+  background: var(--shell-surface);
+}
+
+.dealActivityNoteEditHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+}
+
+.dealActivityNoteEditLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--shell-text);
+}
+
+.dealActivityNoteEdit .field {
+  margin: 0;
+}
+
+.dealActivityNoteEdit .editFormActions {
+  margin-top: 0.15rem;
+}
+
+.dealActivityAvatar {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #16b29b;
+  color: #fff;
+}
+
+.dealActivityAvatar svg {
+  display: block;
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.dealActivityAvatarDarkIcon {
+  color: var(--brand);
+}
+
+.dealActivityMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.dealActivityTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--shell-text);
+}
+
+.dealActivityMeta {
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.dealActivityTime {
+  flex-shrink: 0;
+  max-width: 14rem;
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+  padding-top: 0.15rem;
+  text-align: right;
+  line-height: 1.35;
+}
+
+.dealActivityTimeDue {
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.3rem;
+  text-align: left;
+}
+
+.dealActivityTimeDue svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.dealActivityEmpty {
+  padding: 1.5rem 1rem;
+  text-align: center;
+}
+
+.dealSignalsCard {
+  padding: 0.85rem 1rem 1rem;
+}
+
+.dealSignalsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.dealSignalsUpdated {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.dealSignalsBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 1.25rem 0.75rem 1rem;
+  text-align: center;
+}
+
+.dealSignalsIcon {
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #16b29b 14%, var(--shell-surface));
+  color: #16b29b;
+}
+
+.dealSignalsTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--shell-text);
+}
+
+.dealSignalsText {
+  margin: 0;
+  max-width: 18rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--shell-muted);
+}
+
+.dealSignalsFooter {
+  margin-top: 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--shell-border);
+  font-size: 0.6875rem;
+  color: var(--shell-muted);
+}
+
+.dealPropertiesCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.dealPropertiesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem 0.65rem 0.35rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.dealPropertiesHeaderToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.2rem 0.65rem;
+  border: none;
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--shell-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dealPropertiesHeaderToggle:disabled {
+  cursor: default;
+}
+
+.dealPropertiesHeader .inlineEditBtn {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.dealPropertiesTitle {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.dealPropertiesCard .personAboutForm {
+  padding-top: 0.85rem;
+}
+
+.dealPropertiesEditForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 1rem;
+}
+
+.dealPropertiesEditForm .field {
+  margin: 0;
+  min-width: 0;
+}
+
+.dealPropertiesEditFull {
+  grid-column: 1 / -1;
+}
+
+.dealPropertiesEditFull .editFormActions {
+  margin-top: 0.15rem;
+}
+
+@media (max-width: 700px) {
+  .dealPropertiesEditForm {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dealPropertiesRows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  padding: 0.15rem 0 0.35rem;
+}
+
+.dealPropertiesRows .personPropertyRow {
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.dealPropertiesRows .personPropertyRow:nth-last-child(-n + 2) {
+  border-bottom: none;
+}
+
+.personPropertyLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--contact-link, #55a9db);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.personPropertyLink:hover {
+  color: var(--contact-link-hover, #3d8fc4);
+  text-decoration: none;
+}
+
+@media (max-width: 700px) {
+  .dealPropertiesRows {
+    grid-template-columns: 1fr;
+  }
+
+  .dealPropertiesRows .personPropertyRow:nth-last-child(-n + 2) {
+    border-bottom: 1px solid var(--shell-border);
+  }
+
+  .dealPropertiesRows .personPropertyRow:last-child {
+    border-bottom: none;
+  }
+}
+
+.dealPropertiesForm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dealPropertiesForm .field {
+  margin: 0;
+}
+
+.dealPropertiesForm .editFormActions {
+  margin-top: 0.35rem;
+}
+
+.dealPropertiesGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1rem;
+}
+
+.dealProperty {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.dealPropertyLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--shell-muted);
+}
+
+.dealPropertyValue {
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 8px;
+  background: var(--shell-surface);
+  font-size: 0.875rem;
+  color: var(--shell-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dealPropertyValueMuted {
+  color: var(--shell-muted);
+}
+
+.dealPropertyBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #55a9db 14%, var(--shell-surface));
+  color: #2477a8;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dealPropertyBadge:hover {
+  background: color-mix(in srgb, #55a9db 22%, var(--shell-surface));
+  color: #1a648f;
+}
+
+html[data-theme="dark"] .dealPropertyBadge {
+  color: #7bbde5;
+}
+
+.dealStageChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: #16b29b;
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+@media (max-width: 1100px) {
+  .dealDetailLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .dealPropertiesGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .dealPipelineTrack {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .dealPipelineStep,
+  .dealPipelineStep:first-child,
+  .dealPipelineStep:last-child {
+    margin-left: 0;
+    padding: 0.65rem 0.85rem;
+    clip-path: none;
+    border-radius: 8px;
+  }
+}
+
+.tasksTablesStack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.tasksTableSection {
+  min-width: 0;
+}
+
+.tasksTable {
+  table-layout: fixed;
+}
+
+.tasksTable col.tasksColTask {
+  width: 20%;
+}
+
+.tasksTable col.tasksColContact {
+  width: 15%;
+}
+
+.tasksTable col.tasksColOpportunity {
+  width: 15%;
+}
+
+.tasksTable col.tasksColStatus {
+  width: 8%;
+}
+
+.tasksTable col.tasksColStart,
+.tasksTable col.tasksColEnd {
+  width: 15%;
+}
+
+.tasksTable col.tasksColDue {
+  width: 12%;
+}
+
+.tasksTable th,
+.tasksTable td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tasksTable th:nth-child(5),
+.tasksTable th:nth-child(6),
+.tasksTable td:nth-child(5),
+.tasksTable td:nth-child(6) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tasksTableSectionHeader {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin: 0 0 0.65rem;
+}
+
+.tasksTableSectionTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--shell-text);
+  letter-spacing: -0.01em;
+}
+
+.tasksTableEmpty {
+  margin: 0;
+  padding: 1.15rem 1.1rem;
+  color: var(--shell-muted);
+  font-size: 0.875rem;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.taskTableRow {
+  cursor: pointer;
+}
+
+.taskTableRow:hover td {
+  background: var(--shell-hover);
+}
+
+.taskTableRowExpanded td {
+  background: color-mix(in srgb, var(--brand-tint) 55%, var(--shell-surface));
+}
+
+.taskExpandRow td {
+  padding: 0;
+  background: var(--shell-surface-muted, var(--shell-surface));
+  border-bottom: 1px solid var(--shell-border);
+  cursor: default;
+}
+
+.taskExpandPanel {
+  padding: 1rem 1.15rem 1.1rem;
+  border-top: 1px solid var(--shell-border);
+}
+
+.taskExpandPanel .field {
+  margin-bottom: 0.85rem;
+}
+
+.taskExpandPanel .fieldRow {
+  margin-bottom: 0.85rem;
+}
+
+.taskExpandActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
+}
+
+.taskExpandActionsEnd {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-left: auto;
+}
+
+.taskFeedRow {
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.taskFeedRowExpanded {
+  background: color-mix(in srgb, var(--brand-tint) 55%, var(--shell-surface));
+}
+
+.personLinkedItem.taskFeedRow:hover {
+  background: var(--shell-hover);
+}
+
+.taskFeedExpand {
+  margin-top: 0.35rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  background: var(--shell-surface-muted, var(--shell-surface));
+  overflow: hidden;
+}
+
+.taskFeedExpand .taskExpandPanel {
+  border-top: none;
+}
+
+.dealActivityTreeItem .taskFeedExpand {
+  margin-top: 0.45rem;
+}
+
+/* ── Task composer ── */
+
+.taskComposerPanel {
+  width: min(100%, 720px);
+  max-height: min(92vh, 860px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-header-bg);
+  border-radius: 12px;
+  box-shadow: var(--dropdown-shadow-strong);
+  text-align: left;
+}
+
+/* Match modal form fields — rectangular, not pills */
+.taskComposerPanel .dropdownSelectTrigger {
+  border-radius: 8px;
+}
+
+.taskComposerPanel .dropdownSelectMenu {
+  z-index: 90;
+}
+
+.taskComposerForm {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.taskComposerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--shell-header-border);
+  background: var(--shell-header-bg);
+  color: var(--shell-header-text);
+  border-radius: 11px 11px 0 0;
+}
+
+.taskComposerHeaderLeft {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.taskComposerHeaderTitle {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--shell-header-text);
+}
+
+.taskComposerHeaderBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--shell-header-text);
+  cursor: pointer;
+}
+
+.taskComposerHeaderBtn:hover {
+  background: var(--shell-header-control-hover);
+}
+
+.taskComposerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 1rem 1.15rem 0.35rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.taskComposerRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 1.5rem;
+  margin-bottom: 0.85rem;
+}
+
+.taskComposerField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.taskComposerLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--shell-text-secondary);
+}
+
+.taskComposerDateTime {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8.5rem;
+  gap: 0.5rem;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.taskComposerTimeInput {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: 8px;
+  background: var(--shell-input-bg);
+  color: var(--shell-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.taskComposerTimeInput:hover:not(:disabled) {
+  border-color: var(--shell-blue);
+}
+
+.taskComposerTimeInput:focus {
+  outline: none;
+  border-color: var(--shell-blue);
+  box-shadow: 0 0 0 3px var(--brand-tint);
+}
+
+.taskComposerPanel .datePickerTrigger {
+  min-height: 2.5rem;
+  border-radius: 8px;
+}
+
+.taskComposerTitleInput {
+  width: 100%;
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: 8px;
+  background: var(--shell-input-bg);
+  color: var(--shell-text);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.taskComposerTitleInput::placeholder {
+  color: var(--shell-muted);
+  font-weight: 400;
+}
+
+.taskComposerTitleInput:focus {
+  border-color: var(--shell-blue);
+  box-shadow: 0 0 0 3px var(--brand-tint);
+}
+
+.taskComposerNotesInput {
+  width: 100%;
+  min-height: 7rem;
+  margin: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--shell-border-strong);
+  border-radius: 8px;
+  background: var(--shell-input-bg);
+  color: var(--shell-text);
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.taskComposerNotesInput::placeholder {
+  color: var(--shell-muted);
+}
+
+.taskComposerNotesInput:focus {
+  border-color: var(--shell-blue);
+  box-shadow: 0 0 0 3px var(--brand-tint);
+}
+
+@media (max-width: 640px) {
+  .taskComposerDateTime {
+    grid-template-columns: 1fr;
+  }
+}
+
+.taskComposerValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.5rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: #16b29b;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: default;
+}
+
+.taskComposerValueButton {
+  cursor: pointer;
+}
+
+.taskComposerValueButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.taskComposerValueMuted {
+  color: var(--shell-muted);
+  font-weight: 600;
+}
+
+.taskComposerCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: var(--shell-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.taskComposerCheck input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--brand, #022342);
+}
+
+.taskComposerDivider {
+  height: 1px;
+  margin: 0.15rem 0 0.95rem;
+  background: var(--shell-border);
+  border: none;
+}
+
+.taskComposerMeta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem 1rem;
+  margin-bottom: 0.95rem;
+}
+
+.taskComposerNotes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 0.35rem;
+}
+
+.taskComposerToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0 0.85rem;
+  flex-wrap: wrap;
+}
+
+.taskComposerTools {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  color: var(--shell-muted);
+}
+
+.taskComposerToolBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.35rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: default;
+}
+
+.taskComposerAssoc {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: #16b29b;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: default;
+}
+
+.taskComposerFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  padding: 0.85rem 1.15rem 1rem;
+  border-top: 1px solid var(--shell-border);
+}
+
+.taskComposerCreate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.5rem;
+  padding: 0.55rem 1.1rem;
+  border: none;
+  border-radius: 6px;
+  background: #16b29b;
+  color: #fff;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.taskComposerCreate:hover:not(:disabled) {
+  background: #129985;
+}
+
+.taskComposerCreate:disabled {
+  background: #cbd6e2;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.taskComposerError {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  color: #b42318;
+}
+
+@media (max-width: 700px) {
+  .taskComposerRow,
+  .taskComposerMeta {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .taskComposerRow,
+  .taskComposerMeta {
+    grid-template-columns: 1fr;
   }
 }

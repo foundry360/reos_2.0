@@ -17,8 +17,8 @@ import {
 import styles from "@/components/shell/shell.module.css";
 
 const STEPS = [
-  { id: 1, label: "Choose data" },
-  { id: 2, label: "Edit mapping" },
+  { id: 1, label: "Choose Data" },
+  { id: 2, label: "Edit Mapping" },
   { id: 3, label: "Preview" },
   { id: 4, label: "Import" },
 ] as const;
@@ -49,12 +49,12 @@ const MODE_OPTIONS = [
   },
   {
     value: "add_only" as const,
-    label: "Add only",
+    label: "Add Only",
     description: "Create new records; skip existing ones",
   },
   {
     value: "update_only" as const,
-    label: "Update only",
+    label: "Update Only",
     description: "Update matches; skip new records",
   },
 ];
@@ -196,12 +196,12 @@ export function DataImportModal({ open, onClose }: DataImportModalProps) {
   const stepCopy =
     step === 1
       ? {
-          title: "Choose data",
+          title: "Choose Data",
           subtitle: "Select what you want to import and upload your spreadsheet.",
         }
       : step === 2
         ? {
-            title: "Edit mapping",
+            title: "Edit Mapping",
             subtitle: "Match each file column to a REOS field.",
           }
         : step === 3

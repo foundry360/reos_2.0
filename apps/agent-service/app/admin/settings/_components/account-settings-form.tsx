@@ -116,7 +116,7 @@ export function AccountSettingsForm({
               disabled={photoPending}
               onClick={() => fileRef.current?.click()}
             >
-              {photoPending ? "Uploading…" : "Upload photo"}
+              {photoPending ? "Uploading…" : "Upload Photo"}
             </button>
             {avatarUrl && (
               <button
@@ -125,7 +125,7 @@ export function AccountSettingsForm({
                 disabled={photoPending}
                 onClick={handleRemovePhoto}
               >
-                Remove photo
+                Remove Photo
               </button>
             )}
           </div>
@@ -163,7 +163,7 @@ export function AccountSettingsForm({
           </div>
 
           <button type="submit" className={styles.btnPrimary} disabled={namePending}>
-            {namePending ? "Saving…" : "Save name"}
+            {namePending ? "Saving…" : "Save Name"}
           </button>
         </form>
       </section>

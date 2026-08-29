@@ -216,7 +216,7 @@ export function NewOpportunityModal({
           {trigger === "pill" ? (
             <>
               <IconPlus />
-              New opportunity
+              New Opportunity
             </>
           ) : trigger === "secondary" ? (
             <>
@@ -251,7 +251,7 @@ export function NewOpportunityModal({
             <div className={styles.modalHeader}>
               <div>
                 <h2 id="new-opportunity-title" className={styles.modalTitle}>
-                  New opportunity
+                  New Opportunity
                 </h2>
                 <p className={styles.modalSubtitle}>
                   Capture the deal details to start tracking.
@@ -469,7 +469,7 @@ export function NewOpportunityModal({
                   className={styles.btnPrimary}
                   disabled={pending || contactOptions.length === 0}
                 >
-                  {pending ? "Adding…" : "Add opportunity"}
+                  {pending ? "Adding…" : "Add Opportunity"}
                 </button>
               </div>
             </form>

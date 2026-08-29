@@ -8,7 +8,8 @@ export type PageHeadingTone =
   | "light"
   | "dark"
   | "person"
-  | "opportunity";
+  | "opportunity"
+  | "task";
 
 const TONE_CLASS: Record<PageHeadingTone, string | undefined> = {
   accent: undefined,
@@ -17,6 +18,7 @@ const TONE_CLASS: Record<PageHeadingTone, string | undefined> = {
   dark: styles.pageTitleIconDark,
   person: styles.pageTitleIconPerson,
   opportunity: styles.pageTitleIconOpportunity,
+  task: styles.pageTitleIconTask,
 };
 
 interface PageHeadingProps {

@@ -157,7 +157,7 @@ export function StripeIntegrationCard({ overview, webhookUrl }: StripeIntegratio
               (secretKey.trim().length === 0 && webhookSecret.trim().length === 0)
             }
           >
-            {pending ? "Saving…" : "Save credentials"}
+            {pending ? "Saving…" : "Save Credentials"}
           </button>
           {overview.stripe.configured && (
             <button

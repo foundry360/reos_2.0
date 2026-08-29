@@ -102,7 +102,7 @@ export function OpenAIIntegrationCard({ overview }: { overview: IntegrationsOver
             className={styles.btnPrimary}
             disabled={!overview.encryptionEnabled || pending || apiKey.trim().length === 0}
           >
-            {pending ? "Saving…" : "Save key"}
+            {pending ? "Saving…" : "Save Key"}
           </button>
           {overview.openai.source === "database" && (
             <button

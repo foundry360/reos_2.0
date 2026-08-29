@@ -215,7 +215,7 @@ function KanbanCardContent({
       {linkTitle ? (
         <Link
           href={`${basePath}/${lead.id}`}
-          className={styles.kanbanCardTitleLink}
+          className={`${styles.kanbanCardTitleLink} ${styles.contactLink}`}
           onPointerDown={(event) => event.stopPropagation()}
         >
           {lead.name}

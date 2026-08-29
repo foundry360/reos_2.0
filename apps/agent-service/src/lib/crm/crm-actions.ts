@@ -21,10 +21,11 @@ import {
   isOpportunityPriority,
   isOpportunityType,
 } from "@/lib/opportunities/opportunity-fields";
-import { isActivityType, type StoredActivityType } from "@/lib/crm/person-activities";
+import { isActivityType, type ActivityRelatedEntityType, type StoredActivityType } from "@/lib/crm/person-activities";
 import { parsePhoneForStorage } from "@/lib/phone-display";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
+import { createUserNotification } from "@/lib/notifications/create-notification";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface CrmActionResult {
@@ -69,10 +70,45 @@ async function requireTenantId(): Promise<{ tenantId: string } | CrmActionResult
   return { tenantId };
 }
 
+async function currentUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
+async function notifySelf(input: {
+  tenantId: string;
+  category: "tasks" | "leads" | "opportunities" | "messages" | "system";
+  title: string;
+  body?: string | null;
+  href?: string | null;
+}): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) return;
+  await createUserNotification({
+    userId,
+    tenantId: input.tenantId,
+    category: input.category,
+    title: input.title,
+    body: input.body,
+    href: input.href,
+  });
+  revalidatePath("/", "layout");
+  revalidatePath("/admin", "layout");
+}
+
 function parseOptionalContactId(value: FormDataEntryValue | null): string | null {
   const raw = String(value ?? "").trim();
   if (!raw || raw === "none") return null;
   return raw;
+}
+
+function isMissingTaskScheduleColumnError(message: string): boolean {
+  return /Could not find the '(start_at|end_at)' column|column ["']?(start_at|end_at)["']?.*(does not exist|not found)|schema cache.*\b(start_at|end_at)\b/i.test(
+    message,
+  );
 }
 
 function parseAmountCents(value: FormDataEntryValue | null): number | null | { error: string } {
@@ -112,6 +148,8 @@ async function logContactActivity(
     activityType: StoredActivityType;
     title: string;
     body?: string | null;
+    relatedEntityType?: ActivityRelatedEntityType | null;
+    relatedEntityId?: string | null;
   },
 ): Promise<void> {
   if (!params.contactId) return;
@@ -123,14 +161,28 @@ async function logContactActivity(
     title: params.title,
     body: params.body?.trim() || null,
     occurred_at: new Date().toISOString(),
+    related_entity_type: params.relatedEntityType ?? null,
+    related_entity_id: params.relatedEntityId ?? null,
   };
 
   let { error } = await supabase.from("contact_activities").insert(payload);
+
+  const withoutRelated = () => {
+    const { related_entity_type: _t, related_entity_id: _i, ...legacy } = payload;
+    return legacy;
+  };
+
+  if (error && /related_entity|schema cache|column/i.test(error.message)) {
+    ({ error } = await supabase.from("contact_activities").insert(withoutRelated()));
+  }
+
   if (error && /activity_type|check constraint/i.test(error.message)) {
-    ({ error } = await supabase.from("contact_activities").insert({
-      ...payload,
-      activity_type: "other",
-    }));
+    const asOther = { ...payload, activity_type: "other" as const };
+    ({ error } = await supabase.from("contact_activities").insert(asOther));
+    if (error && /related_entity|schema cache|column/i.test(error.message)) {
+      const { related_entity_type: _t, related_entity_id: _i, ...legacy } = asOther;
+      ({ error } = await supabase.from("contact_activities").insert(legacy));
+    }
   }
 
   if (error) {
@@ -261,6 +313,21 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
     ]
       .filter(Boolean)
       .join(" · "),
+    relatedEntityType: kind,
+    relatedEntityId: contact.id,
+  });
+
+  await notifySelf({
+    tenantId: tenant.tenantId,
+    category: "leads",
+    title: `${kind === "contact" ? "Contact" : "Lead"} created: ${createdName}`,
+    body:
+      kind === "lead"
+        ? `Status ${formatLeadStatusLabel(status)}`
+        : contactType
+          ? `Type ${formatContactTypeLabel(contactType)}`
+          : null,
+    href: `${personBasePath(kind)}/${contact.id}`,
   });
 
   revalidatePersonPaths(kind);
@@ -464,6 +531,8 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
       activityType: "contact",
       title: `Updated ${label}: ${personDisplayName(firstName, lastName)}`,
       body: changes.join(" · "),
+      relatedEntityType: nextKind,
+      relatedEntityId: leadId,
     });
   }
 
@@ -533,6 +602,16 @@ export async function updateLeadStatusAction(
     ]
       .filter(Boolean)
       .join(" · "),
+    relatedEntityType: nextKind,
+    relatedEntityId: id,
+  });
+
+  await notifySelf({
+    tenantId: tenant.tenantId,
+    category: "leads",
+    title: `Lead status updated: ${personDisplayName(existing.first_name, existing.last_name)}`,
+    body: `${formatLeadStatusLabel(existing.lead_status ?? "")} → ${formatLeadStatusLabel(status)}`,
+    href: `${personBasePath(nextKind)}/${id}`,
   });
 
   revalidateAfterPersonUpdate(kind, nextKind, id);
@@ -588,6 +667,8 @@ export async function updateContactTypeAction(
     activityType: "contact",
     title: `Updated contact: ${personDisplayName(existing.first_name, existing.last_name)}`,
     body: `Type ${formatContactTypeLabel(existing.contact_type)} → ${formatContactTypeLabel(contactType)}`,
+    relatedEntityType: "contact",
+    relatedEntityId: id,
   });
 
   revalidateAfterPersonUpdate("contact", "contact", id);
@@ -724,9 +805,20 @@ export async function createOpportunityAction(
     ]
       .filter(Boolean)
       .join(" · "),
+    relatedEntityType: "opportunity",
+    relatedEntityId: opportunity.id,
+  });
+
+  await notifySelf({
+    tenantId: tenant.tenantId,
+    category: "opportunities",
+    title: `Opportunity created: ${name}`,
+    body: `Stage ${formatOpportunityStageLabel(stage)}`,
+    href: `/opportunities/${opportunity.id}`,
   });
 
   revalidatePath("/opportunities");
+  revalidatePath(`/opportunities/${opportunity.id}`);
   revalidatePath(`/leads/${contactId}`);
   revalidatePath(`/contacts/${contactId}`);
   return { ok: true, id: opportunity.id };
@@ -900,6 +992,8 @@ export async function updateOpportunityAction(
       activityType: "opportunity",
       title: `Updated opportunity: ${name}`,
       body: changes.join(" · "),
+      relatedEntityType: "opportunity",
+      relatedEntityId: id,
     });
     if (existing.contact_id && existing.contact_id !== contactId) {
       await logContactActivity(supabase, {
@@ -908,6 +1002,18 @@ export async function updateOpportunityAction(
         activityType: "opportunity",
         title: `Unlinked opportunity: ${existing.name}`,
         body: `Moved to another contact`,
+        relatedEntityType: "opportunity",
+        relatedEntityId: id,
+      });
+    }
+
+    if (existing.stage !== stage) {
+      await notifySelf({
+        tenantId: tenant.tenantId,
+        category: "opportunities",
+        title: `Stage updated: ${name}`,
+        body: `${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
+        href: `/opportunities/${id}`,
       });
     }
   }
@@ -962,6 +1068,8 @@ export async function deleteOpportunitiesAction(
       contactId: row.contact_id,
       activityType: "opportunity",
       title: `Deleted opportunity: ${row.name}`,
+      relatedEntityType: "opportunity",
+      relatedEntityId: row.id,
     });
   }
 
@@ -1022,9 +1130,20 @@ export async function updateOpportunityStageAction(
     activityType: "opportunity",
     title: `Updated opportunity: ${existing.name}`,
     body: `Stage ${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
+    relatedEntityType: "opportunity",
+    relatedEntityId: id,
+  });
+
+  await notifySelf({
+    tenantId: tenant.tenantId,
+    category: "opportunities",
+    title: `Stage updated: ${existing.name}`,
+    body: `${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
+    href: `/opportunities/${id}`,
   });
 
   revalidatePath("/opportunities");
+  revalidatePath(`/opportunities/${id}`);
   if (existing.contact_id) {
     revalidatePath(`/leads/${existing.contact_id}`);
     revalidatePath(`/contacts/${existing.contact_id}`);
@@ -1038,7 +1157,13 @@ export async function createTaskAction(formData: FormData): Promise<CrmActionRes
 
   const title = String(formData.get("title") ?? "").trim();
   const contactId = parseOptionalContactId(formData.get("contactId"));
+  const opportunityIdRaw = String(formData.get("opportunityId") ?? "").trim();
+  const opportunityId = opportunityIdRaw || null;
   const dueDate = String(formData.get("dueDate") ?? "").trim();
+  const startDate = String(formData.get("startDate") ?? "").trim();
+  const startTime = String(formData.get("startTime") ?? "").trim();
+  const endDate = String(formData.get("endDate") ?? "").trim();
+  const endTime = String(formData.get("endTime") ?? "").trim();
   const notes = String(formData.get("notes") ?? "").trim() || null;
 
   if (!title) {
@@ -1046,6 +1171,28 @@ export async function createTaskAction(formData: FormData): Promise<CrmActionRes
   }
 
   const dueAt = dueDate ? new Date(`${dueDate}T12:00:00`).toISOString() : null;
+
+  function combineDateAndTime(date: string, time: string): string | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const clock = /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
+    const value = new Date(`${date}T${clock}:00`);
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString();
+  }
+
+  if (startTime && !startDate) {
+    return { ok: false, error: "Select a start date for the start time." };
+  }
+  if (endTime && !endDate) {
+    return { ok: false, error: "Select an end date for the end time." };
+  }
+
+  const startAt = combineDateAndTime(startDate, startTime);
+  const endAt = combineDateAndTime(endDate, endTime);
+
+  if (startAt && endAt && new Date(endAt).getTime() < new Date(startAt).getTime()) {
+    return { ok: false, error: "End must be after start." };
+  }
 
   const supabase = await createClient();
 
@@ -1061,24 +1208,74 @@ export async function createTaskAction(formData: FormData): Promise<CrmActionRes
     }
   }
 
-  const { data: task, error } = await supabase
+  if (opportunityId) {
+    const { data: opportunity } = await supabase
+      .from("opportunities")
+      .select("id")
+      .eq("id", opportunityId)
+      .eq("tenant_id", tenant.tenantId)
+      .maybeSingle();
+    if (!opportunity) {
+      return { ok: false, error: "Selected opportunity was not found." };
+    }
+  }
+
+  const payload = {
+    tenant_id: tenant.tenantId,
+    contact_id: contactId,
+    opportunity_id: opportunityId,
+    title,
+    status: "open" as const,
+    due_at: dueAt,
+    start_at: startAt,
+    end_at: endAt,
+    notes,
+  };
+
+  let { data: task, error } = await supabase
     .from("tasks")
-    .insert({
-      tenant_id: tenant.tenantId,
-      contact_id: contactId,
-      title,
-      status: "open",
-      due_at: dueAt,
-      notes,
-    })
+    .insert(payload)
     .select("id")
     .single();
+
+  if (error && isMissingTaskScheduleColumnError(error.message)) {
+    const { start_at: _s, end_at: _e, ...legacyPayload } = payload;
+    if (startAt || endAt) {
+      return {
+        ok: false,
+        error:
+          "Start/end columns are missing. Run migration 030_tasks_start_end_time.sql in Supabase, then try again.",
+      };
+    }
+    ({ data: task, error } = await supabase
+      .from("tasks")
+      .insert(legacyPayload)
+      .select("id")
+      .single());
+  }
 
   if (error || !task) {
     return { ok: false, error: error?.message ?? "Could not create task." };
   }
 
+  await notifySelf({
+    tenantId: tenant.tenantId,
+    category: "tasks",
+    title: `Task created: ${title}`,
+    body: dueAt
+      ? `Due ${new Intl.DateTimeFormat("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }).format(new Date(dueAt))}`
+      : "Added to your tasks",
+    href: "/tasks",
+  });
+
   revalidatePath("/tasks");
+  if (opportunityId) {
+    revalidatePath(`/opportunities/${opportunityId}`);
+  }
   if (contactId) {
     revalidatePath(`/leads/${contactId}`);
     revalidatePath(`/contacts/${contactId}`);
@@ -1086,11 +1283,190 @@ export async function createTaskAction(formData: FormData): Promise<CrmActionRes
   return { ok: true, id: task.id };
 }
 
+export async function updateTaskStatusAction(
+  taskId: string,
+  status: "open" | "done",
+): Promise<CrmActionResult> {
+  const tenant = await requireTenantId();
+  if (!("tenantId" in tenant)) return tenant;
+
+  const id = taskId.trim();
+  if (!id) {
+    return { ok: false, error: "Task is required." };
+  }
+
+  const supabase = await createClient();
+  const { data: existing, error: loadError } = await supabase
+    .from("tasks")
+    .select("id, title, contact_id, opportunity_id, status")
+    .eq("id", id)
+    .eq("tenant_id", tenant.tenantId)
+    .maybeSingle();
+
+  if (loadError || !existing) {
+    return { ok: false, error: loadError?.message ?? "Task was not found." };
+  }
+
+  if (existing.status === status) {
+    return { ok: true, id };
+  }
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ status })
+    .eq("id", id)
+    .eq("tenant_id", tenant.tenantId);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  await notifySelf({
+    tenantId: tenant.tenantId,
+    category: "tasks",
+    title:
+      status === "done"
+        ? `Task completed: ${existing.title}`
+        : `Task reopened: ${existing.title}`,
+    body: status === "done" ? "Marked as done" : "Moved back to upcoming",
+    href: "/tasks",
+  });
+
+  revalidatePath("/tasks");
+  if (existing.opportunity_id) {
+    revalidatePath(`/opportunities/${existing.opportunity_id}`);
+  }
+  if (existing.contact_id) {
+    revalidatePath(`/leads/${existing.contact_id}`);
+    revalidatePath(`/contacts/${existing.contact_id}`);
+  }
+  return { ok: true, id };
+}
+
+export async function updateTaskAction(formData: FormData): Promise<CrmActionResult> {
+  const tenant = await requireTenantId();
+  if (!("tenantId" in tenant)) return tenant;
+
+  const id = String(formData.get("taskId") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const dueDate = String(formData.get("dueDate") ?? "").trim();
+  const startDate = String(formData.get("startDate") ?? "").trim();
+  const startTime = String(formData.get("startTime") ?? "").trim();
+  const endDate = String(formData.get("endDate") ?? "").trim();
+  const endTime = String(formData.get("endTime") ?? "").trim();
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+  const statusRaw = String(formData.get("status") ?? "").trim();
+  const status = statusRaw === "done" || statusRaw === "open" ? statusRaw : null;
+
+  if (!id) {
+    return { ok: false, error: "Task is required." };
+  }
+  if (!title) {
+    return { ok: false, error: "Task title is required." };
+  }
+
+  function combineDateAndTime(date: string, time: string): string | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const clock = /^\d{2}:\d{2}$/.test(time) ? time : "00:00";
+    const value = new Date(`${date}T${clock}:00`);
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString();
+  }
+
+  if (startTime && !startDate) {
+    return { ok: false, error: "Select a start date for the start time." };
+  }
+  if (endTime && !endDate) {
+    return { ok: false, error: "Select an end date for the end time." };
+  }
+
+  const dueAt = dueDate ? new Date(`${dueDate}T12:00:00`).toISOString() : null;
+  const startAt = combineDateAndTime(startDate, startTime);
+  const endAt = combineDateAndTime(endDate, endTime);
+
+  if (startAt && endAt && new Date(endAt).getTime() < new Date(startAt).getTime()) {
+    return { ok: false, error: "End must be after start." };
+  }
+
+  const supabase = await createClient();
+  const { data: existing, error: loadError } = await supabase
+    .from("tasks")
+    .select("id, contact_id, opportunity_id, status")
+    .eq("id", id)
+    .eq("tenant_id", tenant.tenantId)
+    .maybeSingle();
+
+  if (loadError || !existing) {
+    return { ok: false, error: loadError?.message ?? "Task was not found." };
+  }
+
+  const payload: Record<string, unknown> = {
+    title,
+    due_at: dueAt,
+    start_at: startAt,
+    end_at: endAt,
+    notes,
+  };
+  if (status) {
+    payload.status = status;
+  }
+
+  let { error } = await supabase
+    .from("tasks")
+    .update(payload)
+    .eq("id", id)
+    .eq("tenant_id", tenant.tenantId);
+
+  if (error && isMissingTaskScheduleColumnError(error.message)) {
+    if (startAt || endAt) {
+      return {
+        ok: false,
+        error:
+          "Start/end columns are missing. Run migration 030_tasks_start_end_time.sql in Supabase, then try again.",
+      };
+    }
+    const { start_at: _s, end_at: _e, ...legacyPayload } = payload;
+    ({ error } = await supabase
+      .from("tasks")
+      .update(legacyPayload)
+      .eq("id", id)
+      .eq("tenant_id", tenant.tenantId));
+  }
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  const statusChanged = Boolean(status && status !== existing.status);
+  if (statusChanged && status) {
+    await notifySelf({
+      tenantId: tenant.tenantId,
+      category: "tasks",
+      title:
+        status === "done" ? `Task completed: ${title}` : `Task reopened: ${title}`,
+      body: status === "done" ? "Marked as done" : "Moved back to upcoming",
+      href: "/tasks",
+    });
+  }
+
+  revalidatePath("/tasks");
+  if (existing.opportunity_id) {
+    revalidatePath(`/opportunities/${existing.opportunity_id}`);
+  }
+  if (existing.contact_id) {
+    revalidatePath(`/leads/${existing.contact_id}`);
+    revalidatePath(`/contacts/${existing.contact_id}`);
+  }
+  return { ok: true, id };
+}
+
 export async function createActivityAction(formData: FormData): Promise<CrmActionResult> {
   const tenant = await requireTenantId();
   if (!("tenantId" in tenant)) return tenant;
 
   const contactId = parseOptionalContactId(formData.get("contactId"));
+  const opportunityIdRaw = String(formData.get("opportunityId") ?? "").trim();
+  const opportunityId = opportunityIdRaw || null;
   const activityTypeRaw = String(formData.get("activityType") ?? "").trim();
   const title = String(formData.get("title") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim() || null;
@@ -1106,9 +1482,13 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
     return { ok: false, error: "Activity title is required." };
   }
 
-  const occurredAt = occurredDate
-    ? new Date(`${occurredDate}T12:00:00`).toISOString()
-    : new Date().toISOString();
+  // Notes always use the current system time; other activities may pick a date.
+  const occurredAt =
+    activityTypeRaw === "note"
+      ? new Date().toISOString()
+      : occurredDate
+        ? new Date(`${occurredDate}T12:00:00`).toISOString()
+        : new Date().toISOString();
 
   const supabase = await createClient();
   const { data: contact } = await supabase
@@ -1122,18 +1502,50 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
     return { ok: false, error: "Selected contact was not found." };
   }
 
-  const { data: activity, error } = await supabase
+  if (opportunityId) {
+    const { data: opportunity } = await supabase
+      .from("opportunities")
+      .select("id")
+      .eq("id", opportunityId)
+      .eq("tenant_id", tenant.tenantId)
+      .maybeSingle();
+    if (!opportunity) {
+      return { ok: false, error: "Selected opportunity was not found." };
+    }
+  }
+
+  const relatedEntityType: ActivityRelatedEntityType = opportunityId
+    ? "opportunity"
+    : contact.record_type === "contact"
+      ? "contact"
+      : "lead";
+  const relatedEntityId = opportunityId ?? contactId;
+
+  const payload = {
+    tenant_id: tenant.tenantId,
+    contact_id: contactId,
+    activity_type: activityTypeRaw,
+    title,
+    body,
+    occurred_at: occurredAt,
+    related_entity_type: relatedEntityType,
+    related_entity_id: relatedEntityId,
+  };
+
+  let { data: activity, error } = await supabase
     .from("contact_activities")
-    .insert({
-      tenant_id: tenant.tenantId,
-      contact_id: contactId,
-      activity_type: activityTypeRaw,
-      title,
-      body,
-      occurred_at: occurredAt,
-    })
+    .insert(payload)
     .select("id")
     .single();
+
+  if (error && /related_entity|schema cache|column/i.test(error.message)) {
+    const { related_entity_type: _t, related_entity_id: _i, ...legacyPayload } = payload;
+    ({ data: activity, error } = await supabase
+      .from("contact_activities")
+      .insert(legacyPayload)
+      .select("id")
+      .single());
+  }
 
   if (error || !activity) {
     return { ok: false, error: error?.message ?? "Could not create activity." };
@@ -1141,6 +1553,81 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
 
   revalidatePath(`/leads/${contactId}`);
   revalidatePath(`/contacts/${contactId}`);
+  if (opportunityId) {
+    revalidatePath(`/opportunities/${opportunityId}`);
+  }
   return { ok: true, id: activity.id };
+}
+
+export async function updateActivityAction(formData: FormData): Promise<CrmActionResult> {
+  const tenant = await requireTenantId();
+  if (!("tenantId" in tenant)) return tenant;
+
+  const activityId = String(formData.get("activityId") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const body = String(formData.get("body") ?? "").trim() || null;
+
+  if (!activityId) {
+    return { ok: false, error: "Activity is required." };
+  }
+  if (!title) {
+    return { ok: false, error: "Note title is required." };
+  }
+
+  const supabase = await createClient();
+  let existing: {
+    id: string;
+    contact_id: string;
+    related_entity_type?: string | null;
+    related_entity_id?: string | null;
+  } | null = null;
+
+  const withRelated = await supabase
+    .from("contact_activities")
+    .select("id, contact_id, related_entity_type, related_entity_id")
+    .eq("id", activityId)
+    .eq("tenant_id", tenant.tenantId)
+    .maybeSingle();
+
+  if (withRelated.error && /related_entity|schema cache|column/i.test(withRelated.error.message)) {
+    const legacy = await supabase
+      .from("contact_activities")
+      .select("id, contact_id")
+      .eq("id", activityId)
+      .eq("tenant_id", tenant.tenantId)
+      .maybeSingle();
+    if (legacy.error || !legacy.data) {
+      return { ok: false, error: legacy.error?.message ?? "Note was not found." };
+    }
+    existing = legacy.data;
+  } else if (withRelated.error || !withRelated.data) {
+    return { ok: false, error: withRelated.error?.message ?? "Note was not found." };
+  } else {
+    existing = withRelated.data;
+  }
+
+  const { error } = await supabase
+    .from("contact_activities")
+    .update({
+      title,
+      body,
+    })
+    .eq("id", activityId)
+    .eq("tenant_id", tenant.tenantId);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath(`/leads/${existing.contact_id}`);
+  revalidatePath(`/contacts/${existing.contact_id}`);
+  if (
+    existing.related_entity_type === "opportunity" &&
+    typeof existing.related_entity_id === "string" &&
+    existing.related_entity_id
+  ) {
+    revalidatePath(`/opportunities/${existing.related_entity_id}`);
+  }
+  return { ok: true, id: activityId };
 }
 

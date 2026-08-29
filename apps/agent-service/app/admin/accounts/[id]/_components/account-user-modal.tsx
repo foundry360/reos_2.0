@@ -75,7 +75,7 @@ export function AccountUserModal({ tenantId, user, onClose }: AccountUserModalPr
         <div className={styles.modalHeader}>
           <div>
             <h2 id="account-user-title" className={styles.modalTitle}>
-              Edit user
+              Edit User
             </h2>
             <p className={styles.modalSubtitle}>Update this user&apos;s account details.</p>
           </div>
@@ -159,7 +159,7 @@ export function AccountUserModal({ tenantId, user, onClose }: AccountUserModalPr
               Cancel
             </button>
             <button type="submit" className={styles.btnPrimary} disabled={pending}>
-              {pending ? "Saving…" : "Save user"}
+              {pending ? "Saving…" : "Save User"}
             </button>
           </div>
         </form>

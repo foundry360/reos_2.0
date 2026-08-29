@@ -55,7 +55,7 @@ export function BillingTenantContent({ stats }: { stats: TenantBillingStats }) {
             icon={<IconBillingChart />}
             action={
               <Link href={stats.accountHref} className={styles.dashCardLink}>
-                Open account
+                Open Account
               </Link>
             }
           />

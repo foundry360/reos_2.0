@@ -289,7 +289,7 @@ export function AccountHighlightsPanel({
             </div>
           </div>
 
-          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save highlights" />
+          <EditFormActions pending={pending} onCancel={handleCancel} saveLabel="Save Highlights" />
         </form>
       )}
       </div>

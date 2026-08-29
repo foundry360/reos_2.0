@@ -127,7 +127,7 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
               authToken.trim().length === 0
             }
           >
-            {pending ? "Saving…" : "Save credentials"}
+            {pending ? "Saving…" : "Save Credentials"}
           </button>
           {overview.twilio.source === "database" && (
             <button
