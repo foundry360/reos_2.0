@@ -41,9 +41,9 @@ const INTEGRATION_CHANNEL_DESCRIPTIONS: Record<ConnectedIntegrationChannel, stri
   calendar: "Connect Google Calendar for scheduling",
 };
 
-function ConnectionReadyCheck() {
+function ConnectionReadyCheck({ label = "Connected" }: { label?: string }) {
   return (
-    <span className={styles.connectionReadyCheck} aria-label="Ready for usage billing">
+    <span className={styles.connectionReadyCheck} aria-label={label}>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path
           d="M5 12l5 5 9-9"
@@ -197,18 +197,18 @@ function getSectionCount(sectionId: ConnectionSection, tenant: TenantConfig): nu
 }
 
 function integrationChannelMeta(channel: TenantChannelStatus): string {
-  if (channel.status === "connected" && channel.accountLabel) {
-    return channel.accountLabel;
+  if (channel.status === "connected") {
+    return channel.accountLabel?.trim() || "Connected";
   }
   if (channel.status === "error") return "Connection error";
   return "Not connected";
 }
 
 function socialChannelMeta(channel: TenantChannelStatus): string {
-  if (channel.status === "connected" && channel.accountLabel) {
-    return channel.accountLabel.startsWith("@")
-      ? channel.accountLabel
-      : `@${channel.accountLabel}`;
+  if (channel.status === "connected") {
+    const label = channel.accountLabel?.trim();
+    if (!label) return "Connected";
+    return label.startsWith("@") ? label : `@${label}`;
   }
   if (channel.status === "error") return "Connection error";
   return "Not connected";
@@ -346,9 +346,14 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
               <div className={styles.connectionMeta}>
                 <span className={styles.connectionName}>{label}</span>
                 <span className={styles.connectionDesc}>
-                  {connected
-                    ? integrationChannelMeta(status)
-                    : INTEGRATION_CHANNEL_DESCRIPTIONS[channel]}
+                  {connected ? (
+                    <span className={styles.connectionDescRow}>
+                      <span>{integrationChannelMeta(status)}</span>
+                      <ConnectionReadyCheck />
+                    </span>
+                  ) : (
+                    INTEGRATION_CHANNEL_DESCRIPTIONS[channel]
+                  )}
                 </span>
               </div>
               <ConnectionButton
@@ -401,7 +406,7 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
               {stripeConnected ? (
                 <span className={styles.connectionDescRow}>
                   <span>{tenant.stripeCustomerId}</span>
-                  <ConnectionReadyCheck />
+                  <ConnectionReadyCheck label="Ready for usage billing" />
                 </span>
               ) : stripeLinked ? (
                 <>
@@ -437,7 +442,16 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
             <li key={channel} className={styles.connectionRow}>
               <div className={styles.connectionMeta}>
                 <span className={styles.connectionName}>{label}</span>
-                <span className={styles.connectionDesc}>{socialChannelMeta(status)}</span>
+                <span className={styles.connectionDesc}>
+                  {connected ? (
+                    <span className={styles.connectionDescRow}>
+                      <span>{socialChannelMeta(status)}</span>
+                      <ConnectionReadyCheck />
+                    </span>
+                  ) : (
+                    socialChannelMeta(status)
+                  )}
+                </span>
               </div>
               <ConnectionButton
                 connected={connected}

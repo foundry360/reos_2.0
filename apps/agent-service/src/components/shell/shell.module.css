@@ -4900,7 +4900,7 @@ html[data-theme="dark"] .accordionIconSocial {
   width: 1rem;
   height: 1rem;
   border-radius: 50%;
-  background: var(--brand-light);
+  background: #16b29b;
   color: #fff;
   flex-shrink: 0;
 }
