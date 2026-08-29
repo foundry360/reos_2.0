@@ -3,20 +3,23 @@ import { getEnv } from "@/lib/env";
 import { handleInboundMetaMessage } from "@/lib/handle-inbound-meta";
 import { parseMetaWebhookPayload, verifyMetaWebhookSignature } from "@/lib/meta/webhook";
 
+function cleanParam(value: string | null): string {
+  return (value ?? "").trim().replace(/^["']|["']$/g, "");
+}
+
 /** Meta webhook verification handshake. */
 export async function GET(request: NextRequest) {
   const env = getEnv();
-  const mode = request.nextUrl.searchParams.get("hub.mode");
-  const token = request.nextUrl.searchParams.get("hub.verify_token");
-  const challenge = request.nextUrl.searchParams.get("hub.challenge");
+  const mode = cleanParam(request.nextUrl.searchParams.get("hub.mode"));
+  const token = cleanParam(request.nextUrl.searchParams.get("hub.verify_token"));
+  const challenge = cleanParam(request.nextUrl.searchParams.get("hub.challenge"));
+  const expected = cleanParam(env.META_WEBHOOK_VERIFY_TOKEN ?? process.env.META_WEBHOOK_VERIFY_TOKEN ?? "");
 
-  if (
-    mode === "subscribe" &&
-    challenge &&
-    env.META_WEBHOOK_VERIFY_TOKEN &&
-    token === env.META_WEBHOOK_VERIFY_TOKEN
-  ) {
-    return new NextResponse(challenge, { status: 200 });
+  if (mode === "subscribe" && challenge && expected && token === expected) {
+    return new NextResponse(challenge, {
+      status: 200,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 
   return new NextResponse("Forbidden", { status: 403 });
