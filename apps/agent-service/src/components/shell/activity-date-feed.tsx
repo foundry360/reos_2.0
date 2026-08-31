@@ -7,6 +7,7 @@ import type { PersonActivityItem } from "@/lib/crm/person-activities";
 import { groupByActivityDate } from "@/lib/crm/activity-date-groups";
 import { updateActivityAction } from "@/lib/crm/crm-actions";
 import { EditFormActions } from "@/components/shell/inline-edit";
+import { RelativeTime } from "@/components/shell/relative-time";
 import styles from "./shell.module.css";
 
 function AccordionChevron({ open }: { open: boolean }) {
@@ -278,10 +279,14 @@ function ActivityTimestamp({
   timeTitle,
 }: {
   activity: PersonActivityItem;
-  formatTime: (iso: string) => string;
+  formatTime?: (iso: string) => string;
   timeTitle?: (iso: string) => string;
 }) {
-  const formatted = formatTime(activity.occurredAt);
+  const formatted = formatTime ? (
+    formatTime(activity.occurredAt)
+  ) : (
+    <RelativeTime iso={activity.occurredAt} />
+  );
   return (
     <time
       className={`${styles.dealActivityTime}${
@@ -289,6 +294,7 @@ function ActivityTimestamp({
       }`}
       dateTime={activity.occurredAt}
       title={timeTitle?.(activity.occurredAt)}
+      suppressHydrationWarning
     >
       {activity.timeKind === "due" ? (
         <>
@@ -316,7 +322,7 @@ function NoteActivityCard({
   timeTitle,
 }: {
   activity: PersonActivityItem;
-  formatTime: (iso: string) => string;
+  formatTime?: (iso: string) => string;
   timeTitle?: (iso: string) => string;
 }) {
   const router = useRouter();
@@ -371,8 +377,13 @@ function NoteActivityCard({
             className={styles.dealActivityTime}
             dateTime={activity.occurredAt}
             title={timeTitle?.(activity.occurredAt)}
+            suppressHydrationWarning
           >
-            {formatTime(activity.occurredAt)}
+            {formatTime ? (
+              formatTime(activity.occurredAt)
+            ) : (
+              <RelativeTime iso={activity.occurredAt} />
+            )}
           </time>
         </div>
 
@@ -437,7 +448,8 @@ function NoteActivityCard({
 
 interface ActivityDateFeedProps {
   activities: PersonActivityItem[];
-  formatTime: (iso: string) => string;
+  /** Prefer omitting this so RelativeTime avoids hydration mismatches. */
+  formatTime?: (iso: string) => string;
   timeTitle?: (iso: string) => string;
 }
 
@@ -447,7 +459,16 @@ export function ActivityDateFeed({
   formatTime,
   timeTitle,
 }: ActivityDateFeedProps) {
-  const groups = groupByActivityDate(activities, (item) => item.occurredAt);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Defer local-timezone grouping until after mount to avoid SSR mismatches.
+  const groups = mounted
+    ? groupByActivityDate(activities, (item) => item.occurredAt)
+    : [{ key: "all", label: "Recent", items: activities }];
 
   return (
     <div className={styles.dealActivityFeed}>

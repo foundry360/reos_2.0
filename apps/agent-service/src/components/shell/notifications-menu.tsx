@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
+import { RelativeTime } from "@/components/shell/relative-time";
 import {
   markAllNotificationsReadAction,
   markNotificationReadAction,
@@ -159,7 +159,7 @@ export function NotificationsMenu({
                           className={styles.notificationsItemTime}
                           dateTime={item.createdAt}
                         >
-                          {formatRelativeTime(item.createdAt)}
+                          <RelativeTime iso={item.createdAt} />
                         </time>
                       </span>
                       <span className={styles.notificationsItemTitle}>{item.title}</span>

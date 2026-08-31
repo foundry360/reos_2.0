@@ -1,6 +1,7 @@
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import {
   resolvePlaybook,
+  looksLikeInfoQuestion,
   type AgentPlaybook,
   type ContactContext,
 } from "@/lib/coordinator";
@@ -89,10 +90,19 @@ function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
     `Channel: ${channel}`,
     `External id: ${ctx.phone}`,
     ctx.firstName ? `First name: ${ctx.firstName}` : null,
+    ctx.lastName ? `Last name: ${ctx.lastName}` : null,
     ctx.email ? `Email: ${ctx.email}` : null,
     `Lead status: ${ctx.leadStatus}`,
     ctx.leadTemperature ? `Lead temperature: ${ctx.leadTemperature}` : null,
     ctx.intent ? `Intent: ${ctx.intent}` : null,
+    ctx.targetLocation ? `Target location: ${ctx.targetLocation}` : null,
+    ctx.propertyType ? `Property type: ${ctx.propertyType}` : null,
+    ctx.budget ? `Budget: ${ctx.budget}` : null,
+    ctx.timeline ? `Timeline: ${ctx.timeline}` : null,
+    ctx.financingStatus ? `Financing: ${ctx.financingStatus}` : null,
+    ctx.mustHaves ? `Must-haves: ${ctx.mustHaves}` : null,
+    ctx.motivation ? `Motivation: ${ctx.motivation}` : null,
+    ctx.preferences ? `Preferences: ${ctx.preferences}` : null,
     `ready_to_book: ${ctx.readyToBook}`,
     `appt_booked: ${ctx.apptBooked}`,
     `handoff: ${ctx.handoff}`,
@@ -101,9 +111,8 @@ function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
       : null,
     ctx.aiSummary ? `AI Summary: ${ctx.aiSummary}` : null,
     ctx.agentBrief ? `Agent Brief: ${ctx.agentBrief}` : null,
-    ctx.recommendedNextAction
-      ? `Recommended next action: ${ctx.recommendedNextAction}`
-      : null,
+    // Do not pass recommended_next_action into the model context; it biases
+    // replies toward "schedule a consult" instead of answering questions.
   ]
     .filter(Boolean)
     .join("\n");
@@ -194,9 +203,21 @@ export async function runInboundAgent(params: {
     };
   }
 
-  let playbook = resolvePlaybook(ctx);
+  let playbook = resolvePlaybook(ctx, body);
   if (playbook !== "none" && !(await isPlaybookEnabled(tenantId, playbook))) {
     playbook = "none";
+  }
+
+  // If they asked a question while stuck in ready_to_book, clear it so the next
+  // turns stay conversational until they actually want to schedule.
+  if (
+    playbook === "concierge" &&
+    ctx.readyToBook &&
+    looksLikeInfoQuestion(body) &&
+    ctx.contactId
+  ) {
+    await updateContactFields(ctx.contactId, { ready_to_book: false });
+    ctx.readyToBook = false;
   }
 
   if (playbook === "none") {
@@ -224,6 +245,15 @@ export async function runInboundAgent(params: {
     body,
     buildContextBlock(ctx, channel),
   );
+
+  // Never escalate to booking/handoff just because they asked a question.
+  if (looksLikeInfoQuestion(body)) {
+    for (const tc of toolCalls) {
+      if (tc.name !== "update_contact") continue;
+      if (tc.args.ready_to_book === true) tc.args.ready_to_book = false;
+      if (tc.args.handoff === true) delete tc.args.handoff;
+    }
+  }
 
   await persistTurn({
     tenantId,

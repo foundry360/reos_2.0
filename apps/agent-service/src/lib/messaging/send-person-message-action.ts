@@ -120,7 +120,7 @@ export async function sendPersonMessageAction(input: {
     if (!sent.ok) return { ok: false, error: sent.error };
   }
 
-  await appendMessage({
+  const messageId = await appendMessage({
     tenantId,
     contactId: contact.id,
     channel: input.channel,
@@ -131,5 +131,5 @@ export async function sendPersonMessageAction(input: {
   const kind: PersonKind = contact.record_type === "contact" ? "contact" : "lead";
   revalidatePath(`${personBasePath(kind)}/${contact.id}`);
 
-  return { ok: true };
+  return { ok: true, messageId: messageId ?? undefined };
 }

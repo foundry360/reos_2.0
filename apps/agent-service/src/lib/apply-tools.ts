@@ -1,5 +1,8 @@
 import type { AgentTurnResult } from "@/lib/llm/openai";
-import { updateContactFields } from "@/lib/db/contacts";
+import {
+  updateContactFields,
+  upsertContactSmsIdentity,
+} from "@/lib/db/contacts";
 
 const LEAD_STATUSES = new Set([
   "New",
@@ -11,9 +14,32 @@ const LEAD_STATUSES = new Set([
 const TEMPERATURES = new Set(["Hot", "Warm", "Cold"]);
 const INTENTS = new Set(["Buyer", "Seller", "Investor", "Referral"]);
 
+const STRING_FIELDS = [
+  "ai_summary",
+  "agent_brief",
+  "recommended_next_action",
+  "email",
+  "first_name",
+  "last_name",
+  "target_location",
+  "property_type",
+  "budget",
+  "timeline",
+  "financing_status",
+  "must_haves",
+  "motivation",
+  "preferences",
+] as const;
+
 function asBool(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
   return undefined;
+}
+
+function asTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export async function applyToolCalls(
@@ -23,19 +49,19 @@ export async function applyToolCalls(
   if (!contactId || toolCalls.length === 0) return;
 
   const fields: Record<string, string | number | boolean | null> = {};
+  let phoneToLink: string | undefined;
 
   for (const call of toolCalls) {
     if (call.name !== "update_contact") continue;
     const args = call.args;
 
-    if (typeof args.ai_summary === "string") fields.ai_summary = args.ai_summary;
-    if (typeof args.agent_brief === "string") fields.agent_brief = args.agent_brief;
-    if (typeof args.recommended_next_action === "string") {
-      fields.recommended_next_action = args.recommended_next_action;
+    for (const key of STRING_FIELDS) {
+      const value = asTrimmedString(args[key]);
+      if (value !== undefined) fields[key] = value;
     }
-    if (typeof args.email === "string" && args.email.trim()) {
-      fields.email = args.email.trim();
-    }
+
+    const phone = asTrimmedString(args.phone);
+    if (phone) phoneToLink = phone;
 
     if (typeof args.lead_status === "string" && LEAD_STATUSES.has(args.lead_status)) {
       fields.lead_status = args.lead_status;
@@ -67,7 +93,6 @@ export async function applyToolCalls(
     if (optedOut !== undefined) fields.opted_out = optedOut;
   }
 
-  // Side effects for consistent coordinator routing
   if (fields.opted_out === true) {
     fields.ready_to_book = false;
   }
@@ -78,15 +103,17 @@ export async function applyToolCalls(
   if (fields.ready_to_book === true) {
     if (!fields.lead_status) fields.lead_status = "Qualified";
   }
-  if (
-    (fields.lead_temperature === "Warm" || fields.lead_temperature === "Cold") &&
-    fields.ready_to_book !== true &&
-    !fields.lead_status
-  ) {
-    fields.lead_status = "Contacted";
+  // Do not auto-flip to Contacted on Warm/Cold — that yanked leads out of Concierge
+  // mid-intake. Concierge sets Contacted explicitly when nurturing is the outcome.
+  if (!fields.lead_status && (fields.first_name || fields.intent || fields.target_location)) {
+    fields.lead_status = "Working";
   }
 
   if (Object.keys(fields).length > 0) {
     await updateContactFields(contactId, fields);
+  }
+
+  if (phoneToLink) {
+    await upsertContactSmsIdentity(contactId, phoneToLink);
   }
 }

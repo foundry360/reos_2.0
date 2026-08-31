@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   sendPersonMessageAction,
   type MessagingChannel,
 } from "@/lib/messaging/send-person-message-action";
+import { createClient } from "@/lib/supabase/client";
 import { accountInitials } from "@/lib/user-display";
 import type {
   PersonMessage,
@@ -33,12 +33,12 @@ function channelLabel(channel: string): string {
 function formatMessageTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, {
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(date);
 }
 
 function pickSendChannel(
@@ -62,6 +62,71 @@ function pickSendChannel(
     available.some((entry) => entry.channel === channel),
   );
   return preferred ?? available[0]?.channel ?? null;
+}
+
+function mapMessageRow(row: {
+  id: string;
+  channel: string;
+  direction: string;
+  body: string;
+  created_at: string;
+}): PersonMessage | null {
+  if (row.direction !== "inbound" && row.direction !== "outbound") return null;
+  return {
+    id: row.id,
+    channel: row.channel,
+    direction: row.direction,
+    body: row.body,
+    createdAt: row.created_at,
+  };
+}
+
+function mapRealtimeMessage(row: Record<string, unknown>): PersonMessage | null {
+  const id = typeof row.id === "string" ? row.id : null;
+  const channel = typeof row.channel === "string" ? row.channel : null;
+  const direction =
+    row.direction === "inbound" || row.direction === "outbound"
+      ? row.direction
+      : null;
+  const body = typeof row.body === "string" ? row.body : null;
+  const createdAt =
+    typeof row.created_at === "string"
+      ? row.created_at
+      : row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : null;
+
+  if (!id || !channel || !direction || !body || !createdAt) return null;
+  return { id, channel, direction, body, createdAt };
+}
+
+function mergeMessages(
+  current: PersonMessage[],
+  incoming: PersonMessage[],
+): PersonMessage[] {
+  if (incoming.length === 0) return current;
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    byId.set(message.id, message);
+  }
+  return [...byId.values()].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
+
+function replaceOptimistic(
+  current: PersonMessage[],
+  next: PersonMessage,
+): PersonMessage[] {
+  const withoutOptimistic = current.filter((message) => {
+    if (!message.id.startsWith("optimistic:")) return true;
+    return !(
+      message.direction === next.direction &&
+      message.channel === next.channel &&
+      message.body === next.body
+    );
+  });
+  return mergeMessages(withoutOptimistic, [next]);
 }
 
 function IconMessengerBadge() {
@@ -182,7 +247,7 @@ export function PersonMessagingPanel({
   avatarUrl,
   agentName,
   agentAvatarUrl,
-  messages,
+  messages: initialMessages,
   channels,
 }: {
   contactId: string;
@@ -193,14 +258,123 @@ export function PersonMessagingPanel({
   messages: PersonMessage[];
   channels: PersonMessagingChannelOption[];
 }) {
-  const router = useRouter();
   const threadRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const latestCreatedAtRef = useRef<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ChannelFilter>("all");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [messages, setMessages] = useState(initialMessages);
+
+  useEffect(() => {
+    setMessages((current) => mergeMessages(current, initialMessages));
+  }, [initialMessages]);
+
+  useEffect(() => {
+    const newest = messages[messages.length - 1]?.createdAt ?? null;
+    if (
+      newest &&
+      (!latestCreatedAtRef.current ||
+        new Date(newest).getTime() >= new Date(latestCreatedAtRef.current).getTime())
+    ) {
+      latestCreatedAtRef.current = newest;
+    }
+  }, [messages]);
+
+  // Live updates: Realtime (after JWT is set) + light poll while the tab is open.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    async function pullNewer() {
+      if (cancelled) return;
+      let query = supabase
+        .from("messages")
+        .select("id, channel, direction, body, created_at")
+        .eq("contact_id", contactId)
+        .order("created_at", { ascending: true })
+        .limit(100);
+
+      if (latestCreatedAtRef.current) {
+        query = query.gte("created_at", latestCreatedAtRef.current);
+      }
+
+      const { data, error: queryError } = await query;
+      if (cancelled || queryError || !data) return;
+
+      const mapped = data
+        .map(mapMessageRow)
+        .filter((row): row is PersonMessage => Boolean(row));
+      if (mapped.length === 0) return;
+      setMessages((current) => {
+        let next = current;
+        for (const row of mapped) {
+          next = replaceOptimistic(next, row);
+        }
+        return next;
+      });
+    }
+
+    async function start() {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (token) {
+        await supabase.realtime.setAuth(token);
+      }
+
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`person-messages:${contactId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+            filter: `contact_id=eq.${contactId}`,
+          },
+          (payload) => {
+            const next = mapRealtimeMessage(
+              payload.new as Record<string, unknown>,
+            );
+            if (!next) return;
+            setMessages((current) => replaceOptimistic(current, next));
+          },
+        )
+        .subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void pullNewer();
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            console.warn("Messaging realtime status:", status);
+          }
+        });
+    }
+
+    void start();
+    void pullNewer();
+
+    const pollId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void pullNewer();
+      }
+    }, 2500);
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void pullNewer();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(pollId);
+      document.removeEventListener("visibilitychange", onVisible);
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [contactId]);
 
   const messenger = channels.find((entry) => entry.channel === "messenger");
   const instagram = channels.find((entry) => entry.channel === "instagram");
@@ -218,8 +392,9 @@ export function PersonMessagingPanel({
   useEffect(() => {
     const node = threadRef.current;
     if (!node) return;
+    // Keep newest message pinned above the composer.
     node.scrollTop = node.scrollHeight;
-  }, [visibleMessages.length, filter]);
+  }, [visibleMessages, filter]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -253,7 +428,19 @@ export function PersonMessagingPanel({
   function send() {
     if (!sendChannel || !draft.trim() || pending) return;
     const body = draft.trim();
+    const optimisticId = `optimistic:${Date.now()}`;
+    const optimistic: PersonMessage = {
+      id: optimisticId,
+      channel: sendChannel,
+      direction: "outbound",
+      body,
+      createdAt: new Date().toISOString(),
+    };
+
     setError(null);
+    setDraft("");
+    setMessages((current) => mergeMessages(current, [optimistic]));
+
     startTransition(async () => {
       const result = await sendPersonMessageAction({
         contactId,
@@ -261,11 +448,25 @@ export function PersonMessagingPanel({
         body,
       });
       if (!result.ok) {
+        setMessages((current) =>
+          current.filter((message) => message.id !== optimisticId),
+        );
+        setDraft(body);
         setError(result.error ?? "Could not send message.");
         return;
       }
-      setDraft("");
-      router.refresh();
+
+      if (result.messageId) {
+        setMessages((current) =>
+          replaceOptimistic(current, {
+            id: result.messageId!,
+            channel: sendChannel,
+            direction: "outbound",
+            body,
+            createdAt: new Date().toISOString(),
+          }),
+        );
+      }
     });
   }
 

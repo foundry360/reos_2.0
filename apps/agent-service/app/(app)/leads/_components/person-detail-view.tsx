@@ -9,9 +9,11 @@ import {
 } from "@/lib/crm/person-kind";
 import { displayValue } from "@/lib/display-value";
 import { accountInitials } from "@/lib/user-display";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
+import { RelativeTime, formatStableDate } from "@/components/shell/relative-time";
 import styles from "@/components/shell/shell.module.css";
 import { PersonAboutCard } from "./person-about-card";
+import { PersonAdditionalInfoCard } from "./person-additional-info-card";
+import { PersonScoreTemperatureCard } from "./person-score-temperature-card";
 import { PersonMessagingPanel } from "./person-messaging-thread";
 import type {
   PersonActivityItem,
@@ -240,7 +242,7 @@ function ActivityList({
               </span>
             </span>
             <time className={styles.personLinkedItemTime} dateTime={activity.occurredAt}>
-              {formatRelativeTime(activity.occurredAt)}
+              <RelativeTime iso={activity.occurredAt} />
             </time>
           </>
         );
@@ -291,7 +293,7 @@ function OpportunityList({
                 className={styles.personLinkedItemTime}
                 dateTime={opportunity.updatedAt}
               >
-                {formatRelativeTime(opportunity.updatedAt)}
+                <RelativeTime iso={opportunity.updatedAt} />
               </time>
             ) : null}
           </Link>
@@ -503,6 +505,7 @@ export function PersonDetailView({
           </section>
 
           <PersonAboutCard person={person} />
+          <PersonAdditionalInfoCard person={person} />
         </aside>
 
         <main
@@ -535,7 +538,7 @@ export function PersonDetailView({
                   <div className={styles.personHighlightItem}>
                     <span className={styles.personHighlightLabel}>Create date</span>
                     <span className={styles.personHighlightValue}>
-                      {new Date(person.createdAt).toLocaleDateString()}
+                      {formatStableDate(person.createdAt)}
                     </span>
                   </div>
                   <div className={styles.personHighlightItem}>
@@ -551,9 +554,11 @@ export function PersonDetailView({
                   <div className={styles.personHighlightItem}>
                     <span className={styles.personHighlightLabel}>Last activity</span>
                     <span className={styles.personHighlightValue}>
-                      {formatRelativeTime(
-                        person.activities[0]?.occurredAt ?? person.updatedAt,
-                      )}
+                      <RelativeTime
+                        iso={
+                          person.activities[0]?.occurredAt ?? person.updatedAt
+                        }
+                      />
                     </span>
                   </div>
                 </div>
@@ -615,7 +620,6 @@ export function PersonDetailView({
                 {person.activities.length > 0 ? (
                   <ActivityDateFeed
                     activities={person.activities}
-                    formatTime={formatRelativeTime}
                   />
                 ) : (
                   <div className={styles.personFeedEmptyState}>
@@ -662,7 +666,6 @@ export function PersonDetailView({
                     activities={person.activities.filter(
                       (item) => item.source === "activity" && item.type === "note",
                     )}
-                    formatTime={formatRelativeTime}
                   />
                 ) : (
                   <div className={styles.personFeedEmptyState}>
@@ -730,6 +733,11 @@ export function PersonDetailView({
               </div>
             )}
           </section>
+
+          <PersonScoreTemperatureCard
+            score={person.score}
+            temperature={person.temperature}
+          />
 
           <section className={styles.personSideCard}>
             <div className={styles.personSideCardHeaderStatic}>

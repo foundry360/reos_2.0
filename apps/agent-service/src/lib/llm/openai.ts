@@ -19,10 +19,50 @@ const CRM_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "update_contact",
       description:
-        "Update CRM fields on the contact. Call whenever facts change. Never paste these values into chat.",
+        "Silently update CRM fields. Call when the lead shares facts. Always also write a normal chat reply in the same turn (or after tools). Never refuse ordinary questions.",
       parameters: {
         type: "object",
         properties: {
+          first_name: { type: "string" },
+          last_name: { type: "string" },
+          email: { type: "string" },
+          phone: {
+            type: "string",
+            description: "Mobile phone; stored as SMS identity when provided",
+          },
+          intent: {
+            type: "string",
+            enum: ["Buyer", "Seller", "Investor", "Referral"],
+          },
+          target_location: {
+            type: "string",
+            description: "City, neighborhood, or area of interest",
+          },
+          property_type: {
+            type: "string",
+            description:
+              "e.g. Single Family, Condo, Townhome, Multi-Family, Land, Commercial, Other",
+          },
+          budget: { type: "string", description: "Budget or price range" },
+          timeline: {
+            type: "string",
+            description:
+              "ASAP | 0-30 Days | 1-3 Months | 3-6 Months | 6+ Months | Just Exploring",
+          },
+          financing_status: {
+            type: "string",
+            description:
+              "Cash | Pre-Approved | Pre-Qualified | Needs Financing | Unknown",
+          },
+          must_haves: {
+            type: "string",
+            description: "Beds, baths, garage, pool, yard, etc.",
+          },
+          motivation: { type: "string" },
+          preferences: {
+            type: "string",
+            description: "Other preferences not covered above",
+          },
           ai_summary: {
             type: "string",
             description: "Full overwrite of long-term AI summary of the lead",
@@ -32,7 +72,6 @@ const CRM_TOOLS: ChatCompletionTool[] = [
             description: "Full overwrite of CLIENT INTELLIGENCE BRIEF for humans",
           },
           recommended_next_action: { type: "string" },
-          email: { type: "string" },
           lead_status: {
             type: "string",
             enum: ["New", "Working", "Contacted", "Qualified", "Converted"],
@@ -41,25 +80,23 @@ const CRM_TOOLS: ChatCompletionTool[] = [
             type: "string",
             enum: ["Hot", "Warm", "Cold"],
           },
-          intent: {
-            type: "string",
-            enum: ["Buyer", "Seller", "Investor", "Referral"],
-          },
           qualification_score: {
             type: "number",
             description: "0-100 qualification score",
           },
           ready_to_book: {
             type: "boolean",
-            description: "True when lead clearly wants to schedule (routes to Scheduler)",
+            description:
+              "True only after the lead clearly agrees to schedule a consult. Never set true just because they asked a question.",
           },
           appt_booked: {
             type: "boolean",
-            description: "True after a consult is confirmed on the calendar",
+            description: "True after a consult is confirmed",
           },
           handoff: {
             type: "boolean",
-            description: "True when a human should own the thread",
+            description:
+              "True only when the lead asks for a person, is upset, or you are stuck after trying to help. Never hand off for ordinary questions.",
           },
           opted_out: {
             type: "boolean",
@@ -89,6 +126,24 @@ export interface AgentTurnResult {
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
 }
 
+function collectToolCalls(
+  message: OpenAI.Chat.Completions.ChatCompletionMessage,
+): AgentTurnResult["toolCalls"] {
+  const toolCalls: AgentTurnResult["toolCalls"] = [];
+  if (!message.tool_calls?.length) return toolCalls;
+  for (const tc of message.tool_calls) {
+    if (tc.type !== "function") continue;
+    toolCalls.push({
+      name: tc.function.name,
+      args: JSON.parse(tc.function.arguments || "{}") as Record<
+        string,
+        unknown
+      >,
+    });
+  }
+  return toolCalls;
+}
+
 export async function runAgentTurn(
   playbook: AgentPlaybook,
   history: ChatCompletionMessageParam[],
@@ -104,6 +159,7 @@ export async function runAgentTurn(
 
   const apiKey = await getOpenAIApiKey();
   const client = new OpenAI({ apiKey });
+  const model = getOpenAIModel();
 
   const messages: ChatCompletionMessageParam[] = [
     {
@@ -114,30 +170,62 @@ export async function runAgentTurn(
     { role: "user", content: userMessage },
   ];
 
-  const completion = await client.chat.completions.create({
-    model: getOpenAIModel(),
+  const first = await client.chat.completions.create({
+    model,
     messages,
     tools: CRM_TOOLS,
     tool_choice: "auto",
-    max_tokens: 500,
+    max_tokens: 700,
   });
 
-  const choice = completion.choices[0];
-  const toolCalls: AgentTurnResult["toolCalls"] = [];
-
-  if (choice.message.tool_calls?.length) {
-    for (const tc of choice.message.tool_calls) {
-      if (tc.type !== "function") continue;
-      toolCalls.push({
-        name: tc.function.name,
-        args: JSON.parse(tc.function.arguments || "{}") as Record<string, unknown>,
-      });
-    }
+  const firstMsg = first.choices[0]?.message;
+  if (!firstMsg) {
+    return {
+      reply: "Hey, thanks for reaching out. What can I help with today?",
+      toolCalls: [],
+    };
   }
 
-  const reply =
-    choice.message.content?.trim() ||
-    "Thanks for your message. A team member will follow up shortly.";
+  const toolCalls = collectToolCalls(firstMsg);
+  let reply = firstMsg.content?.trim() ?? "";
+
+  // Models often tool-call with empty content. Run a follow-up turn for the chat reply.
+  if (firstMsg.tool_calls?.length) {
+    messages.push({
+      role: "assistant",
+      content: firstMsg.content,
+      tool_calls: firstMsg.tool_calls,
+    });
+    for (const tc of firstMsg.tool_calls) {
+      if (tc.type !== "function") continue;
+      messages.push({
+        role: "tool",
+        tool_call_id: tc.id,
+        content: JSON.stringify({ ok: true, saved: true }),
+      });
+    }
+
+    const second = await client.chat.completions.create({
+      model,
+      messages: [
+        ...messages,
+        {
+          role: "system",
+          content:
+            "Now reply to the lead in chat. Answer their question directly. Do not refuse ordinary real-estate questions. Do not say you cannot provide information. Do not pivot to scheduling or a human unless they asked. Keep it to 1-3 short sentences.",
+        },
+      ],
+      tool_choice: "none",
+      max_tokens: 400,
+    });
+
+    reply = second.choices[0]?.message?.content?.trim() || reply;
+  }
+
+  if (!reply) {
+    reply =
+      "Happy to help. What are you looking to do: buy, sell, or invest?";
+  }
 
   return { reply, toolCalls };
 }

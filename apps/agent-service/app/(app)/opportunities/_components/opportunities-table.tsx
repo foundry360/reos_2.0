@@ -19,7 +19,7 @@ import {
 } from "@/lib/opportunities/opportunity-fields";
 import { displayValue } from "@/lib/display-value";
 import { accountInitials } from "@/lib/user-display";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
+import { RelativeTime } from "@/components/shell/relative-time";
 import styles from "@/components/shell/shell.module.css";
 
 const STAGE_BADGE_CLASS: Record<OpportunityStage, string> = {
@@ -296,7 +296,7 @@ export function OpportunitiesTable({
                   <td>{formatDate(opportunity.expectedCloseDate)}</td>
                   <td>
                     <time dateTime={opportunity.updatedAt}>
-                      {formatRelativeTime(opportunity.updatedAt)}
+                      <RelativeTime iso={opportunity.updatedAt} />
                     </time>
                   </td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>

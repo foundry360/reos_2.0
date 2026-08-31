@@ -7077,7 +7077,13 @@ html[data-theme="dark"] .billingWalletIconBadge {
 }
 
 .personDetailPageMessaging {
-  min-height: calc(100dvh - var(--shell-header-height, 56px) - 3rem);
+  display: flex;
+  flex-direction: column;
+  /* Fill the shell main pane so the thread scrolls inside, not the page. */
+  height: calc(100dvh - var(--shell-header-height, 56px) - 3rem);
+  max-height: calc(100dvh - var(--shell-header-height, 56px) - 3rem);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .personDetailNav {
@@ -7112,6 +7118,15 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex: 1;
   align-items: stretch;
   min-height: 0;
+  overflow: hidden;
+}
+
+.personDetailLayoutFill > .personDetailLeft,
+.personDetailLayoutFill > .personDetailRight {
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .personDetailLeft,
@@ -7126,6 +7141,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
 .personDetailCenterMessaging {
   min-height: 0;
   height: 100%;
+  overflow: hidden;
 }
 
 .personDetailCenterMessaging .personDetailTabs {
@@ -7137,6 +7153,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex: 1;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .personProfileCard,
@@ -7551,6 +7568,59 @@ html[data-theme="dark"] .billingWalletIconBadge {
   cursor: not-allowed;
 }
 
+.personMetricDonuts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  padding: 1rem 0.85rem 1.1rem;
+}
+
+.personMetricDonut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.personMetricDonutChart {
+  position: relative;
+  width: 108px;
+  height: 108px;
+}
+
+.personMetricDonutCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.personMetricDonutValue {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--shell-text);
+}
+
+.personMetricDonutHint {
+  margin-top: 0.1rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--shell-muted);
+}
+
+.personMetricDonutLabel {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--shell-text-secondary);
+}
+
 .personAssociationBlock {
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--shell-border);
@@ -7712,6 +7782,15 @@ html[data-theme="dark"] .billingWalletIconBadge {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.85rem;
   }
+
+  /* Messaging uses a fixed viewport height — keep only the thread column. */
+  .personDetailLayoutFill {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  }
+
+  .personDetailLayoutFill > .personDetailRight {
+    display: none;
+  }
 }
 
 @media (max-width: 800px) {
@@ -7721,6 +7800,14 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
   .personDetailRight {
     grid-template-columns: 1fr;
+  }
+
+  .personDetailLayoutFill {
+    grid-template-columns: 1fr;
+  }
+
+  .personDetailLayoutFill > .personDetailLeft {
+    display: none;
   }
 
   .personHighlightsRow {
@@ -8068,6 +8155,7 @@ html[data-theme="dark"] .dealMetaPill {
   gap: 1rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--shell-border);
+  flex-shrink: 0;
 }
 
 .personMessagingPerson {
@@ -8176,8 +8264,10 @@ html[data-theme="dark"] .dealMetaPill {
   gap: 0.65rem;
   padding: 1rem 1.1rem;
   min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: color-mix(in srgb, var(--shell-border) 18%, #fff);
 }
 
@@ -8195,6 +8285,7 @@ html[data-theme="dark"] .dealMetaPill {
   padding: 0.85rem 1rem 1rem;
   border-top: 1px solid var(--shell-border);
   background: var(--shell-surface);
+  flex-shrink: 0;
 }
 
 .personMessagingComposerRow {
@@ -8207,7 +8298,8 @@ html[data-theme="dark"] .dealMetaPill {
 .personMessagingInput {
   width: 100%;
   min-height: 4.5rem;
-  resize: vertical;
+  max-height: 8rem;
+  resize: none;
   border: 1px solid var(--shell-border);
   border-radius: 0.75rem;
   padding: 0.7rem 0.8rem;

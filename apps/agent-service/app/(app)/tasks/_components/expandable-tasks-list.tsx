@@ -3,7 +3,7 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
 import type { PersonTaskSummary } from "@/lib/crm/person-activities";
 import { ActivityTypeIcon } from "@/components/shell/activity-date-feed";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
+import { RelativeTime } from "@/components/shell/relative-time";
 import { displayValue } from "@/lib/display-value";
 import { TaskExpandPanel } from "./task-expand-panel";
 import styles from "@/components/shell/shell.module.css";
@@ -173,7 +173,7 @@ export function ExpandableTasksList({
                   className={styles.personLinkedItemTime}
                   dateTime={task.updatedAt}
                 >
-                  {formatRelativeTime(task.updatedAt)}
+                  <RelativeTime iso={task.updatedAt} />
                 </time>
               </div>
               {expanded ? (

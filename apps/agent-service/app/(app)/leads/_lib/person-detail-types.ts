@@ -53,6 +53,17 @@ export interface PersonDetailData {
   temperature: string | null;
   optedOut: boolean;
   aiSummary: string | null;
+  intent: string | null;
+  targetLocation: string | null;
+  propertyType: string | null;
+  budget: string | null;
+  timeline: string | null;
+  financingStatus: string | null;
+  mustHaves: string | null;
+  motivation: string | null;
+  preferences: string | null;
+  agentBrief: string | null;
+  recommendedNextAction: string | null;
   createdAt: string;
   updatedAt: string;
   opportunities: PersonOpportunitySummary[];

@@ -14,12 +14,13 @@ export interface InboundChannel {
 }
 
 const CONTACT_SELECT =
-  "id, tenant_id, first_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out";
+  "id, tenant_id, first_name, last_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences";
 
 type ContactRow = {
   id: string;
   tenant_id: string;
   first_name: string | null;
+  last_name?: string | null;
   email?: string | null;
   lead_status: string;
   lead_temperature: string | null;
@@ -32,6 +33,14 @@ type ContactRow = {
   appt_booked: boolean;
   handoff: boolean;
   opted_out: boolean;
+  target_location?: string | null;
+  property_type?: string | null;
+  budget?: string | null;
+  timeline?: string | null;
+  financing_status?: string | null;
+  must_haves?: string | null;
+  motivation?: string | null;
+  preferences?: string | null;
 };
 
 function toContactContext(
@@ -43,6 +52,7 @@ function toContactContext(
     accountId: c.tenant_id,
     phone: externalId,
     firstName: c.first_name ?? undefined,
+    lastName: c.last_name ?? undefined,
     email: c.email ?? undefined,
     leadStatus: c.lead_status as LeadStatus,
     leadTemperature: (c.lead_temperature as LeadTemperature | null) ?? null,
@@ -55,6 +65,14 @@ function toContactContext(
     agentBrief: c.agent_brief ?? undefined,
     recommendedNextAction: c.recommended_next_action ?? undefined,
     qualificationScore: c.qualification_score,
+    targetLocation: c.target_location ?? undefined,
+    propertyType: c.property_type ?? undefined,
+    budget: c.budget ?? undefined,
+    timeline: c.timeline ?? undefined,
+    financingStatus: c.financing_status ?? undefined,
+    mustHaves: c.must_haves ?? undefined,
+    motivation: c.motivation ?? undefined,
+    preferences: c.preferences ?? undefined,
   };
 }
 
@@ -325,6 +343,64 @@ export async function updateContactFields(
   return true;
 }
 
+/** Link or refresh an SMS identity when Concierge collects a phone number. */
+export async function upsertContactSmsIdentity(
+  contactId: string,
+  phoneRaw: string,
+): Promise<boolean> {
+  const db = getSupabaseAdmin();
+  if (!db) return false;
+
+  const lookupId = phoneLookupKey(phoneRaw);
+  if (lookupId.length < 10) return false;
+
+  const { data: existing } = await db
+    .from("contact_identities")
+    .select("id, contact_id")
+    .eq("channel", "sms")
+    .eq("external_id", lookupId)
+    .maybeSingle();
+
+  if (existing) {
+    if (existing.contact_id === contactId) return true;
+    console.warn(
+      "SMS identity already linked to another contact; skipping phone upsert",
+      lookupId,
+    );
+    return false;
+  }
+
+  const { data: ownSms } = await db
+    .from("contact_identities")
+    .select("id")
+    .eq("contact_id", contactId)
+    .eq("channel", "sms")
+    .maybeSingle();
+
+  if (ownSms) {
+    const { error } = await db
+      .from("contact_identities")
+      .update({ external_id: lookupId })
+      .eq("id", ownSms.id);
+    if (error) {
+      console.error("Update SMS identity error:", error);
+      return false;
+    }
+    return true;
+  }
+
+  const { error } = await db.from("contact_identities").insert({
+    contact_id: contactId,
+    channel: "sms",
+    external_id: lookupId,
+  });
+  if (error) {
+    console.error("Insert SMS identity error:", error);
+    return false;
+  }
+  return true;
+}
+
 export async function appendMessage(params: {
   tenantId: string;
   contactId: string;
@@ -332,18 +408,28 @@ export async function appendMessage(params: {
   direction: "inbound" | "outbound";
   body: string;
   playbook?: string;
-}): Promise<void> {
+}): Promise<string | null> {
   const db = getSupabaseAdmin();
-  if (!db) return;
+  if (!db) return null;
 
-  await db.from("messages").insert({
-    tenant_id: params.tenantId,
-    contact_id: params.contactId,
-    channel: params.channel,
-    direction: params.direction,
-    body: params.body,
-    playbook: params.playbook ?? null,
-  });
+  const { data, error } = await db
+    .from("messages")
+    .insert({
+      tenant_id: params.tenantId,
+      contact_id: params.contactId,
+      channel: params.channel,
+      direction: params.direction,
+      body: params.body,
+      playbook: params.playbook ?? null,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("Append message error:", error);
+    return null;
+  }
+  return data?.id ?? null;
 }
 
 export async function getRecentMessages(

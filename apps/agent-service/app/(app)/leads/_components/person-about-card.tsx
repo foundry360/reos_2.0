@@ -181,14 +181,6 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
             ) : (
               <PropertyRow label="Lead status" value={person.statusLabel} />
             )}
-            <PropertyRow
-              label="Score"
-              value={person.score != null ? String(person.score) : displayValue(null)}
-            />
-            <PropertyRow
-              label="Temperature"
-              value={person.temperature ?? displayValue(null)}
-            />
             <PropertyRow label="Opted out" value={person.optedOut ? "Yes" : "No"} />
           </div>
         ) : (

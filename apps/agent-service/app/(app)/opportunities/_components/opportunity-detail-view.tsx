@@ -24,7 +24,6 @@ import type {
 } from "@/lib/crm/person-activities";
 import { updateOpportunityStageAction } from "@/lib/crm/crm-actions";
 import { displayValue } from "@/lib/display-value";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
 import {
   ActivityDateFeed,
 } from "@/components/shell/activity-date-feed";
@@ -186,8 +185,7 @@ function ActivityFeed({ activities }: { activities: PersonActivityItem[] }) {
   return (
     <ActivityDateFeed
       activities={activities}
-      formatTime={formatActivityTime}
-      timeTitle={formatRelativeTime}
+      timeTitle={formatActivityTime}
     />
   );
 }

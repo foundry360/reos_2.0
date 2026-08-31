@@ -27,7 +27,7 @@ import {
 import { formatPhoneDisplay } from "@/lib/phone-display";
 import { TableEmailCell, TablePhoneCell } from "@/components/shell/table-contact-cells";
 import { accountInitials } from "@/lib/user-display";
-import { formatRelativeTime } from "@/lib/admin/activity-timeline";
+import { RelativeTime } from "@/components/shell/relative-time";
 import styles from "@/components/shell/shell.module.css";
 
 const STATUS_BADGE_CLASS: Record<LeadStatus, string> = {
@@ -275,7 +275,9 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                     )}
                   </td>
                   <td>
-                    <time dateTime={lead.updatedAt}>{formatRelativeTime(lead.updatedAt)}</time>
+                    <time dateTime={lead.updatedAt}>
+                      <RelativeTime iso={lead.updatedAt} />
+                    </time>
                   </td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
                     <LeadRowActions lead={lead} kind={kind} />
