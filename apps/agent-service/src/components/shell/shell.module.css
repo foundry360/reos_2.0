@@ -7074,12 +7074,11 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex-direction: column;
   gap: 0.85rem;
   min-width: 0;
+  width: 100%;
 }
 
-.personDetailPageMessaging {
-  display: flex;
-  flex-direction: column;
-  /* Fill the shell main pane so the thread scrolls inside, not the page. */
+/* Locked viewport: left / center / right each scroll on their own. */
+.personDetailPageLocked {
   height: calc(100dvh - var(--shell-header-height, 56px) - 3rem);
   max-height: calc(100dvh - var(--shell-header-height, 56px) - 3rem);
   min-height: 0;
@@ -7109,24 +7108,20 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
 .personDetailLayout {
   display: grid;
-  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(0, 280px) minmax(0, 1fr) minmax(0, 300px);
   gap: 1rem;
   align-items: start;
+  min-width: 0;
+  width: 100%;
 }
 
 .personDetailLayoutFill {
   flex: 1;
   align-items: stretch;
   min-height: 0;
+  min-width: 0;
+  width: 100%;
   overflow: hidden;
-}
-
-.personDetailLayoutFill > .personDetailLeft,
-.personDetailLayoutFill > .personDetailRight {
-  min-height: 0;
-  max-height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
 }
 
 .personDetailLeft,
@@ -7136,12 +7131,102 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex-direction: column;
   gap: 0.85rem;
   min-width: 0;
+  max-width: 100%;
+}
+
+.personDetailLayoutFill > .personDetailLeft,
+.personDetailLayoutFill > .personDetailRight,
+.personDetailLayoutFill > .personDetailCenter {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* Inner scroller: padding keeps card borders/icons clear of the scrollbar. */
+.personDetailColScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 0.5rem;
+  padding-bottom: 0.35rem;
+  scrollbar-width: thin;
+  scrollbar-color: #c5cdd6 transparent;
+}
+
+.personDetailColScroll::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+.personDetailColScroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.personDetailColScroll::-webkit-scrollbar-thumb {
+  background: #c5cdd6;
+  border-radius: 2px;
+}
+
+.personDetailColScroll::-webkit-scrollbar-thumb:hover {
+  background: #a8b3c0;
+}
+
+.personDetailColScroll > * {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.personDetailLayoutFill > .personDetailCenter:not(.personDetailCenterMessaging) {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 0.35rem;
+  scrollbar-width: thin;
+  scrollbar-color: #c5cdd6 transparent;
+}
+
+.personDetailLayoutFill
+  > .personDetailCenter:not(.personDetailCenterMessaging)::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+.personDetailLayoutFill
+  > .personDetailCenter:not(.personDetailCenterMessaging)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.personDetailLayoutFill
+  > .personDetailCenter:not(.personDetailCenterMessaging)::-webkit-scrollbar-thumb {
+  background: #c5cdd6;
+  border-radius: 2px;
 }
 
 .personDetailCenterMessaging {
+  min-width: 0;
   min-height: 0;
+  width: 100%;
   height: 100%;
+  max-height: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .personDetailCenterMessaging .personDetailTabs {
@@ -7163,6 +7248,9 @@ html[data-theme="dark"] .billingWalletIconBadge {
   border: 1px solid var(--shell-border);
   border-radius: 12px;
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .personProfileCard {
@@ -7171,8 +7259,10 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
 .personProfileHeader {
   display: flex;
-  align-items: flex-start;
-  gap: 0.85rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
 }
 
 .personProfileAvatar {
@@ -7188,7 +7278,10 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
 .personProfileMeta {
   min-width: 0;
-  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .personProfileName {
@@ -7201,7 +7294,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
 }
 
 .personProfileKind {
-  margin: 0.15rem 0 0;
+  margin: 0.35rem 0 0;
   font-size: 0.8125rem;
   color: var(--shell-muted);
 }
@@ -7210,8 +7303,9 @@ html[data-theme="dark"] .billingWalletIconBadge {
 .personProfileEmailMuted {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
-  margin-top: 0.4rem;
+  margin-top: 0.25rem;
   max-width: 100%;
   padding: 0;
   border: none;
@@ -7219,7 +7313,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   font-size: 0.8125rem;
   color: var(--shell-blue, var(--brand));
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 
 .personProfileEmail span {
@@ -7318,8 +7412,9 @@ html[data-theme="dark"] .billingWalletIconBadge {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.65rem 0.85rem 0.65rem 0.35rem;
+  padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--shell-border);
+  min-width: 0;
 }
 
 .personAboutHeaderToggle {
@@ -7329,7 +7424,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   gap: 0.75rem;
   flex: 1;
   min-width: 0;
-  padding: 0.2rem 0.65rem;
+  padding: 0.2rem 0;
   border: none;
   background: transparent;
   font-size: 0.875rem;
@@ -7346,6 +7441,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
 .personAboutHeader .inlineEditBtn {
   width: 1.75rem;
   height: 1.75rem;
+  flex-shrink: 0;
 }
 
 .personAboutForm {
@@ -7772,8 +7868,9 @@ html[data-theme="dark"] .billingWalletIconBadge {
 }
 
 @media (max-width: 1100px) {
-  .personDetailLayout {
-    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  .personDetailLayout,
+  .personDetailLayoutFill {
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
   }
 
   .personDetailRight {
@@ -7783,31 +7880,57 @@ html[data-theme="dark"] .billingWalletIconBadge {
     gap: 0.85rem;
   }
 
-  /* Messaging uses a fixed viewport height — keep only the thread column. */
-  .personDetailLayoutFill {
-    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
-  }
-
   .personDetailLayoutFill > .personDetailRight {
     display: none;
   }
 }
 
 @media (max-width: 800px) {
-  .personDetailLayout {
-    grid-template-columns: 1fr;
+  .personDetailLayout,
+  .personDetailLayoutFill {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .personDetailRight {
     grid-template-columns: 1fr;
   }
 
-  .personDetailLayoutFill {
-    grid-template-columns: 1fr;
+  /* Stacked mobile: unlock page scroll so cards aren't height-clamped. */
+  .personDetailPageLocked {
+    height: auto;
+    max-height: none;
+    overflow: visible;
   }
 
-  .personDetailLayoutFill > .personDetailLeft {
+  .personDetailLayoutFill {
+    overflow: visible;
+    align-items: start;
+  }
+
+  .personDetailLayoutFill > .personDetailLeft,
+  .personDetailLayoutFill > .personDetailRight,
+  .personDetailLayoutFill > .personDetailCenter {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .personDetailColScroll {
+    overflow: visible;
+    flex: none;
+    height: auto;
+    padding-right: 0;
+    scrollbar-gutter: auto;
+  }
+
+  .personDetailLayoutMessaging > .personDetailLeft {
     display: none;
+  }
+
+  .personDetailCenterMessaging {
+    height: calc(100dvh - var(--shell-header-height, 56px) - 6rem);
+    max-height: calc(100dvh - var(--shell-header-height, 56px) - 6rem);
+    overflow: hidden;
   }
 
   .personHighlightsRow {
@@ -8269,6 +8392,26 @@ html[data-theme="dark"] .dealMetaPill {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: color-mix(in srgb, var(--shell-border) 18%, #fff);
+  scrollbar-width: thin;
+  scrollbar-color: #c5cdd6 transparent;
+}
+
+.personMessagingThread::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+.personMessagingThread::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.personMessagingThread::-webkit-scrollbar-thumb {
+  background: #c5cdd6;
+  border-radius: 2px;
+}
+
+.personMessagingThread::-webkit-scrollbar-thumb:hover {
+  background: #a8b3c0;
 }
 
 .personMessagingEmpty {

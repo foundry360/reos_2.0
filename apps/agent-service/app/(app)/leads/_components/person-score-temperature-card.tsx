@@ -1,6 +1,7 @@
 "use client";
 
 import styles from "@/components/shell/shell.module.css";
+import { useLiveQualification } from "../_lib/use-live-qualification";
 
 const SCORE_TRACK = "#e8eef4";
 const SCORE_FILL = "#487095";
@@ -110,15 +111,33 @@ function temperatureFill(temperature: string | null): {
 }
 
 export function PersonScoreTemperatureCard({
-  score,
-  temperature,
+  contactId,
+  score: initialScore,
+  temperature: initialTemperature,
 }: {
+  contactId: string;
   score: number | null;
   temperature: string | null;
 }) {
+  const fields = useLiveQualification(contactId, {
+    intent: null,
+    targetLocation: null,
+    propertyType: null,
+    budget: null,
+    timeline: null,
+    financingStatus: null,
+    mustHaves: null,
+    motivation: null,
+    preferences: null,
+    aiSummary: null,
+    score: initialScore,
+    temperature: initialTemperature,
+  });
+
+  const score = fields.score;
   const scoreValue = score ?? 0;
   const scorePrimary = score != null ? String(score) : "—";
-  const temp = temperatureFill(temperature);
+  const temp = temperatureFill(fields.temperature);
 
   return (
     <section className={styles.personSideCard}>

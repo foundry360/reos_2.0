@@ -106,9 +106,20 @@ function mergeMessages(
 ): PersonMessage[] {
   if (incoming.length === 0) return current;
   const byId = new Map(current.map((message) => [message.id, message]));
+  let changed = false;
   for (const message of incoming) {
+    const prev = byId.get(message.id);
+    if (
+      !prev ||
+      prev.body !== message.body ||
+      prev.createdAt !== message.createdAt ||
+      prev.direction !== message.direction
+    ) {
+      changed = true;
+    }
     byId.set(message.id, message);
   }
+  if (!changed && byId.size === current.length) return current;
   return [...byId.values()].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
@@ -261,6 +272,7 @@ export function PersonMessagingPanel({
   const threadRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const latestCreatedAtRef = useRef<string | null>(null);
+  const stickToBottomRef = useRef(true);
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -391,10 +403,17 @@ export function PersonMessagingPanel({
 
   useEffect(() => {
     const node = threadRef.current;
-    if (!node) return;
-    // Keep newest message pinned above the composer.
+    if (!node || !stickToBottomRef.current) return;
     node.scrollTop = node.scrollHeight;
   }, [visibleMessages, filter]);
+
+  function onThreadScroll() {
+    const node = threadRef.current;
+    if (!node) return;
+    const distanceFromBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < 96;
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -423,10 +442,12 @@ export function PersonMessagingPanel({
     setFilter(next);
     setMenuOpen(false);
     setError(null);
+    stickToBottomRef.current = true;
   }
 
   function send() {
     if (!sendChannel || !draft.trim() || pending) return;
+    stickToBottomRef.current = true;
     const body = draft.trim();
     const optimisticId = `optimistic:${Date.now()}`;
     const optimistic: PersonMessage = {
@@ -542,7 +563,11 @@ export function PersonMessagingPanel({
         </div>
       </div>
 
-      <div ref={threadRef} className={styles.personMessagingThread}>
+      <div
+        ref={threadRef}
+        className={styles.personMessagingThread}
+        onScroll={onThreadScroll}
+      >
         {visibleMessages.length > 0 ? (
           visibleMessages.map((message) => {
             const inbound = message.direction === "inbound";

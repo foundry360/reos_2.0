@@ -417,11 +417,7 @@ export function PersonDetailView({
   );
 
   return (
-    <div
-      className={`${styles.personDetailPage} ${
-        tab === "messaging" ? styles.personDetailPageMessaging : ""
-      }`}
-    >
+    <div className={`${styles.personDetailPage} ${styles.personDetailPageLocked}`}>
       <div className={styles.personDetailNav}>
         <Link href={listHref} className={styles.personDetailBack}>
           <IconBack />
@@ -430,11 +426,12 @@ export function PersonDetailView({
       </div>
 
       <div
-        className={`${styles.personDetailLayout} ${
-          tab === "messaging" ? styles.personDetailLayoutFill : ""
+        className={`${styles.personDetailLayout} ${styles.personDetailLayoutFill} ${
+          tab === "messaging" ? styles.personDetailLayoutMessaging : ""
         }`}
       >
         <aside className={styles.personDetailLeft}>
+          <div className={styles.personDetailColScroll}>
           <section className={styles.personProfileCard}>
             <div className={styles.personProfileHeader}>
               <span className={`${styles.avatar} ${styles.personProfileAvatar}`}>
@@ -442,7 +439,6 @@ export function PersonDetailView({
               </span>
               <div className={styles.personProfileMeta}>
                 <h1 className={styles.personProfileName}>{person.name}</h1>
-                <p className={styles.personProfileKind}>{singular}</p>
                 {email ? (
                   <button
                     type="button"
@@ -506,6 +502,7 @@ export function PersonDetailView({
 
           <PersonAboutCard person={person} />
           <PersonAdditionalInfoCard person={person} />
+          </div>
         </aside>
 
         <main
@@ -704,6 +701,7 @@ export function PersonDetailView({
         </main>
 
         <aside className={styles.personDetailRight}>
+          <div className={styles.personDetailColScroll}>
           <section className={`${styles.personSideCard} ${styles.personAiCard}`}>
             <button
               type="button"
@@ -735,6 +733,7 @@ export function PersonDetailView({
           </section>
 
           <PersonScoreTemperatureCard
+            contactId={person.id}
             score={person.score}
             temperature={person.temperature}
           />
@@ -765,6 +764,7 @@ export function PersonDetailView({
               </div>
             </div>
           </section>
+          </div>
         </aside>
       </div>
     </div>
