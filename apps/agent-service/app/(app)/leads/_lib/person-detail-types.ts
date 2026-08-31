@@ -14,6 +14,28 @@ export interface PersonOpportunitySummary {
   updatedAt: string;
 }
 
+export interface PersonMessage {
+  id: string;
+  channel: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  createdAt: string;
+}
+
+export type PersonMessagingChannel = "sms" | "messenger" | "instagram";
+
+export interface PersonMessagingChannelOption {
+  channel: PersonMessagingChannel;
+  label: string;
+  externalId: string;
+  /** Tenant channel is connected in admin. */
+  connected: boolean;
+  /** Connected and this contact can receive on the channel. */
+  available: boolean;
+  /** Page / IG business profile photo for outbound bubbles. */
+  pageAvatarUrl: string | null;
+}
+
 export interface PersonDetailData {
   id: string;
   kind: PersonKind;
@@ -22,6 +44,7 @@ export interface PersonDetailData {
   lastName: string;
   email: string | null;
   phone: string | null;
+  avatarUrl: string | null;
   leadStatus: string;
   statusLabel: string;
   contactType: ContactType | null;
@@ -35,6 +58,8 @@ export interface PersonDetailData {
   opportunities: PersonOpportunitySummary[];
   tasks: PersonTaskSummary[];
   activities: PersonActivityItem[];
+  messages: PersonMessage[];
+  messagingChannels: PersonMessagingChannelOption[];
 }
 
 export type { PersonActivityItem, PersonTaskSummary };

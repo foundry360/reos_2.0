@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   disconnectTenantBillingAction,
   disconnectTenantChannelAction,
@@ -261,6 +261,7 @@ function socialChannelMeta(channel: TenantChannelStatus): string {
 
 export function AccountConnectionsSections({ tenant }: AccountConnectionsSectionsProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [openSections, setOpenSections] = useState<Set<ConnectionSection>>(() => new Set());
   const [stripeModalOpen, setStripeModalOpen] = useState(false);
@@ -283,6 +284,10 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
     if (select === "messenger" || select === "instagram") {
       setMetaPickerAutoOpened(true);
       void openMetaPagePicker(select);
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("meta_select_page");
+      const query = next.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
       return;
     }
 
@@ -293,7 +298,7 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
       setMetaPickerAutoOpened(true);
       void openMetaPagePicker(awaiting);
     }
-  }, [searchParams, tenant, metaPickerAutoOpened]);
+  }, [searchParams, tenant, metaPickerAutoOpened, router, pathname]);
 
   useEffect(() => {
     for (const channel of SOCIAL_CHANNELS) {

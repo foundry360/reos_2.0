@@ -35,8 +35,11 @@ export function ShellHeader({
       data-reos-header=""
     >
       <Link href={logoHref} className={styles.headerBrand}>
-        <span className={styles.logoMark}>R2</span>
-        <span>REOS</span>
+        <img
+          src="/realtoros-logo.png"
+          alt="RealtorOS"
+          className={styles.headerLogo}
+        />
         {logoSub && <span className={styles.logoSub}>{logoSub}</span>}
       </Link>
 

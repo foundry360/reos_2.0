@@ -18,11 +18,21 @@ const CRM_TOOLS: ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "update_contact",
-      description: "Update CRM fields on the Salesforce Contact",
+      description:
+        "Update CRM fields on the contact. Call whenever facts change. Never paste these values into chat.",
       parameters: {
         type: "object",
         properties: {
-          ai_summary: { type: "string" },
+          ai_summary: {
+            type: "string",
+            description: "Full overwrite of long-term AI summary of the lead",
+          },
+          agent_brief: {
+            type: "string",
+            description: "Full overwrite of CLIENT INTELLIGENCE BRIEF for humans",
+          },
+          recommended_next_action: { type: "string" },
+          email: { type: "string" },
           lead_status: {
             type: "string",
             enum: ["New", "Working", "Contacted", "Qualified", "Converted"],
@@ -31,7 +41,30 @@ const CRM_TOOLS: ChatCompletionTool[] = [
             type: "string",
             enum: ["Hot", "Warm", "Cold"],
           },
-          qualification_score: { type: "number" },
+          intent: {
+            type: "string",
+            enum: ["Buyer", "Seller", "Investor", "Referral"],
+          },
+          qualification_score: {
+            type: "number",
+            description: "0-100 qualification score",
+          },
+          ready_to_book: {
+            type: "boolean",
+            description: "True when lead clearly wants to schedule (routes to Scheduler)",
+          },
+          appt_booked: {
+            type: "boolean",
+            description: "True after a consult is confirmed on the calendar",
+          },
+          handoff: {
+            type: "boolean",
+            description: "True when a human should own the thread",
+          },
+          opted_out: {
+            type: "boolean",
+            description: "True when the lead asks to stop messaging",
+          },
         },
         additionalProperties: false,
       },

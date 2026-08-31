@@ -1,10 +1,61 @@
-import type { ContactContext, LeadStatus } from "@/lib/coordinator";
+import type {
+  ContactContext,
+  LeadIntent,
+  LeadStatus,
+  LeadTemperature,
+} from "@/lib/coordinator";
+import { notifyTenantNewLead } from "@/lib/notifications/create-notification";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export interface InboundChannel {
   channel: "sms" | "messenger" | "instagram";
   from: string;
   to?: string;
+}
+
+const CONTACT_SELECT =
+  "id, tenant_id, first_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out";
+
+type ContactRow = {
+  id: string;
+  tenant_id: string;
+  first_name: string | null;
+  email?: string | null;
+  lead_status: string;
+  lead_temperature: string | null;
+  ai_summary: string | null;
+  agent_brief: string | null;
+  recommended_next_action: string | null;
+  qualification_score: number | null;
+  intent: string | null;
+  ready_to_book: boolean;
+  appt_booked: boolean;
+  handoff: boolean;
+  opted_out: boolean;
+};
+
+function toContactContext(
+  c: ContactRow,
+  externalId: string,
+): ContactContext {
+  return {
+    contactId: c.id,
+    accountId: c.tenant_id,
+    phone: externalId,
+    firstName: c.first_name ?? undefined,
+    email: c.email ?? undefined,
+    leadStatus: c.lead_status as LeadStatus,
+    leadTemperature: (c.lead_temperature as LeadTemperature | null) ?? null,
+    readyToBook: c.ready_to_book ?? false,
+    apptBooked: c.appt_booked ?? false,
+    handoff: c.handoff ?? false,
+    optedOut: c.opted_out,
+    intent: (c.intent as LeadIntent | null) ?? null,
+    aiSummary: c.ai_summary ?? undefined,
+    agentBrief: c.agent_brief ?? undefined,
+    recommendedNextAction: c.recommended_next_action ?? undefined,
+    qualificationScore: c.qualification_score,
+  };
 }
 
 function normalizePhone(value: string): string {
@@ -25,6 +76,9 @@ function stubContext(from: string, tenantId?: string): ContactContext {
     phone: from,
     accountId: tenantId ?? "default-tenant",
     leadStatus: "New",
+    readyToBook: false,
+    apptBooked: false,
+    handoff: false,
     optedOut: false,
   };
 }
@@ -70,7 +124,46 @@ async function resolveTenantByMetaRecipient(
     .eq("external_account_id", recipientId)
     .maybeSingle();
 
-  return byAccount?.tenant_id ?? null;
+  if (byAccount?.tenant_id) return byAccount.tenant_id;
+
+  // Instagram webhooks use the IG professional account id as entry.id. Graph often
+  // omits that id at connect time, so backfill from the first inbound webhook when
+  // exactly one Instagram channel is waiting for it.
+  if (channel === "instagram") {
+    const { data: pending } = await db
+      .from("channel_accounts")
+      .select("id, tenant_id, metadata")
+      .eq("channel", "instagram")
+      .eq("status", "connected")
+      .is("external_account_id", null);
+
+    if (pending?.length === 1) {
+      const row = pending[0];
+      const metadata = {
+        ...((row.metadata as Record<string, unknown> | null) ?? {}),
+        instagram_business_account_id: recipientId,
+      };
+      await db
+        .from("channel_accounts")
+        .update({
+          external_account_id: recipientId,
+          metadata,
+        })
+        .eq("id", row.id);
+      return row.tenant_id;
+    }
+  }
+
+  return null;
+}
+
+export async function resolveInboundTenantId(
+  inbound: InboundChannel,
+): Promise<string | null> {
+  if (inbound.channel === "sms") {
+    return resolveTenantByToNumber(inbound.to);
+  }
+  return resolveTenantByMetaRecipient(inbound.channel, inbound.to);
 }
 
 async function findIdentityContact(
@@ -86,9 +179,7 @@ async function findIdentityContact(
 
   const { data: identity, error } = await db
     .from("contact_identities")
-    .select(
-      "contact_id, contacts!inner(id, tenant_id, first_name, lead_status, ai_summary, opted_out)",
-    )
+    .select(`contact_id, contacts!inner(${CONTACT_SELECT})`)
     .eq("channel", channel)
     .eq("external_id", lookupId)
     .maybeSingle();
@@ -97,35 +188,24 @@ async function findIdentityContact(
 
   type Row = {
     contact_id: string;
-    contacts: {
-      id: string;
-      tenant_id: string;
-      first_name: string | null;
-      lead_status: string;
-      ai_summary: string | null;
-      opted_out: boolean;
-    };
+    contacts: ContactRow;
   };
 
   const row = identity as unknown as Row;
   if (row.contacts.tenant_id !== tenantId) return null;
 
-  const c = row.contacts;
-  return {
-    contactId: c.id,
-    accountId: c.tenant_id,
-    phone: externalId,
-    firstName: c.first_name ?? undefined,
-    leadStatus: c.lead_status as LeadStatus,
-    optedOut: c.opted_out,
-    aiSummary: c.ai_summary ?? undefined,
-  };
+  return toContactContext(row.contacts, externalId);
 }
 
 async function intakeContact(
   tenantId: string,
   channel: InboundChannel["channel"],
   externalId: string,
+  profile?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    avatarUrl?: string | null;
+  },
 ): Promise<ContactContext | null> {
   const db = getSupabaseAdmin();
   if (!db) return null;
@@ -141,15 +221,35 @@ async function intakeContact(
   const identityKey =
     channel === "sms" ? phoneLookupKey(externalId) : externalId;
 
+  const firstName = profile?.firstName?.trim() || null;
+  const lastName = profile?.lastName?.trim() || null;
+  const avatarUrl = profile?.avatarUrl?.trim() || null;
+
   const { data: contact, error: contactError } = await db
     .from("contacts")
-    .insert({ tenant_id: tenantId, lead_status: "New" })
-    .select("id, tenant_id, first_name, lead_status, ai_summary, opted_out")
+    .insert({
+      tenant_id: tenantId,
+      lead_status: "New",
+      record_type: "lead",
+      ...(firstName ? { first_name: firstName } : {}),
+      ...(lastName ? { last_name: lastName } : {}),
+    })
+    .select(CONTACT_SELECT)
     .single();
 
   if (contactError || !contact) {
     console.error("Intake contact error:", contactError);
     return null;
+  }
+
+  if (avatarUrl) {
+    const { error: avatarError } = await db
+      .from("contacts")
+      .update({ avatar_url: avatarUrl })
+      .eq("id", contact.id);
+    if (avatarError) {
+      console.warn("Intake avatar save skipped:", avatarError.message);
+    }
   }
 
   const { error: identityError } = await db.from("contact_identities").insert({
@@ -163,25 +263,28 @@ async function intakeContact(
     return null;
   }
 
-  return {
+  await notifyTenantNewLead({
+    tenantId,
     contactId: contact.id,
-    accountId: contact.tenant_id,
-    phone: externalId,
-    firstName: contact.first_name ?? undefined,
-    leadStatus: contact.lead_status as LeadStatus,
-    optedOut: contact.opted_out,
-    aiSummary: contact.ai_summary ?? undefined,
-  };
+    firstName: contact.first_name ?? firstName,
+    lastName,
+    channel,
+  });
+
+  return toContactContext(contact as ContactRow, externalId);
 }
 
 /** Resolve tenant + contact for an inbound message. Creates contact on first touch (Intake). */
 export async function resolveInboundContact(
   inbound: InboundChannel,
+  profile?: {
+    firstName?: string | null;
+    lastName?: string | null;
+    avatarUrl?: string | null;
+  },
+  options?: { createIfMissing?: boolean },
 ): Promise<ContactContext> {
-  const tenantId =
-    inbound.channel === "sms"
-      ? await resolveTenantByToNumber(inbound.to)
-      : await resolveTenantByMetaRecipient(inbound.channel, inbound.to);
+  const tenantId = await resolveInboundTenantId(inbound);
 
   if (!tenantId) return stubContext(inbound.from);
 
@@ -192,7 +295,16 @@ export async function resolveInboundContact(
   );
   if (existing) return existing;
 
-  const created = await intakeContact(tenantId, inbound.channel, inbound.from);
+  if (options?.createIfMissing === false) {
+    return stubContext(inbound.from, tenantId);
+  }
+
+  const created = await intakeContact(
+    tenantId,
+    inbound.channel,
+    inbound.from,
+    profile,
+  );
   if (created) return created;
 
   return stubContext(inbound.from, tenantId);

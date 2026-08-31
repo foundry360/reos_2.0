@@ -25,7 +25,10 @@ import { isActivityType, type ActivityRelatedEntityType, type StoredActivityType
 import { parsePhoneForStorage } from "@/lib/phone-display";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
-import { createUserNotification } from "@/lib/notifications/create-notification";
+import {
+  createUserNotification,
+  notifyTenantNewLead,
+} from "@/lib/notifications/create-notification";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export interface CrmActionResult {
@@ -317,18 +320,23 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
     relatedEntityId: contact.id,
   });
 
-  await notifySelf({
-    tenantId: tenant.tenantId,
-    category: "leads",
-    title: `${kind === "contact" ? "Contact" : "Lead"} created: ${createdName}`,
-    body:
-      kind === "lead"
-        ? `Status ${formatLeadStatusLabel(status)}`
-        : contactType
-          ? `Type ${formatContactTypeLabel(contactType)}`
-          : null,
-    href: `${personBasePath(kind)}/${contact.id}`,
-  });
+  if (kind === "lead") {
+    await notifyTenantNewLead({
+      tenantId: tenant.tenantId,
+      contactId: contact.id,
+      firstName,
+      lastName,
+    });
+    revalidatePath("/", "layout");
+  } else {
+    await notifySelf({
+      tenantId: tenant.tenantId,
+      category: "leads",
+      title: `Contact created: ${createdName}`,
+      body: contactType ? `Type ${formatContactTypeLabel(contactType)}` : null,
+      href: `${personBasePath(kind)}/${contact.id}`,
+    });
+  }
 
   revalidatePersonPaths(kind);
   return { ok: true, id: contact.id };

@@ -39,17 +39,26 @@ export function buildMetaOAuthUrl(state: MetaOAuthState, redirectUri: string): s
     throw new Error("Meta OAuth is not configured.");
   }
 
-  // Do not request deprecated scopes (e.g. instagram_basic) — Meta returns Invalid Scopes.
+  // Do not request deprecated scopes that Meta rejects as Invalid Scopes.
+  // pages_read_engagement helps Page field reads; Instagram eligibility also uses a messaging probe.
   const scopes =
     state.channel === "instagram"
       ? [
           "pages_show_list",
+          "pages_read_engagement",
           "pages_manage_metadata",
           "pages_messaging",
           "instagram_manage_messages",
           "business_management",
         ]
-      : ["pages_show_list", "pages_messaging", "pages_manage_metadata"];
+      : [
+          "pages_show_list",
+          "pages_read_engagement",
+          "pages_messaging",
+          "pages_manage_metadata",
+          "instagram_manage_messages",
+          "business_management",
+        ];
 
   const params = new URLSearchParams({
     client_id: env.META_APP_ID,

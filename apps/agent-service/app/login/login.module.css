@@ -29,11 +29,15 @@
   margin-bottom: 1.75rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: var(--brand);
-  letter-spacing: -0.02em;
+  justify-content: center;
+}
+
+.logoImg {
+  display: block;
+  height: 2.35rem;
+  width: auto;
+  max-width: min(280px, 80vw);
+  object-fit: contain;
 }
 
 .logoMark {

@@ -110,7 +110,9 @@ export function SelectMetaPageModal({
                 const detail =
                   channel === "instagram" && page.instagramUsername
                     ? `@${page.instagramUsername.replace(/^@/, "")}`
-                    : null;
+                    : channel === "instagram" && page.instagramMessagingEligible
+                      ? "Instagram messaging linked"
+                      : null;
 
                 return (
                   <label

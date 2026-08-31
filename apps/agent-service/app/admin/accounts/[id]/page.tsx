@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { AccountActivityTimeline } from "./_components/account-activity-timeline";
 import { AccountDetailTabs } from "./_components/account-detail-tabs";
+import { AccountFlashBanner } from "./_components/account-flash-banner";
 import { AccountHighlightsPanel } from "./_components/account-highlights-panel";
 import { AccountSetupChevron } from "./_components/account-setup-chevron";
 import { AccountUsageWallet } from "../../_components/account-usage-wallet";
@@ -94,12 +96,16 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
         </div>
       </div>
 
-      {query.created === "1" && <p className={styles.success}>Account created.</p>}
-      {metaFeedback?.kind === "success" && (
-        <p className={styles.success}>{metaFeedback.text}</p>
-      )}
-      {metaFeedback?.kind === "error" && (
-        <p className={styles.error}>{metaFeedback.text}</p>
+      {(query.created === "1" || metaFeedback) && (
+        <Suspense fallback={null}>
+          <AccountFlashBanner
+            kind={metaFeedback?.kind === "error" ? "error" : "success"}
+            text={
+              metaFeedback?.text ??
+              (query.created === "1" ? "Account created." : "")
+            }
+          />
+        </Suspense>
       )}
 
       <AccountHighlightsPanel tenant={tenant} platformAdmins={platformAdmins} />

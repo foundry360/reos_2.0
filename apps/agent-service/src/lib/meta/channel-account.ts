@@ -13,6 +13,8 @@ export interface MetaChannelMetadata {
   webhooks_subscribed_at?: string;
   instagram_business_account_id?: string | null;
   instagram_username?: string | null;
+  /** Cached Page / IG profile picture for outbound message avatars. */
+  page_avatar_url?: string | null;
 }
 
 export function buildPendingMetaChannelRow(input: {
@@ -51,7 +53,7 @@ export function buildCompletedMetaChannelRow(input: {
     input.channel === "instagram"
       ? input.page.instagramUsername
         ? `@${input.page.instagramUsername.replace(/^@/, "")}`
-        : input.page.name
+        : `${input.page.name} (Instagram)`
       : input.page.name;
 
   const previous = input.existingMetadata ?? {};

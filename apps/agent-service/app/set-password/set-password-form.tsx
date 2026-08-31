@@ -103,8 +103,11 @@ export function SetPasswordClient() {
     <div className={styles.left}>
       <div className={styles.leftCenter}>
         <div className={styles.logo}>
-          <span className={styles.logoMark}>R2</span>
-          REOS
+          <img
+            src="/realtoros-logo-light.png"
+            alt="RealtorOS"
+            className={styles.logoImg}
+          />
         </div>
 
         <div className={styles.card}>

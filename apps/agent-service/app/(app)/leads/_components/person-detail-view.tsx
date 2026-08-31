@@ -12,6 +12,7 @@ import { accountInitials } from "@/lib/user-display";
 import { formatRelativeTime } from "@/lib/admin/activity-timeline";
 import styles from "@/components/shell/shell.module.css";
 import { PersonAboutCard } from "./person-about-card";
+import { PersonMessagingPanel } from "./person-messaging-thread";
 import type {
   PersonActivityItem,
   PersonDetailData,
@@ -320,9 +321,11 @@ const DETAIL_TABS: { id: DetailTab; label: string; icon: ReactNode }[] = [
 export function PersonDetailView({
   person,
   agentOptions = [],
+  currentUser,
 }: {
   person: PersonDetailData;
   agentOptions?: AgentOption[];
+  currentUser?: { displayName: string; avatarUrl: string | null };
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const [summaryOpen, setSummaryOpen] = useState(true);
@@ -412,7 +415,11 @@ export function PersonDetailView({
   );
 
   return (
-    <div className={styles.personDetailPage}>
+    <div
+      className={`${styles.personDetailPage} ${
+        tab === "messaging" ? styles.personDetailPageMessaging : ""
+      }`}
+    >
       <div className={styles.personDetailNav}>
         <Link href={listHref} className={styles.personDetailBack}>
           <IconBack />
@@ -420,7 +427,11 @@ export function PersonDetailView({
         </Link>
       </div>
 
-      <div className={styles.personDetailLayout}>
+      <div
+        className={`${styles.personDetailLayout} ${
+          tab === "messaging" ? styles.personDetailLayoutFill : ""
+        }`}
+      >
         <aside className={styles.personDetailLeft}>
           <section className={styles.personProfileCard}>
             <div className={styles.personProfileHeader}>
@@ -494,7 +505,11 @@ export function PersonDetailView({
           <PersonAboutCard person={person} />
         </aside>
 
-        <main className={styles.personDetailCenter}>
+        <main
+          className={`${styles.personDetailCenter} ${
+            tab === "messaging" ? styles.personDetailCenterMessaging : ""
+          }`}
+        >
           <div className={styles.personDetailTabs} role="tablist" aria-label={`${singular} sections`}>
             {DETAIL_TABS.map((item) => (
               <button
@@ -616,18 +631,16 @@ export function PersonDetailView({
           ) : null}
 
           {tab === "messaging" ? (
-            <div className={styles.personDetailCenterStack} role="tabpanel">
-              <section className={styles.personCenterCard}>
-                <div className={styles.personCenterCardHeader}>
-                  <h2 className={styles.personCenterCardTitle}>Messaging</h2>
-                </div>
-                <div className={styles.personFeedEmptyState}>
-                  <EmptyState
-                    title="Start the conversation"
-                    description="SMS and email threads with this record will show up here."
-                  />
-                </div>
-              </section>
+            <div className={styles.personMessagingFull} role="tabpanel">
+              <PersonMessagingPanel
+                contactId={person.id}
+                personName={person.name}
+                avatarUrl={person.avatarUrl}
+                agentName={currentUser?.displayName}
+                agentAvatarUrl={currentUser?.avatarUrl}
+                messages={person.messages}
+                channels={person.messagingChannels}
+              />
             </div>
           ) : null}
 

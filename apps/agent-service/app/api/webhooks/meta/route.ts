@@ -50,6 +50,14 @@ export async function POST(request: NextRequest) {
       const result = await handleInboundMetaMessage(message);
       if (!result.ok) {
         console.warn("Meta inbound skipped:", result.skipped, message.pageOrAccountId);
+      } else if (message.direction === "inbound" && result.playbook) {
+        console.info(
+          "Meta agent:",
+          message.channel,
+          result.playbook,
+          result.sent ? "sent" : "no_send",
+          result.contactId,
+        );
       }
     } catch (error) {
       console.error("Meta inbound error:", error);

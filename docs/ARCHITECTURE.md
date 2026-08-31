@@ -32,18 +32,28 @@ See [`docs/ADMIN.md`](ADMIN.md) for the GHL subaccount model.
 POST /api/webhooks/twilio
   → resolve tenant (To number → tenant_phone_numbers)
   → resolve or create contact (Intake: phone → contact_identities)
-  → Compliance pre-check (opted_out, keywords)
-  → Coordinator → playbook from lead_status
-  → OpenAI (system prompt + update_contact tool)
+  → runInboundAgent (compliance → coordinator → OpenAI → CRM tools)
   → Supabase (contacts + messages)
   → TwiML SMS reply
+```
+
+## Request flow — inbound Messenger / Instagram
+
+```text
+POST /api/webhooks/meta
+  → verify signature
+  → resolve tenant (page / IG account → channel_accounts)
+  → resolve or create contact (PSID → contact_identities)
+  → outbound echo: store only (dedupe agent/UI sends)
+  → inbound: runInboundAgent (same playbooks as SMS)
+  → Graph API send reply
 ```
 
 ## Agent layer
 
 Seven roles — see [`docs/AGENTS.md`](AGENTS.md).
 
-- **Coordinator** (code): routes by `lead_status`
+- **Coordinator** (code): routes by `opted_out` / `handoff` / `ready_to_book` / `appt_booked` / temperature (see [`docs/AGENTS.md`](AGENTS.md))
 - **Concierge / Scheduler / Follow-Up** (LLM): chat only
 - **Intake / Researcher / Compliance / Scout** (jobs): no chat (Compliance may send one-shot legal replies)
 

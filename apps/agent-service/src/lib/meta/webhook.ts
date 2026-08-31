@@ -3,13 +3,18 @@ import { getEnv } from "@/lib/env";
 
 export type MetaMessagingChannel = "messenger" | "instagram";
 
-export interface MetaInboundMessage {
+export interface MetaWebhookMessage {
   channel: MetaMessagingChannel;
   pageOrAccountId: string;
-  senderId: string;
+  /** End-user PSID / IGSID (the contact), whether inbound or echo. */
+  contactExternalId: string;
+  direction: "inbound" | "outbound";
   text: string;
   mid: string | null;
 }
+
+/** @deprecated Use MetaWebhookMessage */
+export type MetaInboundMessage = MetaWebhookMessage;
 
 interface MessagingEvent {
   sender?: { id?: string };
@@ -49,26 +54,32 @@ export function verifyMetaWebhookSignature(rawBody: string, signatureHeader: str
   }
 }
 
-export function parseMetaWebhookPayload(payload: unknown): MetaInboundMessage[] {
+export function parseMetaWebhookPayload(payload: unknown): MetaWebhookMessage[] {
   const body = payload as WebhookPayload;
   const object = body.object?.trim();
   if (object !== "page" && object !== "instagram") return [];
 
   const channel: MetaMessagingChannel = object === "instagram" ? "instagram" : "messenger";
-  const messages: MetaInboundMessage[] = [];
+  const messages: MetaWebhookMessage[] = [];
 
   for (const entry of body.entry ?? []) {
     const pageOrAccountId = entry.id?.trim() ?? "";
     for (const event of entry.messaging ?? []) {
-      if (event.message?.is_echo) continue;
       const text = event.message?.text?.trim() ?? "";
       const senderId = event.sender?.id?.trim() ?? "";
-      if (!pageOrAccountId || !senderId || !text) continue;
+      const recipientId = event.recipient?.id?.trim() ?? "";
+      if (!pageOrAccountId || !text) continue;
+
+      const isEcho = Boolean(event.message?.is_echo);
+      // Echo: Page → user. Inbound: user → Page.
+      const contactExternalId = isEcho ? recipientId : senderId;
+      if (!contactExternalId) continue;
 
       messages.push({
         channel,
         pageOrAccountId,
-        senderId,
+        contactExternalId,
+        direction: isEcho ? "outbound" : "inbound",
         text,
         mid: event.message?.mid?.trim() || null,
       });

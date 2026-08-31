@@ -79,6 +79,15 @@
   letter-spacing: -0.02em;
 }
 
+.headerLogo {
+  display: block;
+  height: 1.85rem;
+  width: auto;
+  max-width: min(220px, 42vw);
+  object-fit: contain;
+  object-position: left center;
+}
+
 .headerActions {
   display: flex;
   align-items: center;
@@ -456,8 +465,9 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .appHeaderWithSearch .headerBrand span:not(.logoMark) {
-    display: none;
+  .appHeaderWithSearch .headerLogo {
+    height: 1.55rem;
+    max-width: min(160px, 38vw);
   }
 }
 
@@ -7066,10 +7076,15 @@ html[data-theme="dark"] .billingWalletIconBadge {
   min-width: 0;
 }
 
+.personDetailPageMessaging {
+  min-height: calc(100dvh - var(--shell-header-height, 56px) - 3rem);
+}
+
 .personDetailNav {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-shrink: 0;
 }
 
 .personDetailBack {
@@ -7093,6 +7108,12 @@ html[data-theme="dark"] .billingWalletIconBadge {
   align-items: start;
 }
 
+.personDetailLayoutFill {
+  flex: 1;
+  align-items: stretch;
+  min-height: 0;
+}
+
 .personDetailLeft,
 .personDetailCenter,
 .personDetailRight {
@@ -7100,6 +7121,22 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex-direction: column;
   gap: 0.85rem;
   min-width: 0;
+}
+
+.personDetailCenterMessaging {
+  min-height: 0;
+  height: 100%;
+}
+
+.personDetailCenterMessaging .personDetailTabs {
+  flex-shrink: 0;
+}
+
+.personMessagingFull {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .personProfileCard,
@@ -8010,6 +8047,343 @@ html[data-theme="dark"] .dealMetaPill {
 
 .personFeedEmptyState .emptyState {
   margin: 0 auto;
+}
+
+.personMessagingPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  height: 100%;
+  background: var(--shell-surface);
+  border: 1px solid var(--shell-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.personMessagingPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.personMessagingPerson {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.personMessagingAvatar {
+  width: 2.35rem;
+  height: 2.35rem;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+  background-color: #55a9db;
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+
+.personMessagingPersonName {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--shell-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personMessagingChannelMenu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.personMessagingChannelTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 0.55rem;
+  background: #fff;
+  color: var(--shell-text-secondary);
+  cursor: pointer;
+}
+
+.personMessagingChannelTrigger:hover {
+  color: var(--shell-text);
+  border-color: color-mix(in srgb, var(--shell-border) 70%, var(--shell-text));
+}
+
+.personMessagingChannelChevronOpen {
+  transform: rotate(180deg);
+}
+
+.personMessagingChannelDialog {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  min-width: 11rem;
+  padding: 0.35rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 0.7rem;
+  background: var(--shell-surface);
+  box-shadow: 0 10px 28px rgba(2, 35, 66, 0.12);
+}
+
+.personMessagingChannelOption {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border: none;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--shell-text);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.personMessagingChannelOption:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--shell-border) 45%, #fff);
+}
+
+.personMessagingChannelOptionActive {
+  background: color-mix(in srgb, #487095 14%, #fff);
+  color: #0b3557;
+}
+
+.personMessagingChannelOption:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.personMessagingThread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem 1.1rem;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--shell-border) 18%, #fff);
+}
+
+.personMessagingEmpty {
+  margin: auto;
+  max-width: 22rem;
+  text-align: center;
+  padding: 1.5rem 1rem;
+}
+
+.personMessagingComposer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem 1rem;
+  border-top: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+}
+
+.personMessagingComposerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.personMessagingInput {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  border: 1px solid var(--shell-border);
+  border-radius: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  font: inherit;
+  font-size: 0.925rem;
+  line-height: 1.45;
+  color: var(--shell-text);
+  background: #fff;
+}
+
+.personMessagingInput:focus {
+  outline: 2px solid color-mix(in srgb, #487095 35%, transparent);
+  outline-offset: 1px;
+}
+
+.personMessagingSend {
+  appearance: none;
+  border: none;
+  border-radius: 0.65rem;
+  padding: 0.7rem 1.15rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+  background: #487095;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.personMessagingSend:hover:not(:disabled) {
+  background: #0b3557;
+}
+
+.personMessagingSend:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.personMessagingError {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #b42318;
+}
+
+.personMessagingHint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--shell-muted);
+  line-height: 1.45;
+}
+
+.personMessageRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.personMessageRowInbound {
+  justify-content: flex-start;
+}
+
+.personMessageRowOutbound {
+  justify-content: flex-end;
+}
+
+.personMessageAvatarWrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 2.15rem;
+  height: 2.15rem;
+}
+
+.personMessageAvatar {
+  width: 2.15rem;
+  height: 2.15rem;
+  font-size: 0.72rem;
+  background-color: #55a9db;
+  background-image: none;
+  color: #fff;
+  box-shadow: none;
+}
+
+.personMessageAvatarImg {
+  object-fit: cover;
+  padding: 0;
+}
+
+.personMessageAvatarAgent {
+  background-color: #022342;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.personMessageAvatarAgentImg {
+  background-color: #022342;
+}
+
+.personMessagePlatformBadge {
+  position: absolute;
+  right: -0.28rem;
+  bottom: -0.28rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: #fff;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--shell-border) 70%, transparent);
+}
+
+.personMessagePlatformBadge img,
+.personMessagePlatformBadge svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.personMessagePlatformBadgeSms {
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: #f22f46;
+  line-height: 1;
+}
+
+.personMessageBubble {
+  max-width: min(68%, 34rem);
+  padding: 0.55rem 0.75rem 0.45rem;
+  border-radius: 0.85rem;
+}
+
+.personMessageBubbleInbound {
+  background: #fff;
+  border: 1px solid var(--shell-border);
+  border-bottom-left-radius: 0.25rem;
+}
+
+.personMessageBubbleOutbound {
+  background: #ddeafe;
+  border: 1px solid color-mix(in srgb, #487095 22%, #ddeafe);
+  border-bottom-right-radius: 0.25rem;
+}
+
+.personMessageBubbleOutbound .personMessageBody {
+  color: #022342;
+}
+
+.personMessageBubbleOutbound .personMessageMeta {
+  color: color-mix(in srgb, #022342 55%, transparent);
+}
+
+.personMessageBody {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--shell-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.personMessageMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
 }
 
 .personCenterCard .dealActivityFeed {

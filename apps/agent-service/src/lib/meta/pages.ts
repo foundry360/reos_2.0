@@ -8,6 +8,8 @@ export interface MetaPageOption {
   accessToken: string;
   instagramBusinessAccountId: string | null;
   instagramUsername: string | null;
+  /** True when Page can use Instagram Messaging (even if Graph omits business account fields). */
+  instagramMessagingEligible: boolean;
 }
 
 interface GraphPageNode {
@@ -56,6 +58,50 @@ export async function exchangeMetaLongLivedUserToken(
   };
 }
 
+/**
+ * Graph often omits `instagram_business_account` even when Page Settings show a linked
+ * professional IG. Conversations with platform=instagram succeeds only when messaging is linked.
+ */
+async function pageSupportsInstagramMessaging(
+  pageId: string,
+  pageAccessToken: string,
+): Promise<boolean> {
+  const params = new URLSearchParams({
+    platform: "instagram",
+    fields: "id",
+    limit: "1",
+    access_token: pageAccessToken,
+  });
+
+  const response = await fetch(
+    `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(pageId)}/conversations?${params.toString()}`,
+  );
+
+  if (response.ok) return true;
+
+  const body = await response.text();
+  // 2534013 = page not linked to a professional Instagram account
+  if (body.includes("2534013") || body.toLowerCase().includes("not linked")) {
+    return false;
+  }
+
+  // Other errors (rate limit, transient) — do not treat as eligible
+  return false;
+}
+
+async function enrichInstagramEligibility(pages: MetaPageOption[]): Promise<MetaPageOption[]> {
+  return Promise.all(
+    pages.map(async (page) => {
+      if (page.instagramBusinessAccountId) {
+        return { ...page, instagramMessagingEligible: true };
+      }
+
+      const eligible = await pageSupportsInstagramMessaging(page.id, page.accessToken);
+      return { ...page, instagramMessagingEligible: eligible };
+    }),
+  );
+}
+
 export async function fetchMetaPages(userAccessToken: string): Promise<MetaPageOption[]> {
   const params = new URLSearchParams({
     fields: "id,name,access_token,instagram_business_account{id,username}",
@@ -75,7 +121,7 @@ export async function fetchMetaPages(userAccessToken: string): Promise<MetaPageO
   const data = (await response.json()) as { data?: GraphPageNode[] };
   const pages = Array.isArray(data.data) ? data.data : [];
 
-  return pages
+  const mapped = pages
     .map((page) => {
       const id = page.id?.trim() ?? "";
       const name = page.name?.trim() ?? "";
@@ -83,15 +129,19 @@ export async function fetchMetaPages(userAccessToken: string): Promise<MetaPageO
       if (!id || !name || !accessToken) return null;
 
       const ig = page.instagram_business_account;
+      const instagramBusinessAccountId = ig?.id?.trim() || null;
       return {
         id,
         name,
         accessToken,
-        instagramBusinessAccountId: ig?.id?.trim() || null,
+        instagramBusinessAccountId,
         instagramUsername: ig?.username?.trim() || null,
+        instagramMessagingEligible: Boolean(instagramBusinessAccountId),
       } satisfies MetaPageOption;
     })
     .filter((page): page is MetaPageOption => page !== null);
+
+  return enrichInstagramEligibility(mapped);
 }
 
 export function filterMetaPagesForChannel(
@@ -99,7 +149,9 @@ export function filterMetaPagesForChannel(
   channel: "messenger" | "instagram",
 ): MetaPageOption[] {
   if (channel === "instagram") {
-    return pages.filter((page) => Boolean(page.instagramBusinessAccountId));
+    return pages.filter(
+      (page) => page.instagramMessagingEligible || Boolean(page.instagramBusinessAccountId),
+    );
   }
   return pages;
 }
