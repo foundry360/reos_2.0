@@ -439,19 +439,23 @@ export async function getRecentMessages(
   const db = getSupabaseAdmin();
   if (!db) return [];
 
+  // Fetch newest N, then reverse so the model sees chronological order.
   const { data } = await db
     .from("messages")
     .select("direction, body")
     .eq("contact_id", contactId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(limit);
 
   if (!data) return [];
 
-  return data.map((m) => ({
-    role: m.direction === "inbound" ? ("user" as const) : ("assistant" as const),
-    content: m.body,
-  }));
+  return data
+    .slice()
+    .reverse()
+    .map((m) => ({
+      role: m.direction === "inbound" ? ("user" as const) : ("assistant" as const),
+      content: m.body,
+    }));
 }
 
 /** @deprecated Use resolveInboundContact */

@@ -193,7 +193,7 @@ export async function runAgentTurn(
   if (firstMsg.tool_calls?.length) {
     messages.push({
       role: "assistant",
-      content: firstMsg.content,
+      content: firstMsg.content ?? "",
       tool_calls: firstMsg.tool_calls,
     });
     for (const tc of firstMsg.tool_calls) {
@@ -205,21 +205,23 @@ export async function runAgentTurn(
       });
     }
 
-    const second = await client.chat.completions.create({
-      model,
-      messages: [
-        ...messages,
-        {
-          role: "system",
-          content:
-            "Now reply to the lead in chat. Answer their question directly. Do not refuse ordinary real-estate questions. Do not say you cannot provide information. Do not pivot to scheduling or a human unless they asked. Keep it to 1-3 short sentences.",
-        },
-      ],
-      tool_choice: "none",
-      max_tokens: 400,
-    });
-
-    reply = second.choices[0]?.message?.content?.trim() || reply;
+    try {
+      const second = await client.chat.completions.create({
+        model,
+        messages: [
+          ...messages,
+          {
+            role: "user",
+            content:
+              "[Internal] Reply to the lead now in 1-3 short sentences. Answer what they said. Do not refuse ordinary real-estate questions. Do not say you cannot provide information. Do not pivot to scheduling unless they asked.",
+          },
+        ],
+        max_tokens: 400,
+      });
+      reply = second.choices[0]?.message?.content?.trim() || reply;
+    } catch (error) {
+      console.error("Agent follow-up completion failed:", error);
+    }
   }
 
   if (!reply) {

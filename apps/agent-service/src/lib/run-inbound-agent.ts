@@ -111,11 +111,31 @@ function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
       : null,
     ctx.aiSummary ? `AI Summary: ${ctx.aiSummary}` : null,
     ctx.agentBrief ? `Agent Brief: ${ctx.agentBrief}` : null,
-    // Do not pass recommended_next_action into the model context; it biases
-    // replies toward "schedule a consult" instead of answering questions.
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** Merge consecutive same-role turns so OpenAI accepts the thread. */
+export function sanitizeChatHistory(
+  rows: Array<{ role: "user" | "assistant"; content: string }>,
+): ChatCompletionMessageParam[] {
+  const out: ChatCompletionMessageParam[] = [];
+  for (const row of rows) {
+    const content = row.content?.trim();
+    if (!content) continue;
+    const last = out[out.length - 1];
+    if (last && last.role === row.role && typeof last.content === "string") {
+      last.content = `${last.content}\n${content}`;
+      continue;
+    }
+    out.push({ role: row.role, content });
+  }
+  // Drop a leading assistant message (API wants user/system first after system).
+  while (out.length > 0 && out[0].role === "assistant") {
+    out.shift();
+  }
+  return out;
 }
 
 async function loadHistory(
@@ -126,24 +146,25 @@ async function loadHistory(
   if (isSupabaseConfigured() && contactId) {
     const rows = await getRecentMessages(contactId);
     if (rows.length > 0) {
-      return rows.map((m) => ({ role: m.role, content: m.content }));
+      return sanitizeChatHistory(rows);
     }
   }
-  return getThread(tenantId, threadKey);
+  return sanitizeChatHistory(
+    getThread(tenantId, threadKey).map((m) => ({
+      role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+      content: typeof m.content === "string" ? m.content : "",
+    })),
+  );
 }
 
-async function persistTurn(params: {
+async function persistInbound(params: {
   tenantId: string;
   threadKey: string;
   contactId?: string;
   channel: AgentChannel;
   userBody: string;
-  reply: string;
-  playbook: AgentPlaybook;
 }): Promise<void> {
-  const { tenantId, threadKey, contactId, channel, userBody, reply, playbook } =
-    params;
-
+  const { tenantId, threadKey, contactId, channel, userBody } = params;
   if (isSupabaseConfigured() && contactId && tenantId !== "default-tenant") {
     await appendMessage({
       tenantId,
@@ -152,23 +173,33 @@ async function persistTurn(params: {
       direction: "inbound",
       body: userBody,
     });
-    if (reply) {
-      await appendMessage({
-        tenantId,
-        contactId,
-        channel,
-        direction: "outbound",
-        body: reply,
-        playbook,
-      });
-    }
     return;
   }
-
   appendToThread(tenantId, threadKey, { role: "user", content: userBody });
-  if (reply) {
-    appendToThread(tenantId, threadKey, { role: "assistant", content: reply });
+}
+
+async function persistOutbound(params: {
+  tenantId: string;
+  threadKey: string;
+  contactId?: string;
+  channel: AgentChannel;
+  reply: string;
+  playbook: AgentPlaybook;
+}): Promise<void> {
+  const { tenantId, threadKey, contactId, channel, reply, playbook } = params;
+  if (!reply) return;
+  if (isSupabaseConfigured() && contactId && tenantId !== "default-tenant") {
+    await appendMessage({
+      tenantId,
+      contactId,
+      channel,
+      direction: "outbound",
+      body: reply,
+      playbook,
+    });
+    return;
   }
+  appendToThread(tenantId, threadKey, { role: "assistant", content: reply });
 }
 
 /**
@@ -186,12 +217,18 @@ export async function runInboundAgent(params: {
 
   if (await applyCompliance(ctx, body)) {
     const reply = ctx.optedOut ? "" : "You have been unsubscribed.";
-    await persistTurn({
+    await persistInbound({
       tenantId,
       threadKey,
       contactId: ctx.contactId,
       channel,
       userBody: body,
+    });
+    await persistOutbound({
+      tenantId,
+      threadKey,
+      contactId: ctx.contactId,
+      channel,
       reply,
       playbook: "none",
     });
@@ -220,16 +257,16 @@ export async function runInboundAgent(params: {
     ctx.readyToBook = false;
   }
 
+  // Always store the lead's message first so a later LLM failure still shows in CRM.
+  await persistInbound({
+    tenantId,
+    threadKey,
+    contactId: ctx.contactId,
+    channel,
+    userBody: body,
+  });
+
   if (playbook === "none") {
-    await persistTurn({
-      tenantId,
-      threadKey,
-      contactId: ctx.contactId,
-      channel,
-      userBody: body,
-      reply: "",
-      playbook: "none",
-    });
     return {
       reply: "",
       playbook: "none",
@@ -239,12 +276,31 @@ export async function runInboundAgent(params: {
   }
 
   const history = await loadHistory(tenantId, threadKey, ctx.contactId);
-  const { reply, toolCalls } = await runAgentTurn(
-    playbook,
-    history,
-    body,
-    buildContextBlock(ctx, channel),
-  );
+  // History already includes the inbound we just saved — do not duplicate as userMessage.
+  const historyWithoutCurrent = history.slice(0, -1);
+  const last = history[history.length - 1];
+  const userMessage =
+    last?.role === "user" && typeof last.content === "string"
+      ? last.content
+      : body;
+
+  let reply = "";
+  let toolCalls: Awaited<ReturnType<typeof runAgentTurn>>["toolCalls"] = [];
+
+  try {
+    const turn = await runAgentTurn(
+      playbook,
+      historyWithoutCurrent,
+      userMessage,
+      buildContextBlock(ctx, channel),
+    );
+    reply = turn.reply;
+    toolCalls = turn.toolCalls;
+  } catch (error) {
+    console.error("Inbound agent turn failed:", error);
+    reply =
+      "Thanks for that. What area are you looking at, or what else can I help with?";
+  }
 
   // Never escalate to booking/handoff just because they asked a question.
   if (looksLikeInfoQuestion(body)) {
@@ -255,12 +311,11 @@ export async function runInboundAgent(params: {
     }
   }
 
-  await persistTurn({
+  await persistOutbound({
     tenantId,
     threadKey,
     contactId: ctx.contactId,
     channel,
-    userBody: body,
     reply,
     playbook,
   });
