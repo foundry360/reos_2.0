@@ -293,6 +293,12 @@ export async function runInboundAgent(params: {
       historyWithoutCurrent,
       userMessage,
       buildContextBlock(ctx, channel),
+      {
+        tenantId,
+        contactId: ctx.contactId,
+        email: ctx.email,
+        leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,
+      },
     );
     reply = turn.reply;
     toolCalls = turn.toolCalls;

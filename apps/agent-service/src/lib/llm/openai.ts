@@ -12,6 +12,13 @@ import type { AgentPlaybook } from "../coordinator";
 import { CONCIERGE_SYSTEM } from "@/agents/concierge";
 import { SCHEDULER_SYSTEM } from "@/agents/scheduler";
 import { FOLLOW_UP_SYSTEM } from "@/agents/follow-up";
+import { applyToolCalls } from "@/lib/apply-tools";
+import {
+  bookConsultSlot,
+  getAvailableConsultSlots,
+  type SlotPreference,
+} from "@/lib/google/calendar";
+import { updateContactFields } from "@/lib/db/contacts";
 
 const CRM_TOOLS: ChatCompletionTool[] = [
   {
@@ -109,6 +116,66 @@ const CRM_TOOLS: ChatCompletionTool[] = [
   },
 ];
 
+const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
+  {
+    type: "function",
+    function: {
+      name: "get_available_slots",
+      description:
+        "Fetch 2-3 real open consult times from the connected Google Calendar. Call after you know mornings vs afternoons (or any). Never invent times.",
+      parameters: {
+        type: "object",
+        properties: {
+          preference: {
+            type: "string",
+            enum: ["morning", "afternoon", "any"],
+            description: "Time-of-day preference from the lead",
+          },
+          limit: {
+            type: "number",
+            description: "How many slots to return (1-5, default 3)",
+          },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "book_appointment",
+      description:
+        "Book a consult on the connected Google Calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked.",
+      parameters: {
+        type: "object",
+        properties: {
+          start: {
+            type: "string",
+            description: "ISO start time from get_available_slots",
+          },
+          end: {
+            type: "string",
+            description: "ISO end time from get_available_slots (optional)",
+          },
+          attendee_email: {
+            type: "string",
+            description: "Lead email for the invite when available",
+          },
+        },
+        required: ["start"],
+        additionalProperties: false,
+      },
+    },
+  },
+];
+
+function toolsFor(playbook: AgentPlaybook): ChatCompletionTool[] {
+  if (playbook === "scheduler") {
+    return [...CRM_TOOLS, ...SCHEDULER_CALENDAR_TOOLS];
+  }
+  return CRM_TOOLS;
+}
+
 function systemPromptFor(playbook: AgentPlaybook): string {
   switch (playbook) {
     case "scheduler":
@@ -124,6 +191,13 @@ function systemPromptFor(playbook: AgentPlaybook): string {
 export interface AgentTurnResult {
   reply: string;
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+}
+
+export interface AgentTurnOptions {
+  tenantId?: string;
+  contactId?: string;
+  email?: string;
+  leadName?: string;
 }
 
 function collectToolCalls(
@@ -144,11 +218,70 @@ function collectToolCalls(
   return toolCalls;
 }
 
+async function executeOneTool(
+  name: string,
+  args: Record<string, unknown>,
+  options: AgentTurnOptions,
+): Promise<unknown> {
+  if (name === "update_contact") {
+    await applyToolCalls(options.contactId, [{ name, args }]);
+    return { ok: true, saved: true };
+  }
+
+  if (name === "get_available_slots") {
+    if (!options.tenantId) {
+      return { ok: false, error: "Missing tenant for calendar lookup." };
+    }
+    const preference =
+      args.preference === "morning" ||
+      args.preference === "afternoon" ||
+      args.preference === "any"
+        ? (args.preference as SlotPreference)
+        : "any";
+    const limit = typeof args.limit === "number" ? args.limit : 3;
+    return getAvailableConsultSlots({
+      tenantId: options.tenantId,
+      preference,
+      limit,
+    });
+  }
+
+  if (name === "book_appointment") {
+    if (!options.tenantId) {
+      return { ok: false, error: "Missing tenant for calendar booking." };
+    }
+    const start = typeof args.start === "string" ? args.start : "";
+    const end = typeof args.end === "string" ? args.end : undefined;
+    const attendeeEmail =
+      (typeof args.attendee_email === "string" && args.attendee_email) ||
+      options.email ||
+      null;
+    const booked = await bookConsultSlot({
+      tenantId: options.tenantId,
+      start,
+      end,
+      attendeeEmail,
+      leadName: options.leadName,
+    });
+    if (booked.ok && options.contactId) {
+      await updateContactFields(options.contactId, {
+        appt_booked: true,
+        ready_to_book: false,
+        lead_status: "Converted",
+      });
+    }
+    return booked;
+  }
+
+  return { ok: false, error: `Unknown tool: ${name}` };
+}
+
 export async function runAgentTurn(
   playbook: AgentPlaybook,
   history: ChatCompletionMessageParam[],
   userMessage: string,
   contextBlock: string,
+  options: AgentTurnOptions = {},
 ): Promise<AgentTurnResult> {
   if (!(await isOpenAIConfiguredAsync())) {
     return {
@@ -160,6 +293,7 @@ export async function runAgentTurn(
   const apiKey = await getOpenAIApiKey();
   const client = new OpenAI({ apiKey });
   const model = getOpenAIModel();
+  const tools = toolsFor(playbook);
 
   const messages: ChatCompletionMessageParam[] = [
     {
@@ -170,55 +304,75 @@ export async function runAgentTurn(
     { role: "user", content: userMessage },
   ];
 
-  const first = await client.chat.completions.create({
-    model,
-    messages,
-    tools: CRM_TOOLS,
-    tool_choice: "auto",
-    max_tokens: 700,
-  });
+  const allToolCalls: AgentTurnResult["toolCalls"] = [];
+  let reply = "";
 
-  const firstMsg = first.choices[0]?.message;
-  if (!firstMsg) {
-    return {
-      reply: "Hey, thanks for reaching out. What can I help with today?",
-      toolCalls: [],
-    };
-  }
+  for (let round = 0; round < 4; round++) {
+    const completion = await client.chat.completions.create({
+      model,
+      messages,
+      tools,
+      tool_choice: "auto",
+      max_tokens: 700,
+    });
 
-  const toolCalls = collectToolCalls(firstMsg);
-  let reply = firstMsg.content?.trim() ?? "";
+    const msg = completion.choices[0]?.message;
+    if (!msg) break;
 
-  // Models often tool-call with empty content. Run a follow-up turn for the chat reply.
-  if (firstMsg.tool_calls?.length) {
+    const roundTools = collectToolCalls(msg);
+    reply = msg.content?.trim() || reply;
+
+    if (!msg.tool_calls?.length) {
+      break;
+    }
+
+    allToolCalls.push(...roundTools);
     messages.push({
       role: "assistant",
-      content: firstMsg.content ?? "",
-      tool_calls: firstMsg.tool_calls,
+      content: msg.content ?? "",
+      tool_calls: msg.tool_calls,
     });
-    for (const tc of firstMsg.tool_calls) {
+
+    for (const tc of msg.tool_calls) {
       if (tc.type !== "function") continue;
+      const args = JSON.parse(tc.function.arguments || "{}") as Record<
+        string,
+        unknown
+      >;
+      let result: unknown;
+      try {
+        result = await executeOneTool(tc.function.name, args, options);
+      } catch (error) {
+        console.error("Tool execution failed:", tc.function.name, error);
+        result = {
+          ok: false,
+          error: error instanceof Error ? error.message : "Tool failed",
+        };
+      }
       messages.push({
         role: "tool",
         tool_call_id: tc.id,
-        content: JSON.stringify({ ok: true, saved: true }),
+        content: JSON.stringify(result),
       });
     }
+  }
 
+  if (!reply) {
+    // One more pass forcing a chat reply after tools.
     try {
-      const second = await client.chat.completions.create({
+      const final = await client.chat.completions.create({
         model,
         messages: [
           ...messages,
           {
             role: "user",
             content:
-              "[Internal] Reply to the lead now in 1-3 short sentences. Answer what they said. Do not refuse ordinary real-estate questions. Do not say you cannot provide information. Do not pivot to scheduling unless they asked.",
+              "[Internal] Reply to the lead now in 1-3 short sentences using any tool results. Do not invent calendar times. If slots were returned, offer them clearly.",
           },
         ],
         max_tokens: 400,
       });
-      reply = second.choices[0]?.message?.content?.trim() || reply;
+      reply = final.choices[0]?.message?.content?.trim() || reply;
     } catch (error) {
       console.error("Agent follow-up completion failed:", error);
     }
@@ -226,8 +380,10 @@ export async function runAgentTurn(
 
   if (!reply) {
     reply =
-      "Happy to help. What are you looking to do: buy, sell, or invest?";
+      playbook === "scheduler"
+        ? "Happy to help get a consult on the calendar. Do mornings or afternoons work better?"
+        : "Happy to help. What are you looking to do: buy, sell, or invest?";
   }
 
-  return { reply, toolCalls };
+  return { reply, toolCalls: allToolCalls };
 }

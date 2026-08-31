@@ -39,7 +39,7 @@ Each agent = one system prompt file under `src/agents/` + shared `update_contact
 | File | Sets via tool |
 |---|---|
 | `concierge.ts` | ai_summary, agent_brief, score, temperature, intent, ready_to_book, handoff |
-| `scheduler.ts` | email, appt_booked, clear ready_to_book, handoff (calendar slots deferred) |
+| `scheduler.ts` | email, appt_booked, clear ready_to_book, handoff; `get_available_slots` + `book_appointment` via Google Calendar |
 | `follow-up.ts` | ai_summary, temperature, ready_to_book, handoff |
 
 ## Automation agents (Milestone 2+)

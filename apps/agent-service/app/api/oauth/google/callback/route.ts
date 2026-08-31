@@ -76,6 +76,9 @@ export async function GET(request: NextRequest) {
           access_token: token.accessToken,
           refresh_token: token.refreshToken,
           expires_in: token.expiresIn,
+          expires_at: token.expiresIn
+            ? new Date(Date.now() + token.expiresIn * 1000).toISOString()
+            : null,
           scope: token.scope,
           token_type: token.tokenType,
           label: accountEmail,
