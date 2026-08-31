@@ -245,7 +245,11 @@ export async function getAvailableConsultSlots(params: {
     const body = await freeBusyRes.text();
     console.error("Google FreeBusy failed:", body);
     // Stale token without expires_at: try one refresh + retry.
-    if (freeBusyRes.status === 401 && account.metadata.refresh_token) {
+    if (
+      freeBusyRes.status === 401 &&
+      !params._retried &&
+      account.metadata.refresh_token
+    ) {
       const refreshed = await refreshAccessToken(account.metadata.refresh_token);
       if (refreshed) {
         const db = getSupabaseAdmin();
@@ -266,7 +270,7 @@ export async function getAvailableConsultSlots(params: {
             })
             .eq("id", account.rowId);
         }
-        return getAvailableConsultSlots(params);
+        return getAvailableConsultSlots({ ...params, _retried: true });
       }
     }
     return { ok: false, error: "Could not read calendar availability." };
