@@ -435,7 +435,7 @@ function NoteActivityCard({
         {activity.body ? (
           <span className={styles.dealActivityMeta}>{activity.body}</span>
         ) : (
-          <span className={styles.dealActivityMeta}>{activity.typeLabel}</span>
+          <span className={styles.dealActivityMeta}>{activity.categoryLabel}</span>
         )}
       </span>
       <ActivityTimestamp activity={activity} formatTime={formatTime} timeTitle={timeTitle} />
@@ -500,7 +500,7 @@ export function ActivityDateFeed({
                     {activity.body ? (
                       <span className={styles.dealActivityMeta}>{activity.body}</span>
                     ) : (
-                      <span className={styles.dealActivityMeta}>{activity.typeLabel}</span>
+                      <span className={styles.dealActivityMeta}>{activity.categoryLabel}</span>
                     )}
                   </span>
                   <ActivityTimestamp

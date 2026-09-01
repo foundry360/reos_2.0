@@ -1,18 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import {
+  ACTIVITY_CATEGORY_META,
   activityEntityHref,
+  classifyActivityCategory,
   formatActivityTypeLabel,
+  isCrmActivityFeedItem,
   type ActivityRelatedEntityType,
   type PersonActivityItem,
   type PersonTaskSummary,
 } from "@/lib/crm/person-activities";
-
-function truncate(value: string, max = 140): string {
-  const trimmed = value.trim();
-  if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max - 1)}…`;
-}
 
 function isRelatedEntityType(value: string | null | undefined): value is ActivityRelatedEntityType {
   return (
@@ -25,16 +22,36 @@ function isRelatedEntityType(value: string | null | undefined): value is Activit
 
 function opportunityNameFromTitle(title: string): string | null {
   const match = title.match(
-    /^(?:Created|Updated|Unlinked|Deleted) opportunity:\s*(.+)$/i,
+    /^(?:Created|Updated|Unlinked|Deleted|New)\s+opportunity[:\s]+(.+)$/i,
   );
   return match?.[1]?.trim() || null;
 }
 
+/** Normalize stored titles toward the CRM event taxonomy. */
 function formatStoredActivityTitle(activityType: string, title: string): string {
-  if (activityType === "note" && !/^Note created:/i.test(title)) {
-    return `Note created: ${title}`;
+  const t = title.trim();
+  if (/^Created opportunity:\s*/i.test(t)) {
+    return t.replace(/^Created opportunity:\s*/i, "New Opportunity: ");
   }
-  return title;
+  if (activityType === "note" && !/^Note created:/i.test(t)) {
+    return `Note created: ${t}`;
+  }
+  return t;
+}
+
+function withCategory(
+  item: Omit<PersonActivityItem, "category" | "categoryLabel" | "typeLabel"> & {
+    typeLabel?: string;
+  },
+): PersonActivityItem {
+  const category = classifyActivityCategory(item);
+  const meta = ACTIVITY_CATEGORY_META[category];
+  return {
+    ...item,
+    typeLabel: item.typeLabel ?? formatActivityTypeLabel(item.type),
+    category,
+    categoryLabel: meta.label,
+  };
 }
 
 export async function fetchTasksForContact(
@@ -169,14 +186,7 @@ export async function fetchActivitiesForContact(
     activityRows = (activitiesWithRelated.data ?? []) as ActivityRow[];
   }
 
-  const [messagesRes, tasksRes, opportunitiesRes] = await Promise.all([
-    supabase
-      .from("messages")
-      .select("id, direction, body, channel, created_at")
-      .eq("tenant_id", tenantId)
-      .eq("contact_id", contactId)
-      .order("created_at", { ascending: false })
-      .limit(limit),
+  const [tasksRes, opportunitiesRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("id, title, status, due_at, notes, created_at, updated_at")
@@ -193,9 +203,6 @@ export async function fetchActivitiesForContact(
       .limit(200),
   ]);
 
-  if (messagesRes.error) {
-    console.error("contact messages for activities failed:", messagesRes.error.message);
-  }
   if (tasksRes.error) {
     console.error("contact tasks for activities failed:", tasksRes.error.message);
   }
@@ -230,7 +237,7 @@ export async function fetchActivitiesForContact(
       row.related_entity_type,
     )
       ? row.related_entity_type
-      : row.activity_type === "opportunity"
+      : row.activity_type === "opportunity" || row.activity_type === "appointment"
         ? "opportunity"
         : row.activity_type === "contact"
           ? personKind
@@ -241,7 +248,12 @@ export async function fetchActivitiesForContact(
         ? row.related_entity_id
         : null;
 
-    if (!relatedId && (relatedType === "opportunity" || row.activity_type === "opportunity")) {
+    if (
+      !relatedId &&
+      (relatedType === "opportunity" ||
+        row.activity_type === "opportunity" ||
+        row.activity_type === "appointment")
+    ) {
       const parsedName = opportunityNameFromTitle(row.title);
       if (parsedName) {
         relatedId = opportunityIdByName.get(parsedName.toLowerCase()) ?? null;
@@ -254,48 +266,41 @@ export async function fetchActivitiesForContact(
       relatedType = personKind;
     }
 
-    items.push({
+    const item = withCategory({
       id: `activity:${row.id}`,
       source: "activity",
       type: row.activity_type,
-      typeLabel: formatActivityTypeLabel(row.activity_type),
       title: formatStoredActivityTitle(row.activity_type, row.title),
       body: row.body?.trim() || null,
       occurredAt: row.occurred_at,
       href: activityEntityHref(relatedType, relatedId) ?? personHref,
     });
+    if (isCrmActivityFeedItem(item)) items.push(item);
   }
 
-  for (const row of messagesRes.data ?? []) {
-    const inbound = row.direction === "inbound";
-    const channel = row.channel === "sms" ? "SMS" : String(row.channel ?? "Message");
-    items.push({
-      id: `message:${row.id}`,
-      source: "message",
-      type: "message",
-      typeLabel: channel,
-      title: inbound ? `Inbound ${channel}` : `Outbound ${channel}`,
-      body: truncate(row.body ?? ""),
-      occurredAt: row.created_at,
-      href: personHref,
-    });
-  }
+  // Chat messages are intentionally excluded from Recent activities / Activities.
 
   for (const row of tasksRes.data ?? []) {
     const done = row.status === "done";
     const dueAt = typeof row.due_at === "string" && row.due_at ? row.due_at : null;
-    items.push({
-      id: `task:${row.id}`,
-      source: "task",
-      type: "task",
-      typeLabel: "Task",
-      title: done ? `Completed task: ${row.title}` : `Task: ${row.title}`,
-      // Task notes stay on the task — do not surface as activity/note body.
-      body: null,
-      occurredAt: done ? row.updated_at : dueAt ?? row.created_at,
-      href: "/tasks",
-      timeKind: !done && dueAt ? "due" : undefined,
-    });
+    const overdue =
+      !done && dueAt ? new Date(dueAt).getTime() < Date.now() : false;
+    items.push(
+      withCategory({
+        id: `task:${row.id}`,
+        source: "task",
+        type: "task",
+        title: done
+          ? `Task completed: ${row.title}`
+          : overdue
+            ? `Task overdue: ${row.title}`
+            : `Task created: ${row.title}`,
+        body: null,
+        occurredAt: done ? row.updated_at : dueAt ?? row.created_at,
+        href: "/tasks",
+        timeKind: !done && dueAt ? "due" : undefined,
+      }),
+    );
   }
 
   items.sort(
@@ -480,7 +485,7 @@ export async function fetchActivitiesForOpportunity(
 
   for (const row of activityRows) {
     // Tasks are merged from the tasks table below — skip duplicate task logs.
-    if (/^(Task created|Completed task):/i.test(row.title)) {
+    if (/^(Task created|Completed task|Task completed|Task overdue):/i.test(row.title)) {
       continue;
     }
     // Notes/body on a task stay on the task — never list as standalone notes/activities.
@@ -488,33 +493,39 @@ export async function fetchActivitiesForOpportunity(
       continue;
     }
 
-    items.push({
+    const item = withCategory({
       id: `activity:${row.id}`,
       source: "activity",
       type: row.activity_type,
-      typeLabel: formatActivityTypeLabel(row.activity_type),
       title: formatStoredActivityTitle(row.activity_type, row.title),
       body: row.body?.trim() || null,
       occurredAt: row.occurred_at,
       href: opportunityHref,
     });
+    if (isCrmActivityFeedItem(item)) items.push(item);
   }
 
   for (const row of tasksRes.data ?? []) {
     const done = row.status === "done";
     const dueAt = typeof row.due_at === "string" && row.due_at ? row.due_at : null;
-    items.push({
-      id: `task:${row.id}`,
-      source: "task",
-      type: "task",
-      typeLabel: "Task",
-      title: done ? `Completed task: ${row.title}` : `Task: ${row.title}`,
-      // Task notes stay on the task — do not surface as activity/note body.
-      body: null,
-      occurredAt: done ? row.updated_at : dueAt ?? row.created_at,
-      href: "/tasks",
-      timeKind: !done && dueAt ? "due" : undefined,
-    });
+    const overdue =
+      !done && dueAt ? new Date(dueAt).getTime() < Date.now() : false;
+    items.push(
+      withCategory({
+        id: `task:${row.id}`,
+        source: "task",
+        type: "task",
+        title: done
+          ? `Task completed: ${row.title}`
+          : overdue
+            ? `Task overdue: ${row.title}`
+            : `Task created: ${row.title}`,
+        body: null,
+        occurredAt: done ? row.updated_at : dueAt ?? row.created_at,
+        href: "/tasks",
+        timeKind: !done && dueAt ? "due" : undefined,
+      }),
+    );
   }
 
   items.sort(

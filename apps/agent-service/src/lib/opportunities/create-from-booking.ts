@@ -13,7 +13,9 @@ import {
   DEFAULT_OPPORTUNITY_TYPE,
   type OpportunityType,
 } from "@/lib/opportunities/opportunity-fields";
+import { formatOpportunityStageLabel } from "@/lib/opportunities/opportunity-stages";
 import { parseBudgetToCents } from "@/lib/opportunities/parse-budget";
+import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
 
 function opportunityTypeFromIntent(
   intent: string | null | undefined,
@@ -184,6 +186,28 @@ export function resolveIntakeStage(
   return "New";
 }
 
+function formatUsdCents(cents: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
+}
+
+function opportunityActivityBody(
+  contact: ContactForIntake,
+  amountCents?: number,
+): string {
+  const who = personDisplayName(contact.first_name, contact.last_name);
+  const amount =
+    amountCents != null ? formatUsdCents(amountCents) : null;
+  const typeLabel = opportunityTypeFromIntent(contact.intent);
+  const parts = [who];
+  if (amount) parts.push(amount);
+  parts.push(`${typeLabel} Opportunity`);
+  return parts.join(" → ");
+}
+
 function stageNotes(stage: OpportunityStage): string {
   switch (stage) {
     case "Appointment_Set":
@@ -237,6 +261,15 @@ async function syncLeadStatusForStage(
   const db = getSupabaseAdmin();
   if (!db) return;
 
+  const { data: contact } = await db
+    .from("contacts")
+    .select("tenant_id, first_name, last_name, lead_status")
+    .eq("id", contactId)
+    .maybeSingle();
+  if (!contact) return;
+
+  const label = personDisplayName(contact.first_name, contact.last_name);
+
   // Booking path: Lead → Account (Prospect) + Converted.
   if (target === "Appointment_Set") {
     await ensureAccountOnAppointmentSet(contactId, target);
@@ -251,16 +284,38 @@ async function syncLeadStatusForStage(
         .from("contacts")
         .update({ lead_status: "Contacted" })
         .eq("id", contactId);
+      await logSystemContactActivity({
+        tenantId: contact.tenant_id,
+        contactId,
+        activityType: "contact",
+        title: "Lead status changed",
+        body: `${label}: ${currentLeadStatus} → Contacted`,
+        relatedEntityType: "lead",
+        relatedEntityId: contactId,
+      });
     }
     return;
   }
 
   if (target === "Qualified") {
-    await db
+    const { data: updated } = await db
       .from("contacts")
       .update({ lead_status: "Qualified" })
       .eq("id", contactId)
-      .in("lead_status", ["New", "Working", "Contacted"]);
+      .in("lead_status", ["New", "Working", "Contacted"])
+      .select("id")
+      .maybeSingle();
+    if (updated?.id) {
+      await logSystemContactActivity({
+        tenantId: contact.tenant_id,
+        contactId,
+        activityType: "contact",
+        title: "Lead qualified",
+        body: label,
+        relatedEntityType: "lead",
+        relatedEntityId: contactId,
+      });
+    }
     return;
   }
 
@@ -269,6 +324,15 @@ async function syncLeadStatusForStage(
       .from("contacts")
       .update({ lead_status: "Working" })
       .eq("id", contactId);
+    await logSystemContactActivity({
+      tenantId: contact.tenant_id,
+      contactId,
+      activityType: "contact",
+      title: "Lead status changed",
+      body: `${label}: New → Working`,
+      relatedEntityType: "lead",
+      relatedEntityId: contactId,
+    });
   }
 }
 
@@ -359,6 +423,72 @@ export async function syncIntakeOpportunityStage(
         target,
       );
       await syncLeadStatusForStage(contactId, target, contact.lead_status);
+
+      const amountCents =
+        typeof fieldPatch.amount_cents === "number"
+          ? fieldPatch.amount_cents
+          : typeof openOpp.amount_cents === "number"
+            ? openOpp.amount_cents
+            : undefined;
+
+      if (target === "Appointment_Set") {
+        await logSystemContactActivity({
+          tenantId: contact.tenant_id,
+          contactId,
+          activityType: "appointment",
+          title: "Appointment booked",
+          body: opportunityActivityBody(contactRow, amountCents),
+          relatedEntityType: "opportunity",
+          relatedEntityId: openOpp.id,
+        });
+        await logSystemContactActivity({
+          tenantId: contact.tenant_id,
+          contactId,
+          activityType: "contact",
+          title: "Lead converted",
+          body: personDisplayName(contact.first_name, contact.last_name),
+          relatedEntityType: "contact",
+          relatedEntityId: contactId,
+        });
+      } else {
+        await logSystemContactActivity({
+          tenantId: contact.tenant_id,
+          contactId,
+          activityType: "opportunity",
+          title: "Opportunity stage changed",
+          body: `${formatOpportunityStageLabel(openOpp.stage)} → ${formatOpportunityStageLabel(target)}`,
+          relatedEntityType: "opportunity",
+          relatedEntityId: openOpp.id,
+        });
+      }
+
+      if (
+        typeof fieldPatch.amount_cents === "number" &&
+        fieldPatch.amount_cents !== openOpp.amount_cents
+      ) {
+        await logSystemContactActivity({
+          tenantId: contact.tenant_id,
+          contactId,
+          activityType: "opportunity",
+          title: "Opportunity value changed",
+          body: formatUsdCents(fieldPatch.amount_cents),
+          relatedEntityType: "opportunity",
+          relatedEntityId: openOpp.id,
+        });
+      }
+    } else if (
+      typeof fieldPatch.amount_cents === "number" &&
+      fieldPatch.amount_cents !== openOpp.amount_cents
+    ) {
+      await logSystemContactActivity({
+        tenantId: contact.tenant_id,
+        contactId,
+        activityType: "opportunity",
+        title: "Opportunity value changed",
+        body: formatUsdCents(fieldPatch.amount_cents),
+        relatedEntityType: "opportunity",
+        relatedEntityId: openOpp.id,
+      });
     }
 
     return openOpp.id;
@@ -403,20 +533,29 @@ export async function syncIntakeOpportunityStage(
     contactId,
   );
 
-  const { error: activityError } = await db.from("contact_activities").insert({
-    tenant_id: contact.tenant_id,
-    contact_id: contactId,
-    activity_type: "opportunity",
-    title: `Created opportunity: ${name}`,
-    body: `Stage ${target.replace(/_/g, " ")} · Intake pipeline`,
-    related_entity_type: "opportunity",
-    related_entity_id: opportunity.id,
+  const amountCents =
+    typeof fieldPatch.amount_cents === "number" ? fieldPatch.amount_cents : undefined;
+
+  await logSystemContactActivity({
+    tenantId: contact.tenant_id,
+    contactId,
+    activityType: "opportunity",
+    title: "New Opportunity",
+    body: opportunityActivityBody(contactRow, amountCents),
+    relatedEntityType: "opportunity",
+    relatedEntityId: opportunity.id,
   });
-  if (activityError) {
-    console.warn(
-      "syncIntakeOpportunityStage activity log skipped:",
-      activityError.message,
-    );
+
+  if (target === "Appointment_Set") {
+    await logSystemContactActivity({
+      tenantId: contact.tenant_id,
+      contactId,
+      activityType: "appointment",
+      title: "Appointment booked",
+      body: opportunityActivityBody(contactRow, amountCents),
+      relatedEntityType: "opportunity",
+      relatedEntityId: opportunity.id,
+    });
   }
 
   await syncLeadStatusForStage(contactId, target, contact.lead_status);

@@ -805,14 +805,13 @@ export async function createOpportunityAction(
     tenantId: tenant.tenantId,
     contactId,
     activityType: "opportunity",
-    title: `Created opportunity: ${name}`,
+    title: "New Opportunity",
     body: [
+      typeof amount === "number"
+        ? `${name} → ${formatUsdCents(amount)} ${opportunityType} Opportunity`
+        : `${name} · ${opportunityType} Opportunity`,
       `Stage ${formatOpportunityStageLabel(stage)}`,
-      typeof amount === "number" ? `Amount ${formatUsdCents(amount)}` : null,
-      expectedCloseDate ? `Close ${formatCloseDate(expectedCloseDate)}` : null,
-    ]
-      .filter(Boolean)
-      .join(" · "),
+    ].join(" · "),
     relatedEntityType: "opportunity",
     relatedEntityId: opportunity.id,
   });
@@ -994,11 +993,23 @@ export async function updateOpportunityAction(
   }
 
   if (changes.length > 0) {
+    const stageChange = existing.stage !== stage;
+    const valueChange =
+      (existing.amount_cents ?? null) !== (typeof amount === "number" ? amount : null);
+    const ownerChange =
+      (existing.assigned_agent_id ?? null) !== assignedAgentId;
+
+    let title = `Opportunity updated: ${name}`;
+    if (stageChange && changes.length === 1) title = "Opportunity stage changed";
+    else if (valueChange && changes.length === 1) title = "Opportunity value changed";
+    else if (ownerChange && changes.length === 1) title = "Opportunity owner changed";
+    else if (stageChange) title = "Opportunity stage changed";
+
     await logContactActivity(supabase, {
       tenantId: tenant.tenantId,
       contactId,
       activityType: "opportunity",
-      title: `Updated opportunity: ${name}`,
+      title,
       body: changes.join(" · "),
       relatedEntityType: "opportunity",
       relatedEntityId: id,
@@ -1136,8 +1147,8 @@ export async function updateOpportunityStageAction(
     tenantId: tenant.tenantId,
     contactId: existing.contact_id,
     activityType: "opportunity",
-    title: `Updated opportunity: ${existing.name}`,
-    body: `Stage ${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
+    title: "Opportunity stage changed",
+    body: `${existing.name}: ${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
     relatedEntityType: "opportunity",
     relatedEntityId: id,
   });

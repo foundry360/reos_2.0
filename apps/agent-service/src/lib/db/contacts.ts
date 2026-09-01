@@ -7,6 +7,7 @@ import type {
 import { computeQualificationScore } from "@/lib/crm/qualification-score";
 import { notifyTenantNewLead } from "@/lib/notifications/create-notification";
 import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
+import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
 import {
   ensureAppointmentSetOpportunity,
   syncIntakeOpportunityStage,
@@ -294,6 +295,16 @@ async function intakeContact(
     firstName: contact.first_name ?? firstName,
     lastName,
     channel,
+  });
+
+  await logSystemContactActivity({
+    tenantId,
+    contactId: contact.id,
+    activityType: "contact",
+    title: "New lead",
+    body: [firstName, lastName].filter(Boolean).join(" ") || channel,
+    relatedEntityType: "lead",
+    relatedEntityId: contact.id,
   });
 
   // New Intake opportunity when the lead engages (stays a Lead until consult booked).

@@ -238,7 +238,20 @@ function ActivityList({
             <span className={styles.personLinkedItemMain}>
               <span className={styles.personLinkedItemTitle}>{activity.title}</span>
               <span className={styles.personLinkedItemMeta}>
-                {activity.typeLabel}
+                <span
+                  className={styles.personActivityCategory}
+                  style={{ color: activity.category === "opportunity"
+                    ? "#22C55E"
+                    : activity.category === "appointment"
+                      ? "#A855F7"
+                      : activity.category === "task"
+                        ? "#F97316"
+                        : activity.category === "lead_contact"
+                          ? "#3B82F6"
+                          : undefined }}
+                >
+                  {activity.categoryLabel}
+                </span>
                 {activity.body ? ` · ${activity.body}` : ""}
               </span>
             </span>
@@ -585,7 +598,7 @@ export function PersonDetailView({
                 ) : (
                   <EmptyBlock
                     title="No activities yet"
-                    description="Notes, calls, emails, and tasks for this record will appear here."
+                    description="Lead, opportunity, appointment, and task events for this record will appear here."
                   />
                 )}
               </section>
