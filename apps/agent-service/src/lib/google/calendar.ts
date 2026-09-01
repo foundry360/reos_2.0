@@ -567,3 +567,155 @@ export async function bookConsultSlot(params: {
     attendeeEmail: email,
   };
 }
+
+type GoogleCalendarListItem = {
+  id?: string;
+  status?: string;
+  summary?: string;
+  description?: string;
+  location?: string;
+  htmlLink?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+};
+
+export type GoogleCalendarListedEvent = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  start: string;
+  end: string;
+  allDay: boolean;
+  href: string | null;
+};
+
+function parseGoogleAllDayEndExclusive(endDate: string, start: Date): Date {
+  const [y, m, d] = endDate.split("-").map(Number);
+  const exclusive = new Date(y, (m ?? 1) - 1, d ?? 1);
+  exclusive.setDate(exclusive.getDate() - 1);
+  if (exclusive < start) return new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59, 59, 999);
+  return new Date(exclusive.getFullYear(), exclusive.getMonth(), exclusive.getDate(), 23, 59, 59, 999);
+}
+
+function mapGoogleListItem(item: GoogleCalendarListItem): GoogleCalendarListedEvent | null {
+  if (!item.id || item.status === "cancelled") return null;
+
+  const title = item.summary?.trim() || "(No title)";
+  const subtitle = item.location?.trim() || item.description?.trim()?.split("\n")[0] || null;
+
+  if (item.start?.dateTime) {
+    const start = new Date(item.start.dateTime);
+    const end = item.end?.dateTime
+      ? new Date(item.end.dateTime)
+      : new Date(start.getTime() + CONSULT_MINUTES * 60 * 1000);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    return {
+      id: item.id,
+      title,
+      subtitle,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      allDay: false,
+      href: item.htmlLink ?? null,
+    };
+  }
+
+  if (item.start?.date) {
+    const [y, m, d] = item.start.date.split("-").map(Number);
+    if (!y || !m || !d) return null;
+    const start = new Date(y, m - 1, d);
+    const end = item.end?.date
+      ? parseGoogleAllDayEndExclusive(item.end.date, start)
+      : new Date(y, m - 1, d, 23, 59, 59, 999);
+    return {
+      id: item.id,
+      title,
+      subtitle,
+      start: start.toISOString(),
+      end: end.toISOString(),
+      allDay: true,
+      href: item.htmlLink ?? null,
+    };
+  }
+
+  return null;
+}
+
+export async function listGoogleCalendarEvents(params: {
+  tenantId: string;
+  timeMin: Date;
+  timeMax: Date;
+  _retried?: boolean;
+}): Promise<
+  | { ok: true; events: GoogleCalendarListedEvent[]; calendarLabel: string | null }
+  | { ok: false; error: string }
+> {
+  const account = await loadCalendarAccount(params.tenantId);
+  if (!account) {
+    return {
+      ok: false,
+      error: "Google Calendar is not connected for this account.",
+    };
+  }
+
+  const url = new URL(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(account.calendarId)}/events`,
+  );
+  url.searchParams.set("timeMin", params.timeMin.toISOString());
+  url.searchParams.set("timeMax", params.timeMax.toISOString());
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("maxResults", "250");
+
+  const response = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${account.accessToken}` },
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    console.error("Google Calendar events.list failed:", body);
+    if (
+      response.status === 401 &&
+      !params._retried &&
+      account.metadata.refresh_token
+    ) {
+      const refreshed = await refreshAccessToken(account.metadata.refresh_token);
+      if (refreshed) {
+        const db = getSupabaseAdmin();
+        if (db) {
+          await db
+            .from("channel_accounts")
+            .update({
+              metadata: {
+                ...account.metadata,
+                access_token: refreshed.accessToken,
+                expires_in: refreshed.expiresIn,
+                expires_at: refreshed.expiresIn
+                  ? new Date(Date.now() + refreshed.expiresIn * 1000).toISOString()
+                  : null,
+              },
+            })
+            .eq("id", account.rowId);
+        }
+        return listGoogleCalendarEvents({ ...params, _retried: true });
+      }
+    }
+    return { ok: false, error: "Could not load Google Calendar events." };
+  }
+
+  const data = (await response.json()) as { items?: GoogleCalendarListItem[] };
+  const events = (data.items ?? [])
+    .map(mapGoogleListItem)
+    .filter((event): event is GoogleCalendarListedEvent => event !== null);
+
+  return {
+    ok: true,
+    events,
+    calendarLabel: account.metadata.label ?? null,
+  };
+}
+
+export async function isGoogleCalendarConnected(tenantId: string): Promise<boolean> {
+  const account = await loadCalendarAccount(tenantId);
+  return account !== null;
+}

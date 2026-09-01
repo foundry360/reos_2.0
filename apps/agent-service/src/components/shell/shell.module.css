@@ -232,6 +232,9 @@
   padding: 0.35rem;
   max-height: min(24rem, 60vh);
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .notificationsFooter {
@@ -492,7 +495,7 @@
   left: 0;
   bottom: 0;
   width: var(--shell-sidebar-width);
-  background: var(--shell-surface);
+  background: var(--shell-sidebar-bg, var(--shell-surface));
   border-right: 1px solid var(--shell-border);
   display: flex;
   flex-direction: column;
@@ -506,7 +509,7 @@
   left: var(--shell-sidebar-width);
   bottom: 0;
   width: var(--shell-subnav-width);
-  background: var(--shell-surface);
+  background: var(--shell-sidebar-bg, var(--shell-surface));
   border-right: 1px solid var(--shell-border);
   z-index: 29;
   overflow: hidden;
@@ -867,6 +870,9 @@ html[data-theme="dark"] .iconBtnActive {
   min-width: 100%;
   padding: 0.35rem;
   z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .dropdownSelectMenuUp {
@@ -2811,6 +2817,42 @@ a.contactLink.tableCellLink:hover {
   border-color: var(--shell-control-border-hover, var(--shell-border-strong));
   box-shadow: none;
   background: transparent;
+}
+
+.calendarViewDropdown .dropdownSelect {
+  width: auto;
+}
+
+.calendarViewDropdown .dropdownSelectTriggerCompact {
+  border: 1px solid var(--shell-border);
+  background: var(--shell-surface);
+  box-shadow: none;
+  min-width: 6.75rem;
+  padding: 0.45rem 0.9rem;
+  color: var(--shell-text);
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.calendarViewDropdown .dropdownSelectTriggerCompact:hover {
+  border-color: var(--shell-control-border-hover, var(--shell-border-strong));
+  background: var(--shell-hover);
+}
+
+.calendarViewDropdown .dropdownSelectTriggerCompact.dropdownSelectTriggerOpen,
+.calendarViewDropdown .dropdownSelectTriggerCompact:focus-visible {
+  border-color: var(--shell-blue);
+  box-shadow: 0 0 0 3px var(--brand-tint);
+  background: var(--shell-surface);
+}
+
+.calendarViewDropdown .dropdownSelectMenu {
+  min-width: 100%;
+  border-radius: 12px;
+}
+
+.calendarFilterDropdown .dropdownSelectTriggerCompact {
+  min-width: 7.5rem;
 }
 
 .listPaginationPerPage .select {
@@ -7624,18 +7666,11 @@ html[data-theme="dark"] .billingWalletIconBadge {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  font-weight: 600;
 }
 
-.personAiBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--shell-blue, var(--brand)) 14%, transparent);
-  color: var(--shell-blue, var(--brand));
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+.summaryAgentSparkleIcon {
+  flex-shrink: 0;
 }
 
 .personAiSummary {
@@ -7857,6 +7892,14 @@ html[data-theme="dark"] .billingWalletIconBadge {
 .personAssociationItemMeta {
   font-size: 0.75rem;
   color: var(--shell-muted);
+}
+
+.personActivityMeta {
+  color: var(--shell-text);
+}
+
+.personActivityCategory {
+  color: inherit;
 }
 
 .personLinkedItemTime {
@@ -8800,7 +8843,7 @@ html[data-theme="dark"] .dealMetaPill {
 
 .dealActivityMeta {
   font-size: 0.75rem;
-  color: var(--shell-muted);
+  color: var(--shell-text);
 }
 
 .dealActivityTime {
@@ -8829,6 +8872,28 @@ html[data-theme="dark"] .dealMetaPill {
 .dealActivityEmpty {
   padding: 1.5rem 1rem;
   text-align: center;
+}
+
+.dealActivityLoadMore {
+  display: flex;
+  justify-content: center;
+  padding: 0.85rem 1rem 0.35rem;
+}
+
+.dealActivityLoadMoreBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--brand);
+  cursor: pointer;
+}
+
+.dealActivityLoadMoreBtn:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .dealSignalsCard {

@@ -451,6 +451,8 @@ interface ActivityDateFeedProps {
   /** Prefer omitting this so RelativeTime avoids hydration mismatches. */
   formatTime?: (iso: string) => string;
   timeTitle?: (iso: string) => string;
+  /** When set, show this many items first with a Load more control. */
+  pageSize?: number;
 }
 
 /** Date-grouped accordion feed with timeline tree (Today, Yesterday, …). */
@@ -458,17 +460,37 @@ export function ActivityDateFeed({
   activities,
   formatTime,
   timeTitle,
+  pageSize,
 }: ActivityDateFeedProps) {
   const [mounted, setMounted] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(() =>
+    pageSize != null ? pageSize : activities.length,
+  );
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (pageSize == null) {
+      setVisibleCount(activities.length);
+      return;
+    }
+    setVisibleCount((current) => {
+      if (activities.length <= pageSize) return activities.length;
+      if (current <= pageSize) return pageSize;
+      return Math.min(current, activities.length);
+    });
+  }, [activities, pageSize]);
+
+  const visibleActivities =
+    pageSize != null ? activities.slice(0, visibleCount) : activities;
+  const hasMore = pageSize != null && visibleCount < activities.length;
+
   // Defer local-timezone grouping until after mount to avoid SSR mismatches.
   const groups = mounted
-    ? groupByActivityDate(activities, (item) => item.occurredAt)
-    : [{ key: "all", label: "Recent", items: activities }];
+    ? groupByActivityDate(visibleActivities, (item) => item.occurredAt)
+    : [{ key: "all", label: "Recent", items: visibleActivities }];
 
   return (
     <div className={styles.dealActivityFeed}>
@@ -526,6 +548,21 @@ export function ActivityDateFeed({
           </ul>
         </DateGroupAccordion>
       ))}
+      {hasMore ? (
+        <div className={styles.dealActivityLoadMore}>
+          <button
+            type="button"
+            className={styles.dealActivityLoadMoreBtn}
+            onClick={() =>
+              setVisibleCount((current) =>
+                Math.min(current + (pageSize ?? 25), activities.length),
+              )
+            }
+          >
+            Load more
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

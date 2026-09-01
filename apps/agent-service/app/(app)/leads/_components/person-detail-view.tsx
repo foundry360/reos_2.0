@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import {
   personBasePath,
   personPlural,
@@ -192,6 +192,33 @@ function IconMore() {
   );
 }
 
+function SummaryAgentSparkleIcon() {
+  const gradientId = useId();
+
+  return (
+    <svg
+      className={styles.summaryAgentSparkleIcon}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#A855F7" />
+          <stop offset="35%" stopColor="#3B82F6" />
+          <stop offset="68%" stopColor="#EC4899" />
+          <stop offset="100%" stopColor="#F59E0B" />
+        </linearGradient>
+      </defs>
+      <path
+        fill={`url(#${gradientId})`}
+        d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"
+      />
+    </svg>
+  );
+}
+
 function AccordionChevron({ open }: { open: boolean }) {
   return (
     <svg
@@ -238,21 +265,8 @@ function ActivityList({
             <ActivityTypeIcon type={activity.type} />
             <span className={styles.personLinkedItemMain}>
               <span className={styles.personLinkedItemTitle}>{activity.title}</span>
-              <span className={styles.personLinkedItemMeta}>
-                <span
-                  className={styles.personActivityCategory}
-                  style={{ color: activity.category === "opportunity"
-                    ? "#22C55E"
-                    : activity.category === "appointment"
-                      ? "#A855F7"
-                      : activity.category === "task"
-                        ? "#F97316"
-                        : activity.category === "lead_contact"
-                          ? "#3B82F6"
-                          : undefined }}
-                >
-                  {activity.categoryLabel}
-                </span>
+              <span className={`${styles.personLinkedItemMeta} ${styles.personActivityMeta}`}>
+                <span className={styles.personActivityCategory}>{activity.categoryLabel}</span>
                 {activity.body ? ` · ${activity.body}` : ""}
               </span>
             </span>
@@ -644,9 +658,7 @@ export function PersonDetailView({
                   {person.activities.length > 0 ? addActivity : null}
                 </div>
                 {person.activities.length > 0 ? (
-                  <ActivityDateFeed
-                    activities={person.activities}
-                  />
+                  <ActivityDateFeed activities={person.activities} pageSize={25} />
                 ) : (
                   <div className={styles.personFeedEmptyState}>
                     <EmptyState
@@ -739,8 +751,8 @@ export function PersonDetailView({
               onClick={() => setSummaryOpen((open) => !open)}
             >
               <span className={styles.personAiCardTitle}>
-                Record summary
-                <span className={styles.personAiBadge}>AI</span>
+                <SummaryAgentSparkleIcon />
+                Summary Agent
               </span>
               <AccordionChevron open={summaryOpen} />
             </button>
