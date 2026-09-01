@@ -3,6 +3,7 @@ import {
   updateContactFields,
   upsertContactSmsIdentity,
 } from "@/lib/db/contacts";
+import { DEFAULT_CONTACT_TYPE } from "@/lib/crm/contact-type";
 
 const LEAD_STATUSES = new Set([
   "New",
@@ -42,6 +43,12 @@ function asTrimmedString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeEmail(value: unknown): string | undefined {
+  const raw = asTrimmedString(value)?.toLowerCase();
+  if (!raw || !raw.includes("@")) return undefined;
+  return raw;
+}
+
 export async function applyToolCalls(
   contactId: string | undefined,
   toolCalls: AgentTurnResult["toolCalls"],
@@ -52,11 +59,20 @@ export async function applyToolCalls(
   let phoneToLink: string | undefined;
 
   for (const call of toolCalls) {
+    if (call.name === "book_appointment") {
+      fields.appt_booked = true;
+      fields.ready_to_book = false;
+      const bookedEmail = normalizeEmail(call.args.attendee_email);
+      if (bookedEmail) fields.email = bookedEmail;
+      continue;
+    }
+
     if (call.name !== "update_contact") continue;
     const args = call.args;
 
     for (const key of STRING_FIELDS) {
-      const value = asTrimmedString(args[key]);
+      const value =
+        key === "email" ? normalizeEmail(args[key]) : asTrimmedString(args[key]);
       if (value !== undefined) fields[key] = value;
     }
 
@@ -96,9 +112,11 @@ export async function applyToolCalls(
   if (fields.opted_out === true) {
     fields.ready_to_book = false;
   }
-  if (fields.appt_booked === true) {
+  if (fields.appt_booked === true || fields.lead_status === "Converted") {
     fields.ready_to_book = false;
-    if (!fields.lead_status) fields.lead_status = "Converted";
+    fields.lead_status = "Converted";
+    fields.record_type = "contact";
+    fields.contact_type = DEFAULT_CONTACT_TYPE;
   }
   if (fields.ready_to_book === true) {
     if (!fields.lead_status) fields.lead_status = "Qualified";

@@ -18,7 +18,7 @@ import {
   getAvailableConsultSlots,
   type SlotPreference,
 } from "@/lib/google/calendar";
-import { updateContactFields } from "@/lib/db/contacts";
+import { markConsultBooked } from "@/lib/db/contacts";
 
 const CRM_TOOLS: ChatCompletionTool[] = [
   {
@@ -288,11 +288,7 @@ async function executeOneTool(
       leadName: options.leadName,
     });
     if (booked.ok && options.contactId) {
-      await updateContactFields(options.contactId, {
-        appt_booked: true,
-        ready_to_book: false,
-        lead_status: "Converted",
-      });
+      await markConsultBooked(options.contactId, { email: attendeeEmail });
     }
     // Do not return htmlLink — the model pastes it as markdown links.
     if (!booked.ok) return booked;

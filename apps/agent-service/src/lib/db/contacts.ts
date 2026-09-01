@@ -343,6 +343,28 @@ export async function updateContactFields(
   return true;
 }
 
+/**
+ * After a consult is booked: mark appt, convert lead → Account (contact) as Prospect,
+ * and persist invite email when provided.
+ */
+export async function markConsultBooked(
+  contactId: string,
+  options?: { email?: string | null },
+): Promise<boolean> {
+  const fields: Record<string, string | number | boolean | null> = {
+    appt_booked: true,
+    ready_to_book: false,
+    lead_status: "Converted",
+    record_type: "contact",
+    contact_type: "Prospect",
+  };
+  const email = options?.email?.trim().toLowerCase();
+  if (email && email.includes("@")) {
+    fields.email = email;
+  }
+  return updateContactFields(contactId, fields);
+}
+
 /** Link or refresh an SMS identity when Concierge collects a phone number. */
 export async function upsertContactSmsIdentity(
   contactId: string,

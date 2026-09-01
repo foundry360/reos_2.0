@@ -349,6 +349,18 @@ export async function runInboundAgent(params: {
       ? last.content
       : body;
 
+  // Capture email as soon as they share it (before booking tools run).
+  const inboundEmail = extractEmailAddress(body);
+  if (
+    inboundEmail &&
+    ctx.contactId &&
+    inboundEmail !== (ctx.email ?? "").toLowerCase() &&
+    (playbook === "scheduler" || scheduleIntent || playbook === "concierge")
+  ) {
+    await updateContactFields(ctx.contactId, { email: inboundEmail });
+    ctx.email = inboundEmail;
+  }
+
   let reply = "";
   let toolCalls: Awaited<ReturnType<typeof runAgentTurn>>["toolCalls"] = [];
 
@@ -444,6 +456,40 @@ export async function runInboundAgent(params: {
     reply = ensureConsultAskInReply(reply, shouldAsk);
   }
 
+  // Persist email shared during scheduling (model often books with attendee_email
+  // but forgets update_contact).
+  const emailFromMessage = extractEmailAddress(body);
+  const emailFromTools =
+    toolCalls
+      .map((tc) => {
+        if (tc.name === "book_appointment") {
+          return extractEmailAddress(String(tc.args.attendee_email ?? ""));
+        }
+        if (tc.name === "update_contact") {
+          return extractEmailAddress(String(tc.args.email ?? ""));
+        }
+        return null;
+      })
+      .find((e): e is string => Boolean(e)) ?? null;
+  const emailToSave = emailFromTools || emailFromMessage;
+  if (emailToSave && ctx.contactId) {
+    let sawUpdate = false;
+    for (const tc of toolCalls) {
+      if (tc.name === "book_appointment" && !tc.args.attendee_email) {
+        tc.args.attendee_email = emailToSave;
+      }
+      if (tc.name !== "update_contact") continue;
+      sawUpdate = true;
+      if (!tc.args.email) tc.args.email = emailToSave;
+    }
+    if (!sawUpdate) {
+      toolCalls.push({
+        name: "update_contact",
+        args: { email: emailToSave },
+      });
+    }
+  }
+
   await persistOutbound({
     tenantId,
     threadKey,
@@ -460,6 +506,11 @@ export async function runInboundAgent(params: {
     contactId: ctx.contactId,
     optedOut: false,
   };
+}
+
+function extractEmailAddress(text: string): string | null {
+  const match = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
+  return match ? match[0].toLowerCase() : null;
 }
 
 function historyAlreadyAskedConsult(
