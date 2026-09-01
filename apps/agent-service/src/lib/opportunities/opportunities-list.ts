@@ -298,25 +298,22 @@ export interface OpportunitiesKanbanResult {
   params: OpportunitiesListParams;
 }
 
-const STAGE_PIPELINE_VIEWS = new Set([
-  "new",
-  "ai_qualifying",
-  "qualified",
-  "appointment_set",
-  "nurture",
-  "closed_won",
-]);
-
 export async function fetchOpportunitiesKanban(
   tenantId: string,
   params: OpportunitiesListParams,
   options?: { pipeline?: OpportunityPipeline },
 ): Promise<OpportunitiesKanbanResult> {
   const pipeline = options?.pipeline ?? params.pipeline ?? DEFAULT_OPPORTUNITY_PIPELINE;
+  const viewStage = viewToStage(params.view);
+  const stageFilter =
+    params.stage !== "all" ? params.stage : viewStage ?? "all";
+
+  // Apply stage/view filters on kanban (previously wiped, so filters looked broken).
+  // Keep recently_modified as a view; map stage views onto `stage`.
   const kanbanParams: OpportunitiesListParams = {
     ...params,
-    stage: "all",
-    view: STAGE_PIPELINE_VIEWS.has(params.view) ? "all" : params.view,
+    stage: stageFilter,
+    view: params.view === "recently_modified" ? "recently_modified" : "all",
     page: 1,
     perPage: 100,
     sort: "updated_at",

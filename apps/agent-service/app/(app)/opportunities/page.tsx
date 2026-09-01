@@ -53,17 +53,7 @@ export default async function OpportunitiesPage({ searchParams }: PageProps) {
 
   const total = listResult?.total ?? kanbanResult?.total ?? 0;
   const hasFilters =
-    params.q.length > 0 ||
-    params.stage !== "all" ||
-    (params.view !== "all" &&
-      ![
-        "new",
-        "ai_qualifying",
-        "qualified",
-        "appointment_set",
-        "nurture",
-        "closed_won",
-      ].includes(params.view));
+    params.q.length > 0 || params.stage !== "all" || params.view !== "all";
   const showKanbanLayout = isKanban && total > 0 && Boolean(kanbanResult);
 
   return (

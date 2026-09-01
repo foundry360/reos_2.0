@@ -13,6 +13,12 @@ import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import { fetchOpportunitiesForContact } from "@/lib/opportunities/opportunities-list";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
+import { ensureAiSummary, ensureScoreAndTemperature } from "@/lib/db/contacts";
+import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
+import {
+  ensureAppointmentSetOpportunity,
+  syncIntakeOpportunityStage,
+} from "@/lib/opportunities/create-from-booking";
 import { formatPhoneDisplay } from "@/lib/phone-display";
 import {
   fetchMetaChannelAvatar,
@@ -55,6 +61,7 @@ export async function loadPersonDetail(
       motivation,
       preferences,
       opted_out,
+      appt_booked,
       created_at,
       updated_at,
       contact_identities (
@@ -69,9 +76,88 @@ export async function loadPersonDetail(
 
   if (!contact) notFound();
 
+  // Collapse FB/IG (or other) duplicates that share email or SMS phone.
+  const identitiesForMerge = Array.isArray(contact.contact_identities)
+    ? contact.contact_identities
+    : contact.contact_identities
+      ? [contact.contact_identities]
+      : [];
+  const smsForMerge = identitiesForMerge.find((entry) => entry.channel === "sms");
+  if (contact.email?.trim() || smsForMerge?.external_id) {
+    const survivorId = await reconcileContactByEmailOrPhone(contact.id, {
+      email: contact.email,
+      phone: smsForMerge?.external_id ?? null,
+    });
+    if (survivorId !== contact.id) {
+      redirect(`${personBasePath(expectedKind)}/${survivorId}`);
+    }
+    // Re-load in case another duplicate was merged into this record.
+    const { data: refreshed } = await supabase
+      .from("contacts")
+      .select(
+        `
+        id,
+        first_name,
+        last_name,
+        email,
+        record_type,
+        lead_status,
+        contact_type,
+        qualification_score,
+        lead_temperature,
+        ai_summary,
+        agent_brief,
+        recommended_next_action,
+        intent,
+        target_location,
+        property_type,
+        budget,
+        timeline,
+        financing_status,
+        must_haves,
+        motivation,
+        preferences,
+        opted_out,
+        appt_booked,
+        created_at,
+        updated_at,
+        contact_identities (
+          channel,
+          external_id
+        )
+      `,
+      )
+      .eq("id", contact.id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (refreshed) Object.assign(contact, refreshed);
+  }
+
   const kind: PersonKind = contact.record_type === "contact" ? "contact" : "lead";
   if (kind !== expectedKind) {
     redirect(`${personBasePath(kind)}/${id}`);
+  }
+
+  // Backfill AI summary / score from qualification columns when the agent skipped them.
+  if (!contact.ai_summary?.trim()) {
+    const filled = await ensureAiSummary(contact.id, { force: false });
+    if (filled) contact.ai_summary = filled;
+  }
+  if (
+    contact.qualification_score == null ||
+    !contact.lead_temperature?.trim()
+  ) {
+    const scored = await ensureScoreAndTemperature(contact.id, { force: false });
+    if (scored) {
+      contact.qualification_score = scored.score;
+      contact.lead_temperature = scored.temperature;
+    }
+  }
+
+  // Sync Intake opportunity stage from CRM (AI Qualifying / Qualified / Appointment Set).
+  await syncIntakeOpportunityStage(contact.id);
+  if (contact.appt_booked && contact.record_type === "contact") {
+    await ensureAppointmentSetOpportunity(contact.id);
   }
 
   const identities = Array.isArray(contact.contact_identities)

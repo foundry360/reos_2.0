@@ -10,8 +10,8 @@ export const INTAKE_STAGE_OPTIONS = [
   { value: "New", label: "New" },
   { value: "AI_Qualifying", label: "AI Qualifying" },
   { value: "Qualified", label: "Qualified" },
-  { value: "Appointment_Set", label: "Appointment Set" },
   { value: "Nurture", label: "Nurture" },
+  { value: "Appointment_Set", label: "Appointment Set" },
   { value: "Closed_Won", label: "Closed Won" },
 ] as const;
 

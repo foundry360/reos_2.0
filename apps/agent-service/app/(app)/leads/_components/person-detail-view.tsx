@@ -15,6 +15,7 @@ import { PersonAboutCard } from "./person-about-card";
 import { PersonAdditionalInfoCard } from "./person-additional-info-card";
 import { PersonScoreTemperatureCard } from "./person-score-temperature-card";
 import { PersonMessagingPanel } from "./person-messaging-thread";
+import { useLiveQualification } from "../_lib/use-live-qualification";
 import type {
   PersonActivityItem,
   PersonDetailData,
@@ -331,6 +332,20 @@ export function PersonDetailView({
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const [summaryOpen, setSummaryOpen] = useState(true);
+  const liveQual = useLiveQualification(person.id, {
+    intent: person.intent,
+    targetLocation: person.targetLocation,
+    propertyType: person.propertyType,
+    budget: person.budget,
+    timeline: person.timeline,
+    financingStatus: person.financingStatus,
+    mustHaves: person.mustHaves,
+    motivation: person.motivation,
+    preferences: person.preferences,
+    aiSummary: person.aiSummary,
+    score: person.score,
+    temperature: person.temperature,
+  });
   const singular = personSingularTitle(person.kind);
   const plural = personPlural(person.kind);
   const listHref = personBasePath(person.kind);
@@ -717,8 +732,8 @@ export function PersonDetailView({
             </button>
             {summaryOpen && (
               <div className={styles.personSideCardBody}>
-                {person.aiSummary ? (
-                  <p className={styles.personAiSummary}>{person.aiSummary}</p>
+                {liveQual.aiSummary ? (
+                  <p className={styles.personAiSummary}>{liveQual.aiSummary}</p>
                 ) : (
                   <EmptyBlock
                     title="No summary yet"

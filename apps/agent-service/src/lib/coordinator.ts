@@ -140,6 +140,9 @@ export function mergeContactWithToolUpdates(
     if (typeof a.must_haves === "string" && a.must_haves.trim()) {
       next.mustHaves = a.must_haves.trim();
     }
+    if (typeof a.email === "string" && a.email.trim()) {
+      next.email = a.email.trim().toLowerCase();
+    }
     if (typeof a.ai_summary === "string" && a.ai_summary.trim()) {
       next.aiSummary = a.ai_summary.trim();
     }
@@ -210,6 +213,116 @@ export function ensureConsultAskInReply(
   const base = reply.trim();
   if (!base) return SCHEDULE_ASK_LINE;
   return `${base.replace(/[.!?]?$/, ".")} ${SCHEDULE_ASK_LINE}`;
+}
+
+export const CONTACT_INFO_ASK_BOTH =
+  "What's the best email and mobile for you?";
+
+export const CONTACT_INFO_ASK_EMAIL =
+  "What's the best email for you?";
+
+export const CONTACT_INFO_ASK_PHONE =
+  "What's the best mobile number for you?";
+
+const CONTACT_INFO_ASK_HINT =
+  /\b(best (email|e-mail|mobile|phone)|email and (mobile|phone)|mobile (number|for you)|phone (number|for you)|email or (mobile|phone)|reach you (at|by))\b/i;
+
+/** True when the outbound already asks for email and/or phone. */
+export function replyAsksForContactInfo(reply: string): boolean {
+  const t = reply.trim();
+  if (!t) return false;
+  if (CONTACT_INFO_ASK_HINT.test(t)) return true;
+  const asksEmail =
+    /\b(email|e-mail)\b/i.test(t) &&
+    /\b(what|what'?s|got|share|send|drop|give)\b/i.test(t);
+  // Do not treat bare "number" (e.g. "how many bedrooms") as a phone ask.
+  const asksPhone =
+    /\b(mobile|cell|phone(\s*number)?)\b/i.test(t) &&
+    /\b(what|what'?s|got|share|send|drop|give)\b/i.test(t);
+  return asksEmail || asksPhone;
+}
+
+export function looksLikeContactInfoDecline(body: string): boolean {
+  const t = body.trim();
+  if (!t) return false;
+  return /\b(no thanks|no thank you|i'?d rather not|rather skip|prefer not|don'?t (want|wanna) (to )?(share|give)|skip( that| for now)?|not (giving|sharing)|no email|no phone|keep it private)\b/i.test(
+    t,
+  );
+}
+
+export function contactInfoAskLine(options: {
+  needEmail: boolean;
+  needPhone: boolean;
+}): string {
+  if (options.needEmail && options.needPhone) return CONTACT_INFO_ASK_BOTH;
+  if (options.needEmail) return CONTACT_INFO_ASK_EMAIL;
+  if (options.needPhone) return CONTACT_INFO_ASK_PHONE;
+  return CONTACT_INFO_ASK_BOTH;
+}
+
+/** Append an email/phone ask when the model skipped it — and strip other questions. */
+export function ensureContactInfoAskInReply(
+  reply: string,
+  shouldAsk: boolean,
+  options: { needEmail: boolean; needPhone: boolean },
+): string {
+  if (!shouldAsk) return reply;
+  const line = contactInfoAskLine(options);
+  const base = reply.trim();
+  if (!base) return line;
+
+  // Already asking for contact info — still drop other trailing qual questions.
+  if (replyAsksForContactInfo(base)) {
+    const sentences = splitSentences(base);
+    const kept = sentences.filter((s) => {
+      if (!s.includes("?")) return true;
+      return replyAsksForContactInfo(s);
+    });
+    const stem = kept.join(" ").trim();
+    return stem || line;
+  }
+
+  // Model asked area / type / timeline / etc. instead — keep short ack, force contact ask.
+  const sentences = splitSentences(base);
+  const acknowledgements = sentences.filter((s) => !s.includes("?"));
+  let stem = acknowledgements.join(" ").trim();
+  if (!stem) {
+    // e.g. only a question — soften to a one-line ack
+    stem = "Sounds good.";
+  }
+  return `${stem.replace(/[.!?]?$/, ".")} ${line}`;
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * True when Concierge must ask for email/mobile this turn.
+ * Fires every turn until asked once (including the first reply) — before deep qual.
+ */
+export function shouldAskContactInfo(options: {
+  channel: "sms" | "messenger" | "instagram";
+  ctx: ContactContext;
+  hasSmsIdentity: boolean;
+  priorAssistantTurns: number;
+  alreadyAsked: boolean;
+  declined: boolean;
+  phoneJustSaved: boolean;
+}): boolean {
+  const { channel, ctx, hasSmsIdentity, alreadyAsked, declined, phoneJustSaved } =
+    options;
+  if (declined || alreadyAsked) return false;
+  if (ctx.optedOut || ctx.apptBooked || ctx.handoff || ctx.readyToBook) {
+    return false;
+  }
+  const needEmail = !ctx.email?.trim();
+  const needPhone =
+    channel !== "sms" && !hasSmsIdentity && !phoneJustSaved;
+  return needEmail || needPhone;
 }
 
 /**

@@ -10,6 +10,10 @@ import {
   hasCoreIntake,
   mergeContactWithToolUpdates,
   ensureConsultAskInReply,
+  ensureContactInfoAskInReply,
+  shouldAskContactInfo,
+  replyAsksForContactInfo,
+  looksLikeContactInfoDecline,
   replyOffersConsult,
   type AgentPlaybook,
   type ContactContext,
@@ -20,6 +24,7 @@ import {
   getRecentMessages,
   updateContactFields,
 } from "@/lib/db/contacts";
+import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
 import { applyToolCalls } from "@/lib/apply-tools";
 import { isSupabaseConfigured } from "@/lib/env";
 import { runAgentTurn } from "@/lib/llm/openai";
@@ -94,13 +99,25 @@ async function isPlaybookEnabled(
   return true;
 }
 
-function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
+function buildContextBlock(
+  ctx: ContactContext,
+  channel: AgentChannel,
+  options?: { hasSmsIdentity?: boolean; priorAssistantTurns?: number },
+): string {
+  const hasSmsIdentity = options?.hasSmsIdentity ?? channel === "sms";
+  const needEmail = !ctx.email?.trim();
+  const needPhone = channel !== "sms" && !hasSmsIdentity;
   const lines = [
     `Channel: ${channel}`,
     `External id: ${ctx.phone}`,
     ctx.firstName ? `First name: ${ctx.firstName}` : null,
     ctx.lastName ? `Last name: ${ctx.lastName}` : null,
-    ctx.email ? `Email: ${ctx.email}` : null,
+    ctx.email
+      ? `Email: ${ctx.email}`
+      : "Email: (missing — ask once early)",
+    channel === "sms" || hasSmsIdentity
+      ? "Phone: (mobile on file / SMS thread)"
+      : "Phone: (missing — ask once early for mobile)",
     `Lead status: ${ctx.leadStatus}`,
     ctx.leadTemperature ? `Lead temperature: ${ctx.leadTemperature}` : null,
     ctx.intent ? `Intent: ${ctx.intent}` : null,
@@ -121,6 +138,21 @@ function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
     ctx.aiSummary ? `AI Summary: ${ctx.aiSummary}` : null,
     ctx.agentBrief ? `Agent Brief: ${ctx.agentBrief}` : null,
   ];
+
+  if (
+    (needEmail || needPhone) &&
+    !ctx.apptBooked &&
+    !ctx.readyToBook &&
+    !ctx.handoff
+  ) {
+    lines.push(
+      needEmail && needPhone
+        ? "CONTACT INFO REQUIRED THIS TURN (HARD): Your ONLY question this turn must be for email AND mobile (e.g. What's the best email and mobile for you?). Do NOT ask area, property type, timeline, budget, or financing until after that ask. Do not offer to skip."
+        : needEmail
+          ? "CONTACT INFO REQUIRED THIS TURN (HARD): Your ONLY question this turn must be for email. Do NOT ask area/type/timeline/budget until after. Do not offer to skip."
+          : "CONTACT INFO REQUIRED THIS TURN (HARD): Your ONLY question this turn must be for mobile. Do NOT ask area/type/timeline/budget until after. Do not offer to skip.",
+    );
+  }
 
   if (
     hasCoreIntake(ctx) &&
@@ -349,8 +381,16 @@ export async function runInboundAgent(params: {
       ? last.content
       : body;
 
-  // Capture email as soon as they share it (before booking tools run).
+  const priorAssistantTurns = historyWithoutCurrent.filter(
+    (m) => m.role === "assistant",
+  ).length;
+  const hasSmsIdentity =
+    channel === "sms" ||
+    (ctx.contactId ? await contactHasSmsIdentity(ctx.contactId) : false);
+
+  // Capture email / phone as soon as they share it (before booking tools run).
   const inboundEmail = extractEmailAddress(body);
+  const inboundPhone = extractPhoneNumber(body);
   if (
     inboundEmail &&
     ctx.contactId &&
@@ -359,6 +399,9 @@ export async function runInboundAgent(params: {
   ) {
     await updateContactFields(ctx.contactId, { email: inboundEmail });
     ctx.email = inboundEmail;
+    ctx.contactId = await reconcileContactByEmailOrPhone(ctx.contactId, {
+      email: inboundEmail,
+    });
   }
 
   let reply = "";
@@ -369,7 +412,10 @@ export async function runInboundAgent(params: {
       playbook,
       historyWithoutCurrent,
       userMessage,
-      buildContextBlock(ctx, channel),
+      buildContextBlock(ctx, channel, {
+        hasSmsIdentity,
+        priorAssistantTurns,
+      }),
       {
         tenantId,
         contactId: ctx.contactId,
@@ -383,6 +429,26 @@ export async function runInboundAgent(params: {
     console.error("Inbound agent turn failed:", error);
     reply =
       "Thanks for that. What area are you looking at, or what else can I help with?";
+  }
+
+  // If they typed a phone and the model forgot update_contact(phone), attach it.
+  if (
+    inboundPhone &&
+    ctx.contactId &&
+    (playbook === "concierge" || playbook === "scheduler" || scheduleIntent)
+  ) {
+    let sawPhone = false;
+    for (const tc of toolCalls) {
+      if (tc.name !== "update_contact") continue;
+      sawPhone = true;
+      if (!tc.args.phone) tc.args.phone = inboundPhone;
+    }
+    if (!sawPhone) {
+      toolCalls.push({
+        name: "update_contact",
+        args: { phone: inboundPhone },
+      });
+    }
   }
 
   // Never escalate to booking/handoff just because they asked a question.
@@ -439,6 +505,41 @@ export async function runInboundAgent(params: {
     }
   }
 
+  // Must ask for email/mobile early (code-enforced — model often skips the prompt).
+  if (
+    playbook === "concierge" &&
+    !bookedThisTurn &&
+    !replyLooksBooked &&
+    !ctx.apptBooked &&
+    !scheduleIntent
+  ) {
+    const merged = mergeContactWithToolUpdates(ctx, toolCalls);
+    const phoneJustSaved = toolCalls.some(
+      (tc) =>
+        tc.name === "update_contact" &&
+        typeof tc.args.phone === "string" &&
+        tc.args.phone.trim().length > 0,
+    );
+    const needEmail = !merged.email?.trim();
+    const needPhone =
+      channel !== "sms" && !hasSmsIdentity && !phoneJustSaved && !inboundPhone;
+    const shouldAsk = shouldAskContactInfo({
+      channel,
+      ctx: merged,
+      hasSmsIdentity: hasSmsIdentity || Boolean(inboundPhone) || phoneJustSaved,
+      priorAssistantTurns,
+      alreadyAsked: historyAlreadyAskedContactInfo(historyWithoutCurrent),
+      declined:
+        looksLikeContactInfoDecline(body) ||
+        historyAlreadyDeclinedContactInfo(historyWithoutCurrent),
+      phoneJustSaved: phoneJustSaved || Boolean(inboundPhone),
+    });
+    reply = ensureContactInfoAskInReply(reply, shouldAsk, {
+      needEmail,
+      needPhone,
+    });
+  }
+
   // Must ask for a consult once core intake is filled (code-enforced).
   if (
     (playbook === "concierge" || playbook === "follow_up") &&
@@ -452,7 +553,9 @@ export async function runInboundAgent(params: {
       hasCoreIntake(merged) &&
       !merged.apptBooked &&
       !merged.readyToBook &&
-      !historyAlreadyAskedConsult(historyWithoutCurrent);
+      !historyAlreadyAskedConsult(historyWithoutCurrent) &&
+      // Prefer finishing the contact-info ask before pushing consult.
+      !replyAsksForContactInfo(reply);
     reply = ensureConsultAskInReply(reply, shouldAsk);
   }
 
@@ -498,7 +601,8 @@ export async function runInboundAgent(params: {
     reply,
     playbook,
   });
-  await applyToolCalls(ctx.contactId, toolCalls);
+  const survivorId = await applyToolCalls(ctx.contactId, toolCalls);
+  if (survivorId) ctx.contactId = survivorId;
 
   return {
     reply,
@@ -511,6 +615,18 @@ export async function runInboundAgent(params: {
 function extractEmailAddress(text: string): string | null {
   const match = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
   return match ? match[0].toLowerCase() : null;
+}
+
+function extractPhoneNumber(text: string): string | null {
+  const match = text.match(
+    /(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b/,
+  );
+  if (!match) return null;
+  const digits = match[0].replace(/\D/g, "");
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  if (digits.length >= 10) return `+${digits}`;
+  return null;
 }
 
 function historyAlreadyAskedConsult(
@@ -528,4 +644,42 @@ function historyAlreadyAskedConsult(
     }
   }
   return false;
+}
+
+function historyAlreadyAskedContactInfo(
+  history: Array<{ role?: string; content?: unknown }>,
+): boolean {
+  let assistantSeen = 0;
+  for (let i = history.length - 1; i >= 0 && assistantSeen < 8; i--) {
+    const m = history[i];
+    if (m.role !== "assistant") continue;
+    assistantSeen += 1;
+    if (typeof m.content === "string" && replyAsksForContactInfo(m.content)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function historyAlreadyDeclinedContactInfo(
+  history: Array<{ role?: string; content?: unknown }>,
+): boolean {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i];
+    if (m.role !== "user" || typeof m.content !== "string") continue;
+    if (looksLikeContactInfoDecline(m.content)) return true;
+  }
+  return false;
+}
+
+async function contactHasSmsIdentity(contactId: string): Promise<boolean> {
+  const db = getSupabaseAdmin();
+  if (!db) return false;
+  const { data } = await db
+    .from("contact_identities")
+    .select("id")
+    .eq("contact_id", contactId)
+    .eq("channel", "sms")
+    .maybeSingle();
+  return Boolean(data?.id);
 }

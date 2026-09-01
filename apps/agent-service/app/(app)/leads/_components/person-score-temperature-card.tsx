@@ -7,9 +7,9 @@ const SCORE_TRACK = "#e8eef4";
 const SCORE_FILL = "#487095";
 
 const TEMP_COLORS = {
-  Hot: "#c45c26",
-  Warm: "#d4a017",
-  Cold: "#55a9db",
+  Hot: "#e84f54",
+  Warm: "#FAD586",
+  Cold: "#16B29B",
   empty: "#c5d0db",
 } as const;
 

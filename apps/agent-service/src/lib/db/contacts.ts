@@ -4,7 +4,13 @@ import type {
   LeadStatus,
   LeadTemperature,
 } from "@/lib/coordinator";
+import { computeQualificationScore } from "@/lib/crm/qualification-score";
 import { notifyTenantNewLead } from "@/lib/notifications/create-notification";
+import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
+import {
+  ensureAppointmentSetOpportunity,
+  syncIntakeOpportunityStage,
+} from "@/lib/opportunities/create-from-booking";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export interface InboundChannel {
@@ -248,6 +254,7 @@ async function intakeContact(
     .insert({
       tenant_id: tenantId,
       lead_status: "New",
+      // First touch stays a Lead; promoted to Prospect Account when qualifying starts.
       record_type: "lead",
       ...(firstName ? { first_name: firstName } : {}),
       ...(lastName ? { last_name: lastName } : {}),
@@ -288,6 +295,9 @@ async function intakeContact(
     lastName,
     channel,
   });
+
+  // New Intake opportunity when the lead engages (stays a Lead until consult booked).
+  await syncIntakeOpportunityStage(contact.id);
 
   return toContactContext(contact as ContactRow, externalId);
 }
@@ -343,14 +353,152 @@ export async function updateContactFields(
   return true;
 }
 
+type SummarySource = {
+  intent?: string | null;
+  target_location?: string | null;
+  property_type?: string | null;
+  budget?: string | null;
+  timeline?: string | null;
+  financing_status?: string | null;
+  must_haves?: string | null;
+  motivation?: string | null;
+  preferences?: string | null;
+};
+
+/** Pipe-label summary matching Concierge CRM style. */
+export function buildAiSummaryFromFields(row: SummarySource): string | null {
+  const parts: string[] = [];
+  const push = (value?: string | null, prefix?: string) => {
+    const trimmed = value?.trim();
+    if (!trimmed) return;
+    parts.push(prefix ? `${prefix}${trimmed}` : trimmed);
+  };
+  push(row.intent);
+  push(row.property_type);
+  push(row.target_location);
+  push(row.budget, "Budget ");
+  push(row.timeline, "Timeline ");
+  push(row.financing_status);
+  push(row.must_haves, "Must-haves: ");
+  push(row.motivation, "Motivation: ");
+  push(row.preferences, "Preferences: ");
+  return parts.length > 0 ? parts.join(" | ") : null;
+}
+
+/**
+ * Keep ai_summary populated from qualification columns when the model skips it.
+ * force=true rebuilds even if a summary already exists (use when model did not write one).
+ */
+export async function ensureAiSummary(
+  contactId: string,
+  options?: { force?: boolean },
+): Promise<string | null> {
+  const db = getSupabaseAdmin();
+  if (!db) return null;
+
+  const { data, error } = await db
+    .from("contacts")
+    .select(
+      "ai_summary, intent, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences",
+    )
+    .eq("id", contactId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) console.error("ensureAiSummary load failed:", error);
+    return null;
+  }
+
+  const built = buildAiSummaryFromFields(data);
+  if (!built) return data.ai_summary?.trim() || null;
+
+  const existing = data.ai_summary?.trim() || "";
+  if (!options?.force && existing) return existing;
+
+  if (existing === built) return existing;
+
+  const ok = await updateContactFields(contactId, { ai_summary: built });
+  return ok ? built : existing || null;
+}
+
+/**
+ * Keep qualification_score + lead_temperature filled from CRM fields.
+ */
+export async function ensureScoreAndTemperature(
+  contactId: string,
+  options?: { force?: boolean },
+): Promise<{ score: number; temperature: string } | null> {
+  const db = getSupabaseAdmin();
+  if (!db) return null;
+
+  const { data, error } = await db
+    .from("contacts")
+    .select(
+      "qualification_score, lead_temperature, intent, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences, ai_summary, appt_booked, ready_to_book",
+    )
+    .eq("id", contactId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) console.error("ensureScoreAndTemperature load failed:", error);
+    return null;
+  }
+
+  const computed = computeQualificationScore(data);
+  const hasScore =
+    typeof data.qualification_score === "number" &&
+    data.qualification_score >= 0;
+  const hasTemp = Boolean(data.lead_temperature?.trim());
+
+  if (!options?.force && hasScore && hasTemp) {
+    await syncIntakeOpportunityStage(contactId);
+    return {
+      score: data.qualification_score as number,
+      temperature: data.lead_temperature as string,
+    };
+  }
+
+  if (
+    hasScore &&
+    hasTemp &&
+    data.qualification_score === computed.score &&
+    data.lead_temperature === computed.temperature
+  ) {
+    await syncIntakeOpportunityStage(contactId);
+    return computed;
+  }
+
+  // Only write when we have enough signal to avoid scoring empty records as Cold/0.
+  const hasSignal = Boolean(
+    data.intent ||
+      data.target_location ||
+      data.property_type ||
+      data.budget ||
+      data.timeline ||
+      data.financing_status ||
+      data.appt_booked,
+  );
+  if (!hasSignal) return null;
+
+  const ok = await updateContactFields(contactId, {
+    qualification_score: computed.score,
+    lead_temperature: computed.temperature,
+  });
+  if (ok) {
+    await syncIntakeOpportunityStage(contactId);
+  }
+  return ok ? computed : null;
+}
+
 /**
  * After a consult is booked: mark appt, convert lead → Account (contact) as Prospect,
- * and persist invite email when provided.
+ * and persist invite email when provided. Merges duplicates that share the email.
+ * Returns the surviving contact id (may differ after merge).
  */
 export async function markConsultBooked(
   contactId: string,
   options?: { email?: string | null },
-): Promise<boolean> {
+): Promise<string | null> {
   const fields: Record<string, string | number | boolean | null> = {
     appt_booked: true,
     ready_to_book: false,
@@ -362,7 +510,18 @@ export async function markConsultBooked(
   if (email && email.includes("@")) {
     fields.email = email;
   }
-  return updateContactFields(contactId, fields);
+  const ok = await updateContactFields(contactId, fields);
+  if (!ok) return null;
+
+  let survivorId = contactId;
+  if (email) {
+    survivorId = await reconcileContactByEmailOrPhone(contactId, { email });
+  }
+
+  await ensureAiSummary(survivorId, { force: false });
+  await ensureScoreAndTemperature(survivorId, { force: true });
+  await ensureAppointmentSetOpportunity(survivorId);
+  return survivorId;
 }
 
 /** Link or refresh an SMS identity when Concierge collects a phone number. */
@@ -385,11 +544,11 @@ export async function upsertContactSmsIdentity(
 
   if (existing) {
     if (existing.contact_id === contactId) return true;
-    console.warn(
-      "SMS identity already linked to another contact; skipping phone upsert",
-      lookupId,
-    );
-    return false;
+    // Same phone on another contact → merge, then identity lives on the winner.
+    const survivor = await reconcileContactByEmailOrPhone(contactId, {
+      phone: phoneRaw,
+    });
+    return survivor === contactId || survivor === existing.contact_id;
   }
 
   const { data: ownSms } = await db

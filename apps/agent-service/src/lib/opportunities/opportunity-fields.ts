@@ -24,7 +24,7 @@ export type OpportunityPriority = (typeof OPPORTUNITY_PRIORITY_OPTIONS)[number][
 export const OPPORTUNITY_PRIORITY_COLORS: Record<OpportunityPriority, string> = {
   Low: "#55A9DB",
   Medium: "#16B298",
-  High: "#29A4BD",
+  High: "#16B29B",
   Urgent: "#FA8F59",
 };
 

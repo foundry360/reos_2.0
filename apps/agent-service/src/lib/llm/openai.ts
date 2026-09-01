@@ -246,7 +246,8 @@ async function executeOneTool(
   options: AgentTurnOptions,
 ): Promise<unknown> {
   if (name === "update_contact") {
-    await applyToolCalls(options.contactId, [{ name, args }]);
+    const survivor = await applyToolCalls(options.contactId, [{ name, args }]);
+    if (survivor) options.contactId = survivor;
     return { ok: true, saved: true };
   }
 
@@ -288,7 +289,10 @@ async function executeOneTool(
       leadName: options.leadName,
     });
     if (booked.ok && options.contactId) {
-      await markConsultBooked(options.contactId, { email: attendeeEmail });
+      const survivor = await markConsultBooked(options.contactId, {
+        email: attendeeEmail,
+      });
+      if (survivor) options.contactId = survivor;
     }
     // Do not return htmlLink — the model pastes it as markdown links.
     if (!booked.ok) return booked;
