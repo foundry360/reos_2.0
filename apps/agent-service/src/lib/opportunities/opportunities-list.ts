@@ -347,7 +347,7 @@ function csvEscape(value: string): string {
 export function opportunitiesToCsv(rows: OpportunityRow[]): string {
   const header = [
     "Name",
-    "Contact",
+    "Client",
     "Pipeline",
     "Stage",
     "Type",

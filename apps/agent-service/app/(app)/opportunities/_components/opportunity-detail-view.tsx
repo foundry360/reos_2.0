@@ -455,7 +455,7 @@ export function OpportunityDetailView({
                         action={
                           addNote ?? (
                             <p className={styles.personEmptyText}>
-                              Link a contact to this opportunity to add notes.
+                              Link a client to this opportunity to add notes.
                             </p>
                           )
                         }

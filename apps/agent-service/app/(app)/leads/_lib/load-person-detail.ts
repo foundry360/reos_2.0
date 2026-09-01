@@ -177,7 +177,7 @@ export async function loadPersonDetail(
   const name =
     [contact.first_name?.trim(), contact.last_name?.trim()].filter(Boolean).join(" ") ||
     phone ||
-    (kind === "contact" ? "Unknown contact" : "Unknown lead");
+    (kind === "contact" ? "Unknown client" : "Unknown lead");
 
   const contactType =
     kind === "contact"

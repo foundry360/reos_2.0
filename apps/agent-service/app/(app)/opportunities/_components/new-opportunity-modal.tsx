@@ -124,7 +124,7 @@ export function NewOpportunityModal({
     setError(null);
 
     if (!contactId) {
-      setError("Contact is required.");
+      setError("Client is required.");
       return;
     }
     if (!pipeline) {
@@ -166,7 +166,7 @@ export function NewOpportunityModal({
         label: contact.label,
       }))
     : [
-        { value: "", label: "Select a contact" },
+        { value: "", label: "Select a client" },
         ...contactOptions.map((contact) => ({
           value: contact.id,
           label: contact.label,
@@ -292,19 +292,19 @@ export function NewOpportunityModal({
 
                 <div className={styles.field}>
                   <label className={styles.label} htmlFor="new-opp-contact">
-                    Contact
+                    Client
                   </label>
                   <DropdownSelect
                     id="new-opp-contact"
                     value={contactId}
-                    ariaLabel="Contact"
+                    ariaLabel="Client"
                     disabled={pending || lockContact || contactOptions.length === 0}
                     onChange={setContactId}
                     options={contactSelectOptions}
                   />
                   {!lockContact && contactOptions.length === 0 ? (
                     <p className={styles.fieldHint}>
-                      Add a lead or contact first, then create an opportunity.
+                      Add a lead or client first, then create an opportunity.
                     </p>
                   ) : null}
                 </div>

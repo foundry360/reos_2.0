@@ -640,7 +640,7 @@ export function PersonMessagingPanel({
             {filter !== "all" && !channels.find((entry) => entry.channel === filter)?.connected
               ? `${channelLabel(filter)} is not connected for this account.`
               : filter !== "all"
-                ? `This contact has no ${channelLabel(filter)} thread yet.`
+                ? `This client has no ${channelLabel(filter)} thread yet.`
                 : "No sendable channel yet. Connect Messenger or Instagram and wait for an inbound message."}
           </p>
         ) : (

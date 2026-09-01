@@ -11,7 +11,7 @@ import styles from "./shell.module.css";
 const TYPE_LABEL: Record<GlobalSearchResult["type"], string> = {
   page: "Page",
   lead: "Lead",
-  contact: "Contact",
+  contact: "Client",
   opportunity: "Opportunity",
   task: "Task",
 };
@@ -125,7 +125,7 @@ export function GlobalSearch() {
             if (query.trim().length > 0) setOpen(true);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Search leads, contacts, opportunities…"
+          placeholder="Search leads, clients, opportunities…"
           aria-label="Global search"
           aria-expanded={open}
           aria-controls={listId}

@@ -33,7 +33,7 @@ export const ACTIVITY_CATEGORY_META: Record<
   ActivityCategory,
   { label: string; color: string }
 > = {
-  lead_contact: { label: "Lead & Contact", color: "#3B82F6" },
+  lead_contact: { label: "Lead & Client", color: "#3B82F6" },
   opportunity: { label: "Opportunity", color: "#22C55E" },
   appointment: { label: "Appointments", color: "#A855F7" },
   task: { label: "Tasks & Follow-ups", color: "#F97316" },
@@ -71,7 +71,7 @@ export function classifyActivityCategory(item: {
 
 export function formatActivityTypeLabel(type: string): string {
   if (type === "opportunity") return "Opportunity";
-  if (type === "contact") return "Lead & Contact";
+  if (type === "contact") return "Lead & Client";
   if (type === "appointment") return "Appointments";
   if (type === "task") return "Tasks & Follow-ups";
   if (type === "meeting") return "Appointments";

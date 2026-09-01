@@ -106,7 +106,7 @@ export function EditOpportunityModal({
     setError(null);
 
     if (!contactId) {
-      setError("Contact is required.");
+      setError("Client is required.");
       return;
     }
     if (!pipeline) {
@@ -143,7 +143,7 @@ export function EditOpportunityModal({
   }
 
   const contactSelectOptions = [
-    { value: "", label: "Select a contact" },
+    { value: "", label: "Select a client" },
     ...contactOptions.map((contact) => ({
       value: contact.id,
       label: contact.label,
@@ -232,12 +232,12 @@ export function EditOpportunityModal({
 
             <div className={styles.field}>
               <label className={styles.label} htmlFor="edit-opp-contact">
-                Contact
+                Client
               </label>
               <DropdownSelect
                 id="edit-opp-contact"
                 value={contactId}
-                ariaLabel="Contact"
+                ariaLabel="Client"
                 disabled={pending || contactOptions.length === 0}
                 onChange={setContactId}
                 options={contactSelectOptions}

@@ -227,7 +227,7 @@ export function OpportunitiesTable({
               <th>
                 <SortHeader label="Name" column="name" params={params} />
               </th>
-              <th>Contact</th>
+              <th>Client</th>
               <th>
                 <SortHeader label="Stage" column="stage" params={params} />
               </th>

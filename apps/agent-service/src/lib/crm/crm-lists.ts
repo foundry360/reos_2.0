@@ -25,7 +25,7 @@ export async function listLeadOptionsForTenant(): Promise<
     const name = [contact.first_name?.trim(), contact.last_name?.trim()]
       .filter(Boolean)
       .join(" ");
-    const label = name || (sms?.external_id ? sms.external_id : "Unknown contact");
+    const label = name || (sms?.external_id ? sms.external_id : "Unknown client");
     return { id: contact.id, label };
   });
 }

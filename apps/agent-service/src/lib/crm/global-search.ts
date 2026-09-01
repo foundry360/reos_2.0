@@ -21,7 +21,7 @@ const PAGE_SHORTCUTS: { id: string; title: string; subtitle: string; href: strin
   [
     { id: "overview", title: "Overview", subtitle: "Workspace home", href: "/", keywords: ["overview", "home", "dashboard"] },
     { id: "leads", title: "Leads", subtitle: "All leads", href: "/leads", keywords: ["leads", "lead"] },
-    { id: "contacts", title: "Contacts", subtitle: "All contacts", href: "/contacts", keywords: ["contacts", "contact", "people"] },
+    { id: "contacts", title: "Clients", subtitle: "All clients", href: "/contacts", keywords: ["clients", "client", "contacts", "contact", "people"] },
     { id: "opportunities", title: "Opportunities", subtitle: "Pipeline", href: "/opportunities", keywords: ["opportunities", "opportunity", "pipeline", "deals"] },
     { id: "tasks", title: "Tasks", subtitle: "To-dos", href: "/tasks", keywords: ["tasks", "task", "todo"] },
     { id: "calendar", title: "Calendar", subtitle: "Schedule", href: "/calendar", keywords: ["calendar", "schedule", "events"] },
@@ -98,7 +98,7 @@ export async function searchTenantGlobal(query: string): Promise<GlobalSearchRes
         : person.lead_status
           ? String(person.lead_status).replaceAll("_", " ")
           : kind === "contact"
-            ? "Contact"
+            ? "Client"
             : "Lead",
       href: `${personBasePath(kind)}/${person.id}`,
     });

@@ -161,7 +161,7 @@ export function TasksTable({
                 <th>
                   <SortHeader label="Task" column="title" params={params} />
                 </th>
-                <th>Contact</th>
+                <th>Client</th>
                 <th>Opportunity</th>
                 <th>
                   <SortHeader label="Status" column="status" params={params} />

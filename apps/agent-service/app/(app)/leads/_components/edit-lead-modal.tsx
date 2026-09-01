@@ -10,7 +10,12 @@ import {
   isContactType,
   type ContactType,
 } from "@/lib/crm/contact-type";
-import { personBasePath, personSingularTitle, type PersonKind } from "@/lib/crm/person-kind";
+import {
+  personBasePath,
+  personSingularTitle,
+  personTypeFieldLabel,
+  type PersonKind,
+} from "@/lib/crm/person-kind";
 import { LEAD_STATUS_OPTIONS } from "@/lib/leads/lead-status";
 import type { LeadRow } from "@/lib/leads/leads-types";
 import type { LeadStatus } from "@/lib/coordinator";
@@ -171,13 +176,13 @@ export function EditLeadModal({ lead, kind = "lead", onClose }: EditLeadModalPro
 
           <div className={styles.field}>
             <label className={styles.label} htmlFor="edit-lead-status">
-              {isContact ? "Contact type" : "Status"}
+              {personTypeFieldLabel(kind)}
             </label>
             {isContact ? (
               <DropdownSelect
                 id="edit-lead-status"
                 value={contactType}
-                ariaLabel="Contact type"
+                ariaLabel={personTypeFieldLabel(kind)}
                 disabled={pending}
                 onChange={(value) => setContactType(value as ContactType)}
                 options={CONTACT_TYPE_OPTIONS.map((option) => ({

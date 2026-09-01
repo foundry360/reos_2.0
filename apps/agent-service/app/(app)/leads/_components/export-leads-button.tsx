@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { buildLeadsListQuery, type LeadsListParams } from "@/lib/leads/leads-list-params";
-import { personPlural, type PersonKind } from "@/lib/crm/person-kind";
+import { personApiResource, type PersonKind } from "@/lib/crm/person-kind";
 import styles from "@/components/shell/shell.module.css";
 
 function IconExport() {
@@ -29,10 +29,10 @@ interface ExportLeadsButtonProps {
 }
 
 export function ExportLeadsButton({ params, kind = "lead" }: ExportLeadsButtonProps) {
-  const plural = personPlural(kind);
+  const resource = personApiResource(kind);
   return (
     <Link
-      href={`/api/${plural}/export${buildLeadsListQuery(params)}`}
+      href={`/api/${resource}/export${buildLeadsListQuery(params)}`}
       className={`${styles.btnSecondary} ${styles.btnPill}`}
       prefetch={false}
     >

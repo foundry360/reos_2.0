@@ -138,7 +138,7 @@ export function NewTaskModal({
         label: lead.label,
       }))
     : [
-        { value: "none", label: "No contact" },
+        { value: "none", label: "No client" },
         ...leadOptions.map((lead) => ({
           value: lead.id,
           label: lead.label,
@@ -165,9 +165,9 @@ export function NewTaskModal({
             value: "none",
             label:
               !effectiveContactId || effectiveContactId === "none"
-                ? "Select a contact first"
+                ? "Select a client first"
                 : opportunitiesForContact.length === 0
-                  ? "No opportunities for this contact"
+                  ? "No opportunities for this client"
                   : "No opportunity",
           },
           ...opportunitiesForContact.map((option) => ({
@@ -365,12 +365,12 @@ export function NewTaskModal({
                   <div className={styles.fieldRow}>
                     <div className={styles.field}>
                       <label className={styles.label} htmlFor="new-task-contact">
-                        Contact
+                        Client
                       </label>
                       <DropdownSelect
                         id="new-task-contact"
                         value={effectiveContactId}
-                        ariaLabel="Contact"
+                        ariaLabel="Client"
                         disabled={pending || lockContact || leadOptions.length === 0}
                         onChange={handleContactChange}
                         options={contactSelectOptions}

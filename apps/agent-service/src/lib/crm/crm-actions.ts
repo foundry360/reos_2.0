@@ -332,7 +332,7 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
     await notifySelf({
       tenantId: tenant.tenantId,
       category: "leads",
-      title: `Contact created: ${createdName}`,
+      title: `Client created: ${createdName}`,
       body: contactType ? `Type ${formatContactTypeLabel(contactType)}` : null,
       href: `${personBasePath(kind)}/${contact.id}`,
     });
@@ -577,7 +577,7 @@ export async function updateLeadStatusAction(
 
   const kind: PersonKind = existing.record_type === "contact" ? "contact" : "lead";
   if (kind === "contact") {
-    return { ok: false, error: "Use contact type to update contacts." };
+    return { ok: false, error: "Use client type to update clients." };
   }
   if (existing.lead_status === status) {
     return { ok: true, id, kind };
@@ -635,10 +635,10 @@ export async function updateContactTypeAction(
 
   const id = contactId.trim();
   if (!id) {
-    return { ok: false, error: "Contact not found." };
+    return { ok: false, error: "Client not found." };
   }
   if (!isContactType(contactType)) {
-    return { ok: false, error: "Invalid contact type." };
+    return { ok: false, error: "Invalid client type." };
   }
 
   const supabase = await createClient();
@@ -650,10 +650,10 @@ export async function updateContactTypeAction(
     .maybeSingle();
 
   if (!existing) {
-    return { ok: false, error: "Contact not found." };
+    return { ok: false, error: "Client not found." };
   }
   if (existing.record_type !== "contact") {
-    return { ok: false, error: "Only contacts have a contact type." };
+    return { ok: false, error: "Only clients have a client type." };
   }
   if (existing.contact_type === contactType) {
     return { ok: true, id, kind: "contact" };
@@ -748,7 +748,7 @@ export async function createOpportunityAction(
     return { ok: false, error: "Opportunity name is required." };
   }
   if (!contactId) {
-    return { ok: false, error: "Contact is required." };
+    return { ok: false, error: "Client is required." };
   }
   if (amount && typeof amount === "object" && "error" in amount) {
     return { ok: false, error: amount.error };
@@ -869,7 +869,7 @@ export async function updateOpportunityAction(
     return { ok: false, error: "Opportunity name is required." };
   }
   if (!contactId) {
-    return { ok: false, error: "Contact is required." };
+    return { ok: false, error: "Client is required." };
   }
   if (amount && typeof amount === "object" && "error" in amount) {
     return { ok: false, error: amount.error };
@@ -989,7 +989,7 @@ export async function updateOpportunityAction(
     changes.push("Notes updated");
   }
   if ((existing.contact_id ?? null) !== contactId) {
-    changes.push("Contact changed");
+    changes.push("Client changed");
   }
 
   if (changes.length > 0) {

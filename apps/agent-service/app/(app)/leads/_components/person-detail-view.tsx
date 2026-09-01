@@ -6,6 +6,7 @@ import {
   personBasePath,
   personPlural,
   personSingularTitle,
+  personTypeFieldLabel,
 } from "@/lib/crm/person-kind";
 import { displayValue } from "@/lib/display-value";
 import { accountInitials } from "@/lib/user-display";
@@ -568,7 +569,7 @@ export function PersonDetailView({
                   </div>
                   <div className={styles.personHighlightItem}>
                     <span className={styles.personHighlightLabel}>
-                      {person.kind === "contact" ? "Contact type" : "Status"}
+                      {personTypeFieldLabel(person.kind)}
                     </span>
                     <span className={styles.personHighlightValue}>
                       {person.kind === "contact"
@@ -718,7 +719,7 @@ export function PersonDetailView({
                   <div className={styles.personFeedEmptyState}>
                     <EmptyState
                       title="Stay on top of every follow-up"
-                      description="Create tasks so every next step for this contact has an owner."
+                      description="Create tasks so every next step for this client has an owner."
                       action={addTaskCta}
                     />
                   </div>

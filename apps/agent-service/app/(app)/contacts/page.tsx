@@ -12,6 +12,7 @@ import {
   fetchPeopleKanban,
   parseLeadsListParams,
 } from "@/lib/leads/leads-list";
+import { personPluralTitle } from "@/lib/crm/person-kind";
 import { leadViewLabel } from "@/lib/leads/leads-views";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import styles from "@/components/shell/shell.module.css";
@@ -29,7 +30,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
     return (
       <>
         <div className={styles.pageHeader}>
-          <PageHeading icon={<IconUsers />} title="Contacts" tone="person" />
+          <PageHeading icon={<IconUsers />} title={personPluralTitle("contact")} tone="person" />
         </div>
         <p className={styles.empty}>{workspaceUnavailableMessage(reason)}</p>
       </>
@@ -67,10 +68,10 @@ export default async function ContactsPage({ searchParams }: PageProps) {
 
       {total === 0 ? (
         hasFilters || params.view !== "all" || params.status !== "all" || params.q ? (
-          <EmptyState compact title="No contacts match your filters." />
+          <EmptyState compact title="No clients match your filters." />
         ) : (
           <EmptyState
-            title="Top sellers add their contacts first"
+            title="Top sellers add their clients first"
             description="It's the fastest way to win more deals."
             action={<NewLeadModal kind="contact" trigger="cta" />}
           />

@@ -31,7 +31,7 @@ const ENTITY_OPTIONS = [
   },
   {
     value: "contacts" as const,
-    label: "Contacts",
+    label: "Clients",
     description: "People in your address book",
   },
   {

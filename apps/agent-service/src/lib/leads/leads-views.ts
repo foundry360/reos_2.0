@@ -31,14 +31,14 @@ const LEAD_VIEW_LABELS: Record<LeadViewId, string> = {
 };
 
 const CONTACT_VIEW_LABELS: Record<LeadViewId, string> = {
-  all: "All contacts",
+  all: "All clients",
   new: "Prospect",
   working: "Customer",
   contacted: "Inactive Customer",
   qualified: "Partner",
   converted: "Vendor",
   recently_modified: "Recently modified",
-  hot: "Hot contacts",
+  hot: "Hot clients",
   never_contacted: "Never contacted",
   opted_out: "Opted out",
 };

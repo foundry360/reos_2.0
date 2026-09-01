@@ -11,6 +11,7 @@ import {
 import {
   personSingular,
   personSingularTitle,
+  personTypeFieldLabel,
   type PersonKind,
 } from "@/lib/crm/person-kind";
 import { LEAD_STATUS_OPTIONS } from "@/lib/leads/lead-status";
@@ -226,13 +227,13 @@ export function NewLeadModal({
 
               <div className={styles.field}>
                 <label className={styles.label} htmlFor={`new-${kind}-status`}>
-                  {kind === "contact" ? "Contact type" : "Status"}
+                  {personTypeFieldLabel(kind)}
                 </label>
                 {kind === "contact" ? (
                   <DropdownSelect
                     id={`new-${kind}-status`}
                     value={contactType}
-                    ariaLabel="Contact type"
+                    ariaLabel={personTypeFieldLabel(kind)}
                     disabled={pending}
                     onChange={(value) => setContactType(value as ContactType)}
                     options={CONTACT_TYPE_OPTIONS.map((option) => ({

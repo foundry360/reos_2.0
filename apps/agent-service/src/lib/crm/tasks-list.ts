@@ -263,7 +263,7 @@ export function tasksToCsv(rows: TaskRow[]): string {
     "Start",
     "End",
     "Due",
-    "Contact",
+    "Client",
     "Opportunity",
     "Notes",
     "Created",

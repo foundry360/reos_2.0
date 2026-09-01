@@ -9,7 +9,7 @@ import {
   isContactType,
   type ContactType,
 } from "@/lib/crm/contact-type";
-import { personBasePath, personSingularTitle } from "@/lib/crm/person-kind";
+import { personBasePath, personSingularTitle, personTypeFieldLabel } from "@/lib/crm/person-kind";
 import type { LeadStatus } from "@/lib/coordinator";
 import { isLeadStatus, LEAD_STATUS_OPTIONS } from "@/lib/leads/lead-status";
 import { displayValue } from "@/lib/display-value";
@@ -175,7 +175,7 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
             <PropertyRow label="Phone number" value={person.phone ?? displayValue(null)} />
             {isContact ? (
               <PropertyRow
-                label="Contact type"
+                label={personTypeFieldLabel(person.kind)}
                 value={person.contactTypeLabel || displayValue(null)}
               />
             ) : (
@@ -247,12 +247,12 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
             {isContact ? (
               <div className={styles.field}>
                 <label className={styles.label} htmlFor="person-about-contact-type">
-                  Contact type
+                  {personTypeFieldLabel(person.kind)}
                 </label>
                 <DropdownSelect
                   id="person-about-contact-type"
                   value={contactType}
-                  ariaLabel="Contact type"
+                  ariaLabel={personTypeFieldLabel(person.kind)}
                   disabled={pending}
                   onChange={(value) => setContactType(value as ContactType)}
                   options={CONTACT_TYPE_OPTIONS.map((option) => ({

@@ -48,7 +48,7 @@ export async function sendPersonMessageAction(input: {
     .maybeSingle();
 
   if (contactError || !contact) {
-    return { ok: false, error: "Contact not found." };
+    return { ok: false, error: "Client not found." };
   }
 
   if (contact.opted_out && input.channel === "sms") {

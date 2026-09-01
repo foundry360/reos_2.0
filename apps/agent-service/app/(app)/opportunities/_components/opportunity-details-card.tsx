@@ -217,7 +217,7 @@ export function OpportunityDetailsCard({
     setSuccess(false);
 
     if (!contactId) {
-      setError("Contact is required.");
+      setError("Client is required.");
       return;
     }
     if (!pipeline) {
@@ -257,7 +257,7 @@ export function OpportunityDetailsCard({
   }
 
   const contactSelectOptions = [
-    { value: "", label: "Select a contact" },
+    { value: "", label: "Select a client" },
     ...contactOptions.map((contact) => ({
       value: contact.id,
       label: contact.label,
@@ -315,7 +315,7 @@ export function OpportunityDetailsCard({
             <PropertyRow label="Stage" value={opportunity.stageLabel} />
             <PropertyRow label="Deal value" value={formatUsd(opportunity.amountCents)} />
             <PropertyRow label="Owner" value={agentLabel ?? displayValue(null)} />
-            <PropertyRow label="Contacts">
+            <PropertyRow label="Client">
               {opportunity.contactId && opportunity.contactName ? (
                 <Link
                   href={href ?? `/leads/${opportunity.contactId}`}
@@ -368,12 +368,12 @@ export function OpportunityDetailsCard({
 
             <div className={styles.field}>
               <label className={styles.label} htmlFor="deal-details-contact">
-                Contact
+                Client
               </label>
               <DropdownSelect
                 id="deal-details-contact"
                 value={contactId}
-                ariaLabel="Contact"
+                ariaLabel="Client"
                 disabled={pending || contactOptions.length === 0}
                 onChange={setContactId}
                 options={contactSelectOptions}
