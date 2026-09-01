@@ -375,18 +375,15 @@ export function resolvePlaybook(
 
   if (ctx.apptBooked) return "follow_up";
 
+  // Keep Concierge until core intake fields exist — even if already scored Warm/Cold.
+  // Early scoring used to flip Contacted + Nurture and hand the thread to Follow-Up,
+  // which then never saved area / property type / timeline / financing.
+  if (!hasCoreQualificationFields(ctx)) {
+    return "concierge";
+  }
+
   const temp = ctx.leadTemperature;
-  const stillQualifying =
-    ctx.leadStatus === "New" ||
-    ctx.leadStatus === "Working" ||
-    // Keep Concierge until core intake is done so the consult ask can fire.
-    (ctx.leadStatus === "Qualified" &&
-      hasCoreQualificationFields(ctx) === false);
-  if (
-    (temp === "Warm" || temp === "Cold") &&
-    !ctx.readyToBook &&
-    !stillQualifying
-  ) {
+  if ((temp === "Warm" || temp === "Cold") && !ctx.readyToBook) {
     return "follow_up";
   }
 

@@ -26,6 +26,7 @@ import {
 } from "@/lib/db/contacts";
 import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
 import { applyToolCalls } from "@/lib/apply-tools";
+import { extractQualificationFromInbound } from "@/lib/extract-qualification";
 import { isSupabaseConfigured } from "@/lib/env";
 import { runAgentTurn } from "@/lib/llm/openai";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -448,6 +449,38 @@ export async function runInboundAgent(params: {
         name: "update_contact",
         args: { phone: inboundPhone },
       });
+    }
+  }
+
+  // If Concierge forgot update_contact for area / type / timeline / financing.
+  if (playbook === "concierge" && ctx.contactId) {
+    const extracted = extractQualificationFromInbound(body, lastAssistantText);
+    const missing: Record<string, string> = {};
+    if (extracted.target_location && !ctx.targetLocation) {
+      missing.target_location = extracted.target_location;
+    }
+    if (extracted.property_type && !ctx.propertyType) {
+      missing.property_type = extracted.property_type;
+    }
+    if (extracted.timeline && !ctx.timeline) {
+      missing.timeline = extracted.timeline;
+    }
+    if (extracted.financing_status && !ctx.financingStatus) {
+      missing.financing_status = extracted.financing_status;
+    }
+
+    if (Object.keys(missing).length > 0) {
+      let sawUpdate = false;
+      for (const tc of toolCalls) {
+        if (tc.name !== "update_contact") continue;
+        sawUpdate = true;
+        for (const [key, value] of Object.entries(missing)) {
+          if (!tc.args[key]) tc.args[key] = value;
+        }
+      }
+      if (!sawUpdate) {
+        toolCalls.push({ name: "update_contact", args: missing });
+      }
     }
   }
 

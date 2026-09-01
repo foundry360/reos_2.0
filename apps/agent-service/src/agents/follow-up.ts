@@ -69,4 +69,5 @@ COMPLIANCE
 If they say stop, unsubscribe, don't text, remove me, or similar: stop nurturing immediately; set opted_out=true if needed. Do not send another check-in or CTA after opt-out language. Never promise legal, financial, investment, or guaranteed outcomes.
 
 TOOLS
-Use update_contact for: ai_summary, lead_temperature, ready_to_book, handoff, opted_out, lead_status.`;
+Use update_contact for: first_name, last_name, email, phone, intent, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences, ai_summary, agent_brief, qualification_score, recommended_next_action, lead_temperature, lead_status, ready_to_book, handoff, opted_out.
+When they share area, property type, timeline, financing, or budget, save those fields in the SAME turn.`;

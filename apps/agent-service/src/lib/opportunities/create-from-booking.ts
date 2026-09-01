@@ -1,5 +1,11 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
+  hasCoreQualificationFields,
+  type ContactContext,
+  type LeadIntent,
+  type LeadStatus,
+} from "@/lib/coordinator";
+import {
   DEFAULT_OPPORTUNITY_PIPELINE,
   type OpportunityStage,
 } from "@/lib/opportunities/opportunity-stages";
@@ -55,7 +61,7 @@ function canAdvanceTo(current: string, target: OpportunityStage): boolean {
   if (current === "Appointment_Set" && target !== "Appointment_Set") {
     return false;
   }
-  // Side path: scored Warm/Cold not booking → Nurture.
+  // Side path: scored Warm/Cold not booking → Nurture (only when core intake done).
   if (
     target === "Nurture" &&
     (current === "New" ||
@@ -64,12 +70,14 @@ function canAdvanceTo(current: string, target: OpportunityStage): boolean {
   ) {
     return true;
   }
+  // Still gathering after a premature Nurture → return to AI Qualifying.
+  if (current === "Nurture" && target === "AI_Qualifying") {
+    return true;
+  }
   // Re-engage out of Nurture when they heat up, start booking, or book.
   if (
     current === "Nurture" &&
-    (target === "Qualified" ||
-      target === "Appointment_Set" ||
-      target === "AI_Qualifying")
+    (target === "Qualified" || target === "Appointment_Set")
   ) {
     return true;
   }
@@ -125,21 +133,52 @@ function isWarmOrCold(temperature: string | null | undefined): boolean {
   return t === "Warm" || t === "Cold";
 }
 
+function toIntakeContactContext(contact: ContactForIntake): ContactContext {
+  return {
+    phone: "",
+    leadStatus: (contact.lead_status as LeadStatus) || "New",
+    readyToBook: Boolean(contact.ready_to_book),
+    apptBooked: Boolean(contact.appt_booked),
+    handoff: false,
+    optedOut: false,
+    intent: (contact.intent as LeadIntent) || null,
+    targetLocation: contact.target_location ?? undefined,
+    propertyType: contact.property_type ?? undefined,
+    budget: contact.budget ?? undefined,
+    timeline: contact.timeline ?? undefined,
+    financingStatus: contact.financing_status ?? undefined,
+    mustHaves: contact.must_haves ?? undefined,
+    motivation: contact.motivation ?? undefined,
+    qualificationScore: contact.qualification_score,
+    leadTemperature: contact.lead_temperature as ContactContext["leadTemperature"],
+  };
+}
+
 /**
  * Decide the Intake stage this contact should be in.
- * Appointment Set > Nurture (Warm/Cold, not booking) > Qualified (Hot / ready) >
+ * Appointment Set > Nurture (Warm/Cold + core intake done) > Qualified (Hot / ready) >
  * AI Qualifying > New.
  */
 export function resolveIntakeStage(
   contact: ContactForIntake,
 ): OpportunityStage | null {
   if (contact.appt_booked) return "Appointment_Set";
+
+  const coreDone = hasCoreQualificationFields(toIntakeContactContext(contact));
+
   if (isScored(contact)) {
-    // Warm/Cold and not actively booking → Nurture side path.
-    if (isWarmOrCold(contact.lead_temperature) && !contact.ready_to_book) {
-      return "Nurture";
+    // Hot or actively booking → Qualified (consult path).
+    if (
+      contact.lead_temperature === "Hot" ||
+      contact.ready_to_book
+    ) {
+      return "Qualified";
     }
-    return "Qualified";
+    // Warm/Cold only go to Nurture after core intake is actually collected.
+    if (isWarmOrCold(contact.lead_temperature) && !contact.ready_to_book) {
+      return coreDone ? "Nurture" : "AI_Qualifying";
+    }
+    return coreDone ? "Qualified" : "AI_Qualifying";
   }
   if (hasQualifyingSignal(contact)) return "AI_Qualifying";
   return "New";
