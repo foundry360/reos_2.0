@@ -2,6 +2,9 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 import {
   resolvePlaybook,
   looksLikeInfoQuestion,
+  wantsToSchedule,
+  looksLikeScheduleAffirmation,
+  lastOutboundWasSchedulingPrompt,
   type AgentPlaybook,
   type ContactContext,
 } from "@/lib/coordinator";
@@ -240,6 +243,36 @@ export async function runInboundAgent(params: {
     };
   }
 
+  // Peek last assistant line before routing (inbound not persisted yet).
+  const historyPeek = await loadHistory(tenantId, threadKey, ctx.contactId);
+  const lastAssistant = [...historyPeek]
+    .reverse()
+    .find((m) => m.role === "assistant");
+  const lastAssistantText =
+    typeof lastAssistant?.content === "string" ? lastAssistant.content : "";
+
+  const scheduleIntent =
+    wantsToSchedule(body) ||
+    (looksLikeScheduleAffirmation(body) &&
+      (ctx.readyToBook ||
+        lastOutboundWasSchedulingPrompt(lastAssistantText)));
+
+  // Re-open booking when they ask to schedule (even after a prior handoff).
+  if (scheduleIntent && ctx.contactId) {
+    const patch: Record<string, boolean> = {};
+    if (ctx.handoff) {
+      patch.handoff = false;
+      ctx.handoff = false;
+    }
+    if (!ctx.readyToBook) {
+      patch.ready_to_book = true;
+      ctx.readyToBook = true;
+    }
+    if (Object.keys(patch).length > 0) {
+      await updateContactFields(ctx.contactId, patch);
+    }
+  }
+
   let playbook = resolvePlaybook(ctx, body);
   if (playbook !== "none" && !(await isPlaybookEnabled(tenantId, playbook))) {
     playbook = "none";
@@ -251,6 +284,7 @@ export async function runInboundAgent(params: {
     playbook === "concierge" &&
     ctx.readyToBook &&
     looksLikeInfoQuestion(body) &&
+    !scheduleIntent &&
     ctx.contactId
   ) {
     await updateContactFields(ctx.contactId, { ready_to_book: false });
@@ -309,12 +343,40 @@ export async function runInboundAgent(params: {
   }
 
   // Never escalate to booking/handoff just because they asked a question.
-  if (looksLikeInfoQuestion(body)) {
+  if (looksLikeInfoQuestion(body) && !scheduleIntent) {
     for (const tc of toolCalls) {
       if (tc.name !== "update_contact") continue;
       if (tc.args.ready_to_book === true) tc.args.ready_to_book = false;
       if (tc.args.handoff === true) delete tc.args.handoff;
     }
+  }
+
+  // Scheduling path: keep ready_to_book, never allow handoff on this turn.
+  if (scheduleIntent || playbook === "scheduler") {
+    let sawUpdate = false;
+    for (const tc of toolCalls) {
+      if (tc.name !== "update_contact") continue;
+      sawUpdate = true;
+      tc.args.ready_to_book = true;
+      if (tc.args.handoff === true) tc.args.handoff = false;
+    }
+    if (!sawUpdate && scheduleIntent && playbook === "scheduler") {
+      toolCalls.push({
+        name: "update_contact",
+        args: { ready_to_book: true, handoff: false },
+      });
+    }
+  }
+
+  // Safety net: never deflect scheduling to "someone will reach out".
+  if (
+    (playbook === "scheduler" || scheduleIntent) &&
+    /\b(reach out|team member|someone (from|on) (the )?team|have someone)\b/i.test(
+      reply,
+    )
+  ) {
+    reply =
+      "Got it. Do mornings or afternoons work better, or is there a day you prefer? I will pull real open times next.";
   }
 
   await persistOutbound({

@@ -122,7 +122,7 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_available_slots",
       description:
-        "Fetch 2-3 real open consult times from the connected Google Calendar. Call after you know mornings vs afternoons (or any). Never invent times.",
+        "Fetch 2-3 real open consult times from the connected Google Calendar. Call after you know mornings vs afternoons (or any). Pass day when the lead names a weekday. Never invent times.",
       parameters: {
         type: "object",
         properties: {
@@ -130,6 +130,11 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
             type: "string",
             enum: ["morning", "afternoon", "any"],
             description: "Time-of-day preference from the lead",
+          },
+          day: {
+            type: "string",
+            description:
+              "Optional preferred day: weekday name (wednesday) or YYYY-MM-DD",
           },
           limit: {
             type: "number",
@@ -145,21 +150,21 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Book a consult on the connected Google Calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked.",
+        "Book a consult on the connected Google Calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked and an email invite is sent when attendee_email is known. Never invent start times.",
       parameters: {
         type: "object",
         properties: {
           start: {
             type: "string",
-            description: "ISO start time from get_available_slots",
+            description: "Exact ISO start time from get_available_slots",
           },
           end: {
             type: "string",
-            description: "ISO end time from get_available_slots (optional)",
+            description: "Exact ISO end time from get_available_slots (optional)",
           },
           attendee_email: {
             type: "string",
-            description: "Lead email for the invite when available",
+            description: "Lead email for the calendar invite when available",
           },
         },
         required: ["start"],
@@ -168,6 +173,23 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     },
   },
 ];
+
+/** Strip common markdown so SMS/Messenger/IG stay plain text. */
+export function stripChatMarkdown(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, (block) =>
+      block.replace(/```\w*\n?/g, "").replace(/```/g, "").trim(),
+    )
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g, "$1")
+    .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*]\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 function toolsFor(playbook: AgentPlaybook): ChatCompletionTool[] {
   if (playbook === "scheduler") {
@@ -239,9 +261,11 @@ async function executeOneTool(
         ? (args.preference as SlotPreference)
         : "any";
     const limit = typeof args.limit === "number" ? args.limit : 3;
+    const day = typeof args.day === "string" ? args.day : undefined;
     return getAvailableConsultSlots({
       tenantId: options.tenantId,
       preference,
+      day,
       limit,
     });
   }
@@ -270,7 +294,20 @@ async function executeOneTool(
         lead_status: "Converted",
       });
     }
-    return booked;
+    // Do not return htmlLink — the model pastes it as markdown links.
+    if (!booked.ok) return booked;
+    return {
+      ok: true,
+      eventId: booked.eventId,
+      start: booked.start,
+      end: booked.end,
+      label: booked.label,
+      inviteSent: booked.inviteSent,
+      attendeeEmail: booked.attendeeEmail,
+      confirmation: booked.inviteSent
+        ? `Booked ${booked.label}. Calendar invite emailed to ${booked.attendeeEmail}.`
+        : `Booked ${booked.label}. No invite emailed (no attendee email).`,
+    };
   }
 
   return { ok: false, error: `Unknown tool: ${name}` };
@@ -367,7 +404,7 @@ export async function runAgentTurn(
           {
             role: "user",
             content:
-              "[Internal] Reply to the lead now in 1-3 short sentences using any tool results. Do not invent calendar times. If slots were returned, offer them clearly.",
+              "[Internal] Reply to the lead now in 1-3 short plain-text sentences (no markdown, no links) using any tool results. Do not invent calendar times. If slots were returned, offer their labels clearly. If a booking succeeded, confirm the label and whether the invite was emailed.",
           },
         ],
         max_tokens: 400,
@@ -385,5 +422,5 @@ export async function runAgentTurn(
         : "Happy to help. What are you looking to do: buy, sell, or invest?";
   }
 
-  return { reply, toolCalls: allToolCalls };
+  return { reply: stripChatMarkdown(reply), toolCalls: allToolCalls };
 }
