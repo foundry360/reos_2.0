@@ -5,6 +5,12 @@ import {
   wantsToSchedule,
   looksLikeScheduleAffirmation,
   lastOutboundWasSchedulingPrompt,
+  looksLikeGratitude,
+  looksLikeScheduleDecline,
+  hasCoreIntake,
+  mergeContactWithToolUpdates,
+  ensureConsultAskInReply,
+  replyOffersConsult,
   type AgentPlaybook,
   type ContactContext,
 } from "@/lib/coordinator";
@@ -89,7 +95,7 @@ async function isPlaybookEnabled(
 }
 
 function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
-  return [
+  const lines = [
     `Channel: ${channel}`,
     `External id: ${ctx.phone}`,
     ctx.firstName ? `First name: ${ctx.firstName}` : null,
@@ -114,9 +120,20 @@ function buildContextBlock(ctx: ContactContext, channel: AgentChannel): string {
       : null,
     ctx.aiSummary ? `AI Summary: ${ctx.aiSummary}` : null,
     ctx.agentBrief ? `Agent Brief: ${ctx.agentBrief}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ];
+
+  if (
+    hasCoreIntake(ctx) &&
+    !ctx.apptBooked &&
+    !ctx.readyToBook &&
+    !ctx.handoff
+  ) {
+    lines.push(
+      "SCHEDULING REQUIRED THIS TURN: Core intake is complete. Your reply MUST ask if they want help picking a consult time (e.g. Want me to help pick a consult time?). Do NOT ask another qualification question instead.",
+    );
+  }
+
+  return lines.filter(Boolean).join("\n");
 }
 
 /** Merge consecutive same-role turns so OpenAI accepts the thread. */
@@ -252,12 +269,15 @@ export async function runInboundAgent(params: {
     typeof lastAssistant?.content === "string" ? lastAssistant.content : "";
 
   const scheduleIntent =
-    wantsToSchedule(body) ||
-    (looksLikeScheduleAffirmation(body) &&
-      (ctx.readyToBook ||
-        lastOutboundWasSchedulingPrompt(lastAssistantText)));
+    !ctx.apptBooked &&
+    !looksLikeGratitude(body) &&
+    (wantsToSchedule(body) ||
+      (looksLikeScheduleAffirmation(body) &&
+        (ctx.readyToBook ||
+          lastOutboundWasSchedulingPrompt(lastAssistantText))));
 
   // Re-open booking when they ask to schedule (even after a prior handoff).
+  // Never reopen on gratitude or when already booked unless they asked to reschedule.
   if (scheduleIntent && ctx.contactId) {
     const patch: Record<string, boolean> = {};
     if (ctx.handoff) {
@@ -271,6 +291,17 @@ export async function runInboundAgent(params: {
     if (Object.keys(patch).length > 0) {
       await updateContactFields(ctx.contactId, patch);
     }
+  }
+
+  // Stuck ready_to_book after a successful book → clear so Follow-Up owns the thread.
+  if (
+    ctx.apptBooked &&
+    ctx.readyToBook &&
+    !wantsToSchedule(body) &&
+    ctx.contactId
+  ) {
+    await updateContactFields(ctx.contactId, { ready_to_book: false });
+    ctx.readyToBook = false;
   }
 
   let playbook = resolvePlaybook(ctx, body);
@@ -351,8 +382,36 @@ export async function runInboundAgent(params: {
     }
   }
 
-  // Scheduling path: keep ready_to_book, never allow handoff on this turn.
-  if (scheduleIntent || playbook === "scheduler") {
+  // Scheduling path: keep ready_to_book while actively booking — never after a book.
+  const bookedThisTurn = toolCalls.some((tc) => tc.name === "book_appointment");
+  const replyLooksBooked =
+    /\b(booked|you'?re all set|invite (was )?sent|confirmed for|on the calendar)\b/i.test(
+      reply,
+    );
+  if (bookedThisTurn || replyLooksBooked || ctx.apptBooked) {
+    let sawUpdate = false;
+    for (const tc of toolCalls) {
+      if (tc.name !== "update_contact") continue;
+      sawUpdate = true;
+      tc.args.ready_to_book = false;
+      if (bookedThisTurn || replyLooksBooked) tc.args.appt_booked = true;
+      if (tc.args.handoff === true) tc.args.handoff = false;
+    }
+    if (!sawUpdate && (bookedThisTurn || replyLooksBooked) && ctx.contactId) {
+      toolCalls.push({
+        name: "update_contact",
+        args: { ready_to_book: false, appt_booked: true },
+      });
+    }
+    // Never re-ask for mornings after a successful book.
+    if (
+      /mornings or afternoons|pull real open times|day you prefer/i.test(reply)
+    ) {
+      reply = replyLooksBooked
+        ? reply
+        : "You're all set. Looking forward to the consult. Reply here if you need anything before then.";
+    }
+  } else if ((scheduleIntent || playbook === "scheduler") && !ctx.apptBooked) {
     let sawUpdate = false;
     for (const tc of toolCalls) {
       if (tc.name !== "update_contact") continue;
@@ -368,15 +427,21 @@ export async function runInboundAgent(params: {
     }
   }
 
-  // Safety net: never deflect scheduling to "someone will reach out".
+  // Must ask for a consult once core intake is filled (code-enforced).
   if (
-    (playbook === "scheduler" || scheduleIntent) &&
-    /\b(reach out|team member|someone (from|on) (the )?team|have someone)\b/i.test(
-      reply,
-    )
+    (playbook === "concierge" || playbook === "follow_up") &&
+    !bookedThisTurn &&
+    !replyLooksBooked &&
+    !ctx.apptBooked &&
+    !looksLikeScheduleDecline(body)
   ) {
-    reply =
-      "Got it. Do mornings or afternoons work better, or is there a day you prefer? I will pull real open times next.";
+    const merged = mergeContactWithToolUpdates(ctx, toolCalls);
+    const shouldAsk =
+      hasCoreIntake(merged) &&
+      !merged.apptBooked &&
+      !merged.readyToBook &&
+      !historyAlreadyAskedConsult(historyWithoutCurrent);
+    reply = ensureConsultAskInReply(reply, shouldAsk);
   }
 
   await persistOutbound({
@@ -395,4 +460,21 @@ export async function runInboundAgent(params: {
     contactId: ctx.contactId,
     optedOut: false,
   };
+}
+
+function historyAlreadyAskedConsult(
+  history: Array<{ role?: string; content?: unknown }>,
+): boolean {
+  // If we already asked in the last 4 assistant turns, don't spam — unless they
+  // never got a clear ask (replyOffersConsult). One prior ask is enough for now.
+  let assistantSeen = 0;
+  for (let i = history.length - 1; i >= 0 && assistantSeen < 4; i--) {
+    const m = history[i];
+    if (m.role !== "assistant") continue;
+    assistantSeen += 1;
+    if (typeof m.content === "string" && replyOffersConsult(m.content)) {
+      return true;
+    }
+  }
+  return false;
 }

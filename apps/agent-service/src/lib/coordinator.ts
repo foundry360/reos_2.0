@@ -52,7 +52,13 @@ const SHORT_AFFIRM =
   /^(yes|yeah|yep|yup|sure|ok|okay|sounds good|that works|absolutely|please|perfect|great)([.!]|\s+please)?$/i;
 
 const SCHEDULE_PROMPT_HINT =
-  /\b(morning|afternoon|schedule|book|consult|calendar|available|time work|works better)\b/i;
+  /\b(mornings or afternoons|morning or afternoon|works better|what day|which day|prefer|open times|available times|pull .* times|do mornings)\b/i;
+
+const BOOKING_CONFIRM_HINT =
+  /\b(booked|you'?re all set|invite (was )?sent|confirmed for|on the calendar)\b/i;
+
+const GRATITUDE_ONLY =
+  /^(thanks|thank you|thx|ty|thankyou|appreciate it|appreciated)([.! ]*(so much|again)?)?[.!]?$/i;
 
 const INFO_QUESTION_START =
   /^(do you|does|can you|could you|what|when|where|how|why|are you|is it|who|tell me|explain|will you|would you|have you|any chance|i (was )?wondering)/i;
@@ -77,7 +83,133 @@ export function lastOutboundWasSchedulingPrompt(
   lastAssistantContent: string | undefined | null,
 ): boolean {
   if (!lastAssistantContent?.trim()) return false;
+  if (BOOKING_CONFIRM_HINT.test(lastAssistantContent)) return false;
   return SCHEDULE_PROMPT_HINT.test(lastAssistantContent);
+}
+
+/** Polite close after a booking — not a schedule request. */
+export function looksLikeGratitude(body: string): boolean {
+  return GRATITUDE_ONLY.test(body.trim());
+}
+
+const SCHEDULE_OFFER_IN_REPLY =
+  /\b(consult(ation)?|appointment|pick a time|book a (time|consult|call)|schedule (a |an )?(consult|call|meeting|appointment)|get .* on the calendar|want me to help (you )?(pick|schedule|book))\b/i;
+
+const SCHEDULE_DECLINE =
+  /\b(not (right )?now|no thanks|no thank you|maybe later|later|don'?t want to (meet|schedule|book)|do not want to (meet|schedule|book)|pass for now)\b/i;
+
+export function replyOffersConsult(reply: string): boolean {
+  return SCHEDULE_OFFER_IN_REPLY.test(reply);
+}
+
+export function looksLikeScheduleDecline(body: string): boolean {
+  return SCHEDULE_DECLINE.test(body.trim());
+}
+
+/** Merge CRM context with update_contact args from this turn. */
+export function mergeContactWithToolUpdates(
+  ctx: ContactContext,
+  toolCalls: Array<{ name: string; args: Record<string, unknown> }>,
+): ContactContext {
+  const next: ContactContext = { ...ctx };
+  for (const call of toolCalls) {
+    if (call.name !== "update_contact") continue;
+    const a = call.args;
+    if (typeof a.intent === "string") next.intent = a.intent as LeadIntent;
+    if (typeof a.target_location === "string" && a.target_location.trim()) {
+      next.targetLocation = a.target_location.trim();
+    }
+    if (typeof a.property_type === "string" && a.property_type.trim()) {
+      next.propertyType = a.property_type.trim();
+    }
+    if (typeof a.budget === "string" && a.budget.trim()) {
+      next.budget = a.budget.trim();
+    }
+    if (typeof a.timeline === "string" && a.timeline.trim()) {
+      next.timeline = a.timeline.trim();
+    }
+    if (typeof a.financing_status === "string" && a.financing_status.trim()) {
+      next.financingStatus = a.financing_status.trim();
+    }
+    if (typeof a.motivation === "string" && a.motivation.trim()) {
+      next.motivation = a.motivation.trim();
+    }
+    if (typeof a.preferences === "string" && a.preferences.trim()) {
+      next.preferences = a.preferences.trim();
+    }
+    if (typeof a.must_haves === "string" && a.must_haves.trim()) {
+      next.mustHaves = a.must_haves.trim();
+    }
+    if (typeof a.ai_summary === "string" && a.ai_summary.trim()) {
+      next.aiSummary = a.ai_summary.trim();
+    }
+    if (a.ready_to_book === true) next.readyToBook = true;
+    if (a.appt_booked === true) next.apptBooked = true;
+  }
+  return next;
+}
+
+/**
+ * Enough CRM fields to offer a consult (ignores ready_to_book / handoff gates).
+ */
+export function hasCoreQualificationFields(ctx: ContactContext): boolean {
+  const has = (v?: string | null) => Boolean(v?.trim());
+  const summary = ctx.aiSummary ?? "";
+  const intent = ctx.intent;
+
+  if (intent === "Seller") {
+    return (
+      (has(ctx.motivation) ||
+        /\baddress\b/i.test(summary) ||
+        has(ctx.targetLocation)) &&
+      (has(ctx.timeline) || has(ctx.motivation))
+    );
+  }
+
+  if (intent === "Investor") {
+    return (
+      has(ctx.budget) &&
+      (has(ctx.preferences) || has(ctx.targetLocation) || has(ctx.mustHaves)) &&
+      (has(ctx.motivation) || /strateg/i.test(summary) || has(ctx.preferences))
+    );
+  }
+
+  const financingOk =
+    has(ctx.financingStatus) ||
+    /\b(pre-?approved|cash buyer|paying cash|needs financing|pre-?qualified|conventional|fha|va loan)\b/i.test(
+      summary,
+    );
+  return (
+    has(ctx.targetLocation) &&
+    has(ctx.propertyType) &&
+    has(ctx.budget) &&
+    financingOk
+  );
+}
+
+/**
+ * True when we should push a consult ask this turn.
+ */
+export function hasCoreIntake(ctx: ContactContext): boolean {
+  if (ctx.apptBooked || ctx.readyToBook || ctx.handoff || ctx.optedOut) {
+    return false;
+  }
+  return hasCoreQualificationFields(ctx);
+}
+
+export const SCHEDULE_ASK_LINE =
+  "Want me to help pick a consult time that works for you?";
+
+/** Append a consult ask when the model skipped it after core intake. */
+export function ensureConsultAskInReply(
+  reply: string,
+  shouldAsk: boolean,
+): string {
+  if (!shouldAsk) return reply;
+  if (replyOffersConsult(reply)) return reply;
+  const base = reply.trim();
+  if (!base) return SCHEDULE_ASK_LINE;
+  return `${base.replace(/[.!?]?$/, ".")} ${SCHEDULE_ASK_LINE}`;
 }
 
 /**
@@ -111,6 +243,11 @@ export function resolvePlaybook(
   if (ctx.optedOut) return "none";
   if (ctx.handoff) return "none";
 
+  // Already booked: Follow-Up owns thanks / logistics unless they ask to reschedule.
+  if (ctx.apptBooked && !(inboundBody && wantsToSchedule(inboundBody))) {
+    return "follow_up";
+  }
+
   if (ctx.readyToBook) {
     if (inboundBody && looksLikeInfoQuestion(inboundBody)) {
       return "concierge";
@@ -127,7 +264,11 @@ export function resolvePlaybook(
 
   const temp = ctx.leadTemperature;
   const stillQualifying =
-    ctx.leadStatus === "New" || ctx.leadStatus === "Working";
+    ctx.leadStatus === "New" ||
+    ctx.leadStatus === "Working" ||
+    // Keep Concierge until core intake is done so the consult ask can fire.
+    (ctx.leadStatus === "Qualified" &&
+      hasCoreQualificationFields(ctx) === false);
   if (
     (temp === "Warm" || temp === "Cold") &&
     !ctx.readyToBook &&
