@@ -1,0 +1,632 @@
+.launcher {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 0.95rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 999px;
+  background: var(--shell-surface);
+  color: var(--shell-text);
+  box-shadow: var(--dropdown-shadow-strong);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.launcher:hover {
+  background: var(--shell-hover);
+}
+
+.widget {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, calc(100vw - 1.5rem));
+  max-height: min(38rem, calc(100vh - 2rem));
+  border: 1px solid var(--shell-border);
+  border-radius: 14px;
+  background: var(--shell-surface);
+  box-shadow: var(--dropdown-shadow-strong);
+  overflow: hidden;
+}
+
+.widgetMinimized {
+  width: min(16rem, calc(100vw - 1.5rem));
+  max-height: none;
+}
+
+.widgetMinimizedRestore {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.widgetMinimizedRestore:hover {
+  color: rgb(255 255 255 / 0.82);
+}
+
+.widgetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-bottom: 1px solid rgb(0 0 0 / 0.12);
+  background: var(--brand-dark, #0b3557);
+}
+
+.widgetTitle {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.widgetHeaderActions {
+  display: inline-flex;
+  gap: 0.25rem;
+}
+
+.widgetIconBtn {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(255 255 255 / 0.78);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.widgetIconBtn:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+
+.widgetFields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem 0.35rem;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 3.25rem 1fr;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.fieldLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+}
+
+.fieldInput,
+.fieldStatic {
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0;
+  border: none;
+  background: transparent;
+  color: var(--shell-text);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.fieldInput:focus {
+  outline: none;
+}
+
+.fieldStatic {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.richEditor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  margin: 0 0.85rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.richToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  padding: 0.35rem;
+  border-bottom: 1px solid var(--shell-border);
+  background: var(--shell-surface-muted);
+}
+
+.richBtn {
+  min-width: 1.75rem;
+  height: 1.75rem;
+  padding: 0 0.45rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.richBtn:hover {
+  background: var(--shell-hover);
+  color: var(--shell-text);
+}
+
+.richBody {
+  min-height: 9rem;
+  max-height: 12rem;
+  overflow: auto;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--shell-text);
+}
+
+.richBody:focus {
+  outline: none;
+}
+
+.widgetContext {
+  margin: 0.45rem 0.85rem 0;
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.widgetContactHint {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.45rem 0.85rem 0;
+}
+
+.widgetFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.widgetPrimaryBtn,
+.widgetSecondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.9rem;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.widgetPrimaryBtn {
+  border: none;
+  background: var(--shell-blue);
+  color: #fff;
+}
+
+.widgetPrimaryBtn:hover {
+  filter: brightness(0.95);
+}
+
+.widgetPrimaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.widgetSecondaryBtn {
+  border: 1px solid var(--shell-border);
+  background: transparent;
+  color: var(--shell-text-secondary);
+}
+
+.widgetSecondaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.widgetEmpty {
+  padding: 1.25rem 0.85rem 1rem;
+}
+
+.widgetEmptyTitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.widgetEmptyText {
+  margin: 0 0 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--shell-muted);
+}
+
+.widgetHint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--shell-muted);
+}
+
+.widgetError {
+  margin: 0.35rem 0.85rem 0;
+  font-size: 0.8125rem;
+  color: #e5484d;
+}
+
+.widgetSuccess {
+  margin: 0.35rem 0.85rem 0;
+  font-size: 0.8125rem;
+  color: #22c55e;
+}
+
+.emailPanel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.emailPanelEmpty {
+  justify-content: center;
+}
+
+.emailPanelList {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem 0;
+}
+
+.emailPanelListEmpty {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0;
+}
+
+.emailItem {
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.emailItemActive {
+  background: color-mix(in srgb, var(--brand-tint) 55%, transparent);
+}
+
+.emailItemTrigger {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.emailItemTrigger:hover {
+  background: var(--shell-hover);
+}
+
+.emailItemActive .emailItemTrigger:hover {
+  background: transparent;
+}
+
+.emailItemExpanded {
+  padding: 0 1rem 1rem 1.75rem;
+  border-top: 1px solid var(--shell-border);
+  background: var(--shell-surface-muted);
+}
+
+.emailItemInner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+
+.emailThreadChevronWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.1rem;
+  flex-shrink: 0;
+  color: var(--shell-muted);
+}
+
+.emailThreadChevron {
+  transition: transform 0.15s ease;
+}
+
+.emailThreadChevronOpen {
+  transform: rotate(180deg);
+}
+
+.emailItemTitleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.emailThreadCountBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--shell-blue) 14%, transparent);
+  color: var(--shell-blue);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.emailItemContent {
+  min-width: 0;
+  flex: 1;
+}
+
+.emailItemTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.2rem;
+}
+
+.emailItemSubject {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--shell-text);
+}
+
+.emailItemMeta {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.emailItemPreview {
+  margin: 0.35rem 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--shell-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.emailThreadHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0 1rem;
+}
+
+.emailThreadHeaderMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.emailThreadHeaderMeta strong {
+  font-size: 0.8125rem;
+  color: var(--shell-text);
+}
+
+.emailThreadHeaderMeta span {
+  font-size: 0.75rem;
+  color: var(--shell-muted);
+}
+
+.emailReplyButton {
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.8rem;
+  background: var(--shell-blue);
+  color: #fff;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.emailThreadTimeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.emailThreadTurn {
+  display: grid;
+  grid-template-columns: 1.25rem 1fr;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+}
+
+.emailThreadTurnLast {
+  padding-bottom: 0;
+}
+
+.emailThreadRail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100%;
+}
+
+.emailThreadDot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 1.1rem;
+  border-radius: 999px;
+  background: var(--shell-blue);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--shell-blue) 16%, transparent);
+  flex-shrink: 0;
+}
+
+.emailThreadLine {
+  flex: 1;
+  width: 2px;
+  margin-top: 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
+}
+
+.emailThreadTurnRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.emailThreadTurnInbound {
+  justify-content: flex-start;
+}
+
+.emailThreadTurnOutbound {
+  justify-content: flex-end;
+}
+
+.emailThreadBubble {
+  max-width: min(100%, 36rem);
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.85rem;
+}
+
+.emailThreadBubbleInbound {
+  background: #fff;
+  border: 1px solid var(--shell-border);
+  border-bottom-left-radius: 0.25rem;
+}
+
+.emailThreadBubbleOutbound {
+  background: #ddeafe;
+  border: 1px solid color-mix(in srgb, #487095 22%, #ddeafe);
+  border-bottom-right-radius: 0.25rem;
+}
+
+.emailThreadBubbleHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.2rem;
+}
+
+.emailThreadBubbleHeader strong {
+  font-size: 0.8125rem;
+  color: var(--shell-text);
+}
+
+.emailThreadBubbleHeader span {
+  font-size: 0.6875rem;
+  color: var(--shell-muted);
+  white-space: nowrap;
+}
+
+.emailThreadBubbleMeta {
+  margin: 0 0 0.45rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+}
+
+.emailThreadBubbleOutbound .emailThreadBubbleHeader strong,
+.emailThreadBubbleOutbound .emailDetailBody {
+  color: #022342;
+}
+
+.emailThreadBubbleOutbound .emailThreadBubbleHeader span,
+.emailThreadBubbleOutbound .emailThreadBubbleMeta {
+  color: color-mix(in srgb, #022342 55%, transparent);
+}
+
+.emailDetailBody {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--shell-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.emailDetailBody p {
+  margin: 0 0 0.65rem;
+}
+
+.emailDetailBody p:last-child {
+  margin-bottom: 0;
+}
+
+.commTabs {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0 1rem 0.75rem;
+  border-bottom: 1px solid var(--shell-border);
+}
+
+.commTab {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--shell-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.commTab:hover {
+  color: var(--shell-text);
+  background: var(--shell-hover);
+}
+
+.commTabActive {
+  color: var(--shell-text);
+  border-color: var(--shell-border);
+  background: var(--shell-surface);
+}

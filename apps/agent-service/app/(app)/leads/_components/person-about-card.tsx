@@ -62,7 +62,13 @@ function resolveContactType(value: string | null | undefined): ContactType {
   return DEFAULT_CONTACT_TYPE;
 }
 
-export function PersonAboutCard({ person }: { person: PersonDetailData }) {
+export function PersonAboutCard({
+  person,
+  onComposeEmail,
+}: {
+  person: PersonDetailData;
+  onComposeEmail?: () => void;
+}) {
   const router = useRouter();
   const singular = personSingularTitle(person.kind);
   const isContact = person.kind === "contact";
@@ -171,7 +177,22 @@ export function PersonAboutCard({ person }: { person: PersonDetailData }) {
         (!editing ? (
           <div className={styles.personSideCardBody}>
             <PropertyRow label="Name" value={person.name || displayValue(null)} />
-            <PropertyRow label="Email" value={person.email ?? displayValue(null)} />
+            <div className={styles.personPropertyRow}>
+              <span className={styles.personPropertyLabel}>Email</span>
+              {person.email?.trim() && onComposeEmail ? (
+                <button
+                  type="button"
+                  className={`${styles.personPropertyValue} ${styles.personPropertyLink}`}
+                  onClick={onComposeEmail}
+                >
+                  {person.email.trim()}
+                </button>
+              ) : (
+                <span className={styles.personPropertyValue}>
+                  {person.email ?? displayValue(null)}
+                </span>
+              )}
+            </div>
             <PropertyRow label="Phone number" value={person.phone ?? displayValue(null)} />
             {isContact ? (
               <PropertyRow

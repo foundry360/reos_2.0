@@ -26,6 +26,8 @@ interface NewLeadModalProps {
   linkLabel?: string;
   disabled?: boolean;
   kind?: PersonKind;
+  defaultEmail?: string;
+  onCreated?: (contact: { id: string; name: string; email: string }) => void;
 }
 
 export function NewLeadModal({
@@ -33,6 +35,8 @@ export function NewLeadModal({
   linkLabel,
   disabled = false,
   kind = "lead",
+  defaultEmail = "",
+  onCreated,
 }: NewLeadModalProps) {
   const router = useRouter();
   const singular = personSingular(kind);
@@ -63,6 +67,9 @@ export function NewLeadModal({
   useEffect(() => {
     if (open) {
       setError(null);
+      if (defaultEmail) {
+        setEmail(defaultEmail);
+      }
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -70,7 +77,7 @@ export function NewLeadModal({
     return () => {
       document.body.style.overflow = "";
     };
-  }, [open]);
+  }, [open, defaultEmail]);
 
   function resetForm() {
     setFirstName("");
@@ -97,6 +104,14 @@ export function NewLeadModal({
       if (!result.ok) {
         setError(result.error ?? `Could not create ${singular}.`);
         return;
+      }
+      if (result.id && onCreated) {
+        const createdName = [firstName, lastName].filter(Boolean).join(" ").trim();
+        onCreated({
+          id: result.id,
+          name: createdName || email || "Contact",
+          email: email.trim().toLowerCase(),
+        });
       }
       resetForm();
       setOpen(false);

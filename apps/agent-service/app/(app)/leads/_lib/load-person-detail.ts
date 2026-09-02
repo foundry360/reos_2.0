@@ -11,6 +11,7 @@ import {
 import { formatLeadStatusLabel } from "@/lib/leads/lead-status";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import { fetchOpportunitiesForContact } from "@/lib/opportunities/opportunities-list";
+import { syncContactGmailMessages } from "@/lib/email/gmail-sync";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
 import { ensureAiSummary, ensureScoreAndTemperature } from "@/lib/db/contacts";
@@ -202,9 +203,9 @@ export async function loadPersonDetail(
         .limit(200),
       supabase
         .from("channel_accounts")
-        .select("channel, status, external_page_id, metadata")
+        .select("channel, status, external_page_id, external_account_id, metadata")
         .eq("tenant_id", tenantId)
-        .in("channel", ["messenger", "instagram"]),
+        .in("channel", ["messenger", "instagram", "email"]),
       supabase
         .from("tenant_phone_numbers")
         .select("id")
@@ -350,6 +351,35 @@ export async function loadPersonDetail(
     },
   ];
 
+  const emailAccount = (channelAccountsRes.data ?? []).find(
+    (row) => row.channel === "email" && row.status === "connected",
+  );
+  const emailConnected = Boolean(emailAccount?.metadata);
+
+  if (emailConnected && contact.email?.trim()) {
+    await syncContactGmailMessages({
+      tenantId,
+      contactId: contact.id,
+      contactEmail: contact.email.trim(),
+      opportunityId: opportunityRows[0]?.id ?? null,
+    });
+  }
+
+  const emailsRes = await supabase
+    .from("crm_emails")
+    .select(
+      "id, direction, from_email, from_name, to_recipients, cc_recipients, subject, body_html, body_text, snippet, sent_at, received_at, thread_id",
+    )
+    .eq("tenant_id", tenantId)
+    .eq("contact_id", contact.id)
+    .order("sent_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(100);
+
+  if (emailsRes.error && !/crm_emails|schema cache|relation/i.test(emailsRes.error.message)) {
+    console.error("person emails failed:", emailsRes.error.message);
+  }
+
   return {
     id: contact.id,
     kind,
@@ -405,5 +435,21 @@ export async function loadPersonDetail(
       available: option.available,
       pageAvatarUrl: option.pageAvatarUrl,
     })),
+    emails: (emailsRes.data ?? []).map((row) => ({
+      id: row.id,
+      direction: row.direction === "inbound" ? ("inbound" as const) : ("outbound" as const),
+      fromEmail: row.from_email,
+      fromName: row.from_name,
+      toRecipients: Array.isArray(row.to_recipients) ? row.to_recipients : [],
+      ccRecipients: Array.isArray(row.cc_recipients) ? row.cc_recipients : [],
+      subject: row.subject,
+      bodyHtml: row.body_html,
+      bodyText: row.body_text,
+      snippet: row.snippet,
+      sentAt: row.sent_at,
+      receivedAt: row.received_at,
+      threadId: row.thread_id,
+    })),
+    emailConnected,
   };
 }

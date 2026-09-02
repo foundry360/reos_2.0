@@ -8,13 +8,6 @@ import { isThemePreference, THEME_COOKIE, type ThemePreference } from "@/lib/the
 export const metadata: Metadata = {
   title: "REOS 2.0",
   description: "AI-powered lead engagement for real estate teams",
-  icons: {
-    icon: [
-      { url: "/favicon.ico", sizes: "any" },
-      { url: "/icon.png", type: "image/png" },
-    ],
-    apple: [{ url: "/apple-icon.png", type: "image/png" }],
-  },
 };
 
 export default async function RootLayout({

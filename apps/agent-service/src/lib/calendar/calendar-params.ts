@@ -20,7 +20,7 @@ export function parseCalendarParams(
   const viewRaw = readParam(searchParams.view);
   const view = VIEWS.includes(viewRaw as CalendarView)
     ? (viewRaw as CalendarView)
-    : "month";
+    : "week";
 
   const dateRaw = readParam(searchParams.date);
   const date =
@@ -44,7 +44,7 @@ export function parseCalendarParams(
 
 export function buildCalendarQuery(params: Partial<CalendarParams>): string {
   const qs = new URLSearchParams();
-  if (params.view && params.view !== "month") qs.set("view", params.view);
+  if (params.view && params.view !== "week") qs.set("view", params.view);
   if (params.date) qs.set("date", params.date);
   if (params.filters) {
     const all =

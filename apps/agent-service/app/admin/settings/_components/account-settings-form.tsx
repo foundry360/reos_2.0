@@ -10,6 +10,8 @@ import {
 import { UserAvatar } from "@/components/shell/user-avatar";
 import styles from "@/components/shell/shell.module.css";
 
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+
 interface AccountSettingsFormProps {
   email: string;
   displayName: string;
@@ -39,6 +41,13 @@ export function AccountSettingsForm({
     if (!file) return;
 
     setPhotoError(null);
+
+    if (file.size > MAX_PHOTO_BYTES) {
+      setPhotoError("Image must be 5 MB or smaller.");
+      e.target.value = "";
+      return;
+    }
+
     const formData = new FormData();
     formData.set("avatar", file);
 
@@ -106,7 +115,7 @@ export function AccountSettingsForm({
             <input
               ref={fileRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
+              accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
               hidden
               onChange={handleFileChange}
             />

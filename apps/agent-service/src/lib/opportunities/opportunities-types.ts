@@ -22,6 +22,7 @@ export interface OpportunityRow {
   expectedCloseDate: string | null;
   contactId: string | null;
   contactName: string | null;
+  contactEmail: string | null;
   contactRecordType: "lead" | "contact" | null;
   notes: string | null;
   createdAt: string;

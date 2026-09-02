@@ -28,6 +28,9 @@ import {
   ActivityDateFeed,
 } from "@/components/shell/activity-date-feed";
 import { IconOpportunities } from "@/components/shell/sidebar-nav";
+import { useEmailCompose } from "@/components/email/email-compose-provider";
+import { contactPrefillRecipient } from "@/lib/email/email-utils";
+import emailStyles from "@/components/email/email.module.css";
 import styles from "@/components/shell/shell.module.css";
 
 interface SelectOption {
@@ -213,6 +216,7 @@ export function OpportunityDetailView({
   tasks: PersonTaskSummary[];
 }) {
   const router = useRouter();
+  const { openCompose } = useEmailCompose();
   const [feedTab, setFeedTab] = useState<FeedTab>("activities");
   const [feedQuery, setFeedQuery] = useState("");
   const [pending, startTransition] = useTransition();
@@ -316,6 +320,25 @@ export function OpportunityDetailView({
     });
   }
 
+  function composeEmail() {
+    if (!opportunity.contactId || !opportunity.contactEmail) return;
+    openCompose(
+      {
+        contactId: opportunity.contactId,
+        contactName: opportunity.contactName ?? undefined,
+        contactEmail: opportunity.contactEmail,
+        opportunityId: opportunity.id,
+        opportunityName: opportunity.name,
+      },
+      {
+        to: contactPrefillRecipient(
+          opportunity.contactName ?? "",
+          opportunity.contactEmail,
+        ),
+      },
+    );
+  }
+
   return (
     <div className={styles.dealDetailPage}>
       <div className={styles.dealDetailNav}>
@@ -336,6 +359,15 @@ export function OpportunityDetailView({
           <h1 className={styles.dealDetailTitle}>{opportunity.name}</h1>
         </div>
         <div className={styles.dealDetailHeaderActions}>
+          {opportunity.contactId && opportunity.contactEmail ? (
+            <button
+              type="button"
+              className={emailStyles.widgetPrimaryBtn}
+              onClick={composeEmail}
+            >
+              Send Email
+            </button>
+          ) : null}
           <NewOpportunityModal
             contactOptions={contactOptions}
             agentOptions={agentOptions}

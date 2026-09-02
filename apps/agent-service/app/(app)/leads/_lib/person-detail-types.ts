@@ -4,6 +4,23 @@ import type {
   PersonActivityItem,
   PersonTaskSummary,
 } from "@/lib/crm/person-activities";
+import type { CrmEmail, EmailRecipient } from "@/lib/email/email-types";
+
+export interface PersonEmail {
+  id: string;
+  direction: CrmEmail["direction"];
+  fromEmail: string;
+  fromName: string | null;
+  toRecipients: EmailRecipient[];
+  ccRecipients: EmailRecipient[];
+  subject: string;
+  bodyHtml: string | null;
+  bodyText: string | null;
+  snippet: string | null;
+  sentAt: string | null;
+  receivedAt: string | null;
+  threadId: string | null;
+}
 
 export interface PersonOpportunitySummary {
   id: string;
@@ -71,6 +88,8 @@ export interface PersonDetailData {
   activities: PersonActivityItem[];
   messages: PersonMessage[];
   messagingChannels: PersonMessagingChannelOption[];
+  emails: PersonEmail[];
+  emailConnected: boolean;
 }
 
 export type { PersonActivityItem, PersonTaskSummary };

@@ -27,6 +27,8 @@ import { NewOpportunityModal } from "../../opportunities/_components/new-opportu
 import { NewTaskModal } from "../../tasks/_components/new-task-modal";
 import { ExpandableTasksList } from "../../tasks/_components/expandable-tasks-list";
 import { EmptyState } from "@/components/shell/empty-state";
+import { useEmailCompose } from "@/components/email/email-compose-provider";
+import { contactPrefillRecipient } from "@/lib/email/email-utils";
 import {
   ActivityDateFeed,
   ActivityTypeIcon,
@@ -374,10 +376,25 @@ export function PersonDetailView({
     score: person.score,
     temperature: person.temperature,
   });
+  const { openCompose } = useEmailCompose();
   const singular = personSingularTitle(person.kind);
   const plural = personPlural(person.kind);
   const listHref = personBasePath(person.kind);
   const email = person.email?.trim() || null;
+
+  function composeEmail() {
+    if (!email) return;
+    openCompose(
+      {
+        contactId: person.id,
+        contactName: person.name,
+        contactEmail: email,
+      },
+      {
+        to: contactPrefillRecipient(person.name, email),
+      },
+    );
+  }
 
   const contactOption = { id: person.id, label: person.name };
 
@@ -527,6 +544,21 @@ export function PersonDetailView({
                     />
                   );
                 }
+                if (action.id === "email") {
+                  return (
+                    <button
+                      key={action.id}
+                      type="button"
+                      className={styles.personQuickAction}
+                      disabled={!email}
+                      title={email ? "Send email" : "Add an email address first"}
+                      onClick={composeEmail}
+                    >
+                      <span className={styles.personQuickActionIcon}>{action.icon}</span>
+                      <span>{action.label}</span>
+                    </button>
+                  );
+                }
                 return (
                   <button
                     key={action.id}
@@ -543,7 +575,7 @@ export function PersonDetailView({
             </div>
           </section>
 
-          <PersonAboutCard person={person} />
+          <PersonAboutCard person={person} onComposeEmail={composeEmail} />
           <PersonAdditionalInfoCard person={person} />
           </div>
         </aside>
@@ -677,11 +709,16 @@ export function PersonDetailView({
               <PersonMessagingPanel
                 contactId={person.id}
                 personName={person.name}
+                contactEmail={person.email}
                 avatarUrl={person.avatarUrl}
                 agentName={currentUser?.displayName}
                 agentAvatarUrl={currentUser?.avatarUrl}
                 messages={person.messages}
                 channels={person.messagingChannels}
+                emails={person.emails}
+                emailConnected={person.emailConnected}
+                opportunityId={person.opportunities[0]?.id}
+                opportunityName={person.opportunities[0]?.name}
               />
             </div>
           ) : null}

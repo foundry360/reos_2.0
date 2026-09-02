@@ -52,6 +52,7 @@ const SELECT_FIELDS = `
   contacts (
     first_name,
     last_name,
+    email,
     record_type
   )
 `;
@@ -85,11 +86,13 @@ function mapOpportunityRow(row: {
     | {
         first_name: string | null;
         last_name: string | null;
+        email: string | null;
         record_type: string | null;
       }
     | {
         first_name: string | null;
         last_name: string | null;
+        email: string | null;
         record_type: string | null;
       }[]
     | null;
@@ -124,6 +127,7 @@ function mapOpportunityRow(row: {
     expectedCloseDate: row.expected_close_date,
     contactId: row.contact_id,
     contactName,
+    contactEmail: contact?.email?.trim() || null,
     contactRecordType:
       contact?.record_type === "contact"
         ? "contact"

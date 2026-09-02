@@ -6,7 +6,35 @@ import { createClient } from "@/lib/supabase/server";
 import { isThemePreference, THEME_COOKIE, type ThemePreference } from "@/lib/theme";
 
 const MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+function resolveImageMime(file: File): string | null {
+  const type = file.type.trim().toLowerCase();
+  if (ALLOWED_TYPES.has(type)) {
+    return type === "image/jpg" ? "image/jpeg" : type;
+  }
+
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    default:
+      return null;
+  }
+}
 
 function extForMime(mime: string): string {
   switch (mime) {
@@ -29,7 +57,8 @@ export async function uploadAvatarAction(
     return { ok: false, error: "Choose an image file." };
   }
 
-  if (!ALLOWED_TYPES.has(file.type)) {
+  const mime = resolveImageMime(file);
+  if (!mime) {
     return { ok: false, error: "Use JPEG, PNG, WebP, or GIF." };
   }
 
@@ -46,13 +75,13 @@ export async function uploadAvatarAction(
     return { ok: false, error: "Not signed in." };
   }
 
-  const ext = extForMime(file.type);
+  const ext = extForMime(mime);
   const path = `${user.id}/avatar.${ext}`;
   const bytes = Buffer.from(await file.arrayBuffer());
 
   const { error: uploadError } = await supabase.storage.from("avatars").upload(path, bytes, {
     upsert: true,
-    contentType: file.type,
+    contentType: mime,
     cacheControl: "3600",
   });
 

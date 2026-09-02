@@ -10,10 +10,12 @@ import { accountInitials } from "@/lib/user-display";
 import type {
   PersonMessage,
   PersonMessagingChannelOption,
+  PersonEmail,
 } from "../_lib/person-detail-types";
+import { PersonEmailPanel } from "./person-email-panel";
 import styles from "@/components/shell/shell.module.css";
 
-type ChannelFilter = "all" | "messenger" | "instagram";
+type ChannelFilter = "all" | "messenger" | "instagram" | "email";
 
 function channelLabel(channel: string): string {
   switch (channel) {
@@ -255,19 +257,29 @@ function IconChevron({ open }: { open: boolean }) {
 export function PersonMessagingPanel({
   contactId,
   personName,
+  contactEmail,
   avatarUrl,
   agentName,
   agentAvatarUrl,
   messages: initialMessages,
   channels,
+  emails: initialEmails,
+  emailConnected,
+  opportunityId,
+  opportunityName,
 }: {
   contactId: string;
   personName: string;
+  contactEmail: string | null;
   avatarUrl?: string | null;
   agentName?: string;
   agentAvatarUrl?: string | null;
   messages: PersonMessage[];
   channels: PersonMessagingChannelOption[];
+  emails: PersonEmail[];
+  emailConnected: boolean;
+  opportunityId?: string | null;
+  opportunityName?: string | null;
 }) {
   const threadRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -279,10 +291,15 @@ export function PersonMessagingPanel({
   const [filter, setFilter] = useState<ChannelFilter>("all");
   const [menuOpen, setMenuOpen] = useState(false);
   const [messages, setMessages] = useState(initialMessages);
+  const [emails, setEmails] = useState(initialEmails);
 
   useEffect(() => {
     setMessages((current) => mergeMessages(current, initialMessages));
   }, [initialMessages]);
+
+  useEffect(() => {
+    setEmails(initialEmails);
+  }, [initialEmails]);
 
   useEffect(() => {
     const newest = messages[messages.length - 1]?.createdAt ?? null;
@@ -558,11 +575,35 @@ export function PersonMessagingPanel({
               >
                 Instagram
               </button>
+              <button
+                type="button"
+                className={`${styles.personMessagingChannelOption} ${
+                  filter === "email" ? styles.personMessagingChannelOptionActive : ""
+                }`}
+                onClick={() => selectFilter("email")}
+              >
+                Email
+              </button>
             </div>
           ) : null}
         </div>
       </div>
 
+      {filter === "email" ? (
+        <PersonEmailPanel
+          contactId={contactId}
+          contactEmail={contactEmail}
+          emails={emails}
+          emailConnected={emailConnected}
+          personName={personName}
+          avatarUrl={avatarUrl}
+          agentName={agentName}
+          agentAvatarUrl={agentAvatarUrl}
+          opportunityId={opportunityId}
+          opportunityName={opportunityName}
+        />
+      ) : (
+        <>
       <div
         ref={threadRef}
         className={styles.personMessagingThread}
@@ -670,6 +711,8 @@ export function PersonMessagingPanel({
           </div>
         )}
       </div>
+        </>
+      )}
     </section>
   );
 }
