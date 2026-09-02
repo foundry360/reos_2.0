@@ -8,6 +8,7 @@ import {
   fetchGoogleAccountEmail,
   isGoogleOAuthConfigured,
 } from "@/lib/google/oauth";
+import { buildOAuthRedirectUri } from "@/lib/oauth/redirect-uri";
 
 function accountRedirect(
   request: NextRequest,
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const redirectUri = new URL("/api/oauth/google/callback", request.url).toString();
+    const redirectUri = buildOAuthRedirectUri("/api/oauth/google/callback", request.url);
     const token = await exchangeGoogleOAuthCode(code, redirectUri);
     const accountEmail = await fetchGoogleAccountEmail(token.accessToken);
 

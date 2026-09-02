@@ -6,6 +6,7 @@ import {
   isMetaOAuthConfigured,
   type MetaChannel,
 } from "@/lib/meta/oauth";
+import { buildOAuthRedirectUri } from "@/lib/oauth/redirect-uri";
 
 function accountRedirect(
   request: NextRequest,
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
     return accountRedirect(request, tenantId, { meta_error: "not_configured" });
   }
 
-  const redirectUri = new URL("/api/oauth/meta/callback", request.url).toString();
+  const redirectUri = buildOAuthRedirectUri("/api/oauth/meta/callback", request.url);
   const oauthUrl = buildMetaOAuthUrl({ tenantId, channel }, redirectUri);
 
   return NextResponse.redirect(oauthUrl);

@@ -17,6 +17,7 @@ import {
   filterMetaPagesForChannel,
 } from "@/lib/meta/pages";
 import { subscribeMetaPageToAppWebhooks } from "@/lib/meta/subscribe";
+import { buildOAuthRedirectUri } from "@/lib/oauth/redirect-uri";
 
 function accountRedirect(
   request: NextRequest,
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const redirectUri = new URL("/api/oauth/meta/callback", request.url).toString();
+    const redirectUri = buildOAuthRedirectUri("/api/oauth/meta/callback", request.url);
     const shortLived = await exchangeMetaOAuthCode(code, redirectUri);
 
     let userAccessToken = shortLived.accessToken;

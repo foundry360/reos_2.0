@@ -6,6 +6,7 @@ import {
   isGoogleOAuthConfigured,
   type GoogleChannel,
 } from "@/lib/google/oauth";
+import { buildOAuthRedirectUri } from "@/lib/oauth/redirect-uri";
 
 function accountRedirect(
   request: NextRequest,
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
     return accountRedirect(request, tenantId, { google_error: "not_configured" });
   }
 
-  const redirectUri = new URL("/api/oauth/google/callback", request.url).toString();
+  const redirectUri = buildOAuthRedirectUri("/api/oauth/google/callback", request.url);
   const oauthUrl = buildGoogleOAuthUrl({ tenantId, channel }, redirectUri);
 
   return NextResponse.redirect(oauthUrl);
