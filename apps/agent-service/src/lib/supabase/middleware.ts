@@ -31,6 +31,7 @@ export async function updateSession(request: NextRequest) {
   const isLogin = pathname.startsWith("/login");
   const isSetPassword = pathname.startsWith("/set-password");
   const isAuthRoute = pathname.startsWith("/auth/");
+  const isMarketingHome = pathname === "/";
   const isLegalPage =
     pathname === "/privacy" ||
     pathname.startsWith("/privacy/") ||
@@ -44,6 +45,7 @@ export async function updateSession(request: NextRequest) {
     !isLogin &&
     !isSetPassword &&
     !isAuthRoute &&
+    !isMarketingHome &&
     !isLegalPage &&
     !isPublicApi &&
     !pathname.startsWith("/api/")
@@ -56,8 +58,14 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isLogin) {
     const url = request.nextUrl.clone();
-    url.pathname = request.nextUrl.searchParams.get("next") || "/";
+    url.pathname = request.nextUrl.searchParams.get("next") || "/overview";
     url.searchParams.delete("next");
+    return NextResponse.redirect(url);
+  }
+
+  if (user && isMarketingHome) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/overview";
     return NextResponse.redirect(url);
   }
 

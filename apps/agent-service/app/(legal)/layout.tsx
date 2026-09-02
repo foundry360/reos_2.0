@@ -3,8 +3,8 @@ import { ThemeProvider } from "@/components/theme/theme-provider";
 
 export const metadata: Metadata = {
   title: {
-    template: "%s | REOS",
-    default: "Legal | REOS",
+    template: "%s | RealtorOS",
+    default: "Legal | RealtorOS",
   },
 };
 

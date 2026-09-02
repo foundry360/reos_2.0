@@ -6,8 +6,13 @@ import { cookies } from "next/headers";
 import { isThemePreference, THEME_COOKIE, type ThemePreference } from "@/lib/theme";
 
 export const metadata: Metadata = {
-  title: "REOS 2.0",
-  description: "AI-powered lead engagement for real estate teams",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://getreos.app"),
+  title: {
+    default: "RealtorOS",
+    template: "%s | RealtorOS",
+  },
+  description:
+    "RealtorOS is an intelligent CRM and operating system for real estate professionals.",
 };
 
 export default async function RootLayout({

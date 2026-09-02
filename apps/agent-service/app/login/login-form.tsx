@@ -7,7 +7,7 @@ import styles from "./login.module.css";
 
 export function LoginForm() {
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/";
+  const next = searchParams.get("next") || "/overview";
   const authError = searchParams.get("error");
 
   const [email, setEmail] = useState("");

@@ -116,7 +116,7 @@ export async function startImpersonation(tenantId: string): Promise<void> {
     path: "/",
     maxAge: 60 * 60 * 8,
   });
-  redirect("/");
+  redirect("/overview");
 }
 
 export async function stopImpersonation(): Promise<void> {

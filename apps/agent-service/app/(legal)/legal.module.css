@@ -80,7 +80,8 @@
   line-height: 1.35;
 }
 
-.article ul {
+.article ul,
+.article ol {
   margin: 0 0 1rem;
   padding-left: 1.25rem;
 }

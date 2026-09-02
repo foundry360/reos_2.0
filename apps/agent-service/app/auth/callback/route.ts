@@ -13,11 +13,13 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
-  const rawNext = searchParams.get("next") ?? "/";
+  const rawNext = searchParams.get("next") ?? "/overview";
   const next =
     rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/admin")
-      ? rawNext
-      : "/";
+      ? rawNext === "/"
+        ? "/overview"
+        : rawNext
+      : "/overview";
 
   // Invite-style links may still land here if redirectTo pointed at callback.
   if (tokenHash && type) {

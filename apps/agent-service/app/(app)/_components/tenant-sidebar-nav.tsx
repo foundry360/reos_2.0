@@ -16,7 +16,7 @@ import {
 import { DataImportModal } from "./data-import-modal";
 
 const TENANT_NAV = [
-  { href: "/", label: "Overview", icon: <IconHome />, match: "exact" as const },
+  { href: "/overview", label: "Overview", icon: <IconHome />, match: "exact" as const },
   { href: "/leads", label: "Leads", icon: <IconLeads /> },
   { href: "/contacts", label: "Clients", icon: <IconUsers /> },
   { href: "/opportunities", label: "Opportunities", icon: <IconOpportunities /> },

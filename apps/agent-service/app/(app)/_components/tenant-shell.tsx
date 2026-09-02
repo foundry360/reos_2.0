@@ -32,7 +32,7 @@ export function TenantShell({
         <div className={styles.admin}>
           {impersonateBanner}
           <ShellHeader
-            logoHref="/"
+            logoHref="/overview"
             email={email}
             profile={profile}
             adminLink={showAdminLink}

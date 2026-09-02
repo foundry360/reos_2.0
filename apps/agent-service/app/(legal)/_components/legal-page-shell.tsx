@@ -12,9 +12,9 @@ export function LegalPageShell({
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <Link href="/login" className={styles.brand}>
+        <Link href="/" className={styles.brand}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/realtoros-logo-light.png" alt="REOS" className={styles.logo} />
+          <img src="/realtoros-logo-light.png" alt="RealtorOS" className={styles.logo} />
         </Link>
       </header>
       <main className={styles.main}>

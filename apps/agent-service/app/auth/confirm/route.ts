@@ -12,11 +12,13 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
-  const rawNext = searchParams.get("next") ?? "/";
+  const rawNext = searchParams.get("next") ?? "/overview";
   const next =
     rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/admin")
-      ? rawNext
-      : "/";
+      ? rawNext === "/"
+        ? "/overview"
+        : rawNext
+      : "/overview";
 
   const cookiesToApply: CookieToSet[] = [];
 

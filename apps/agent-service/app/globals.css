@@ -254,6 +254,29 @@ html[data-theme="dark"] [data-reos-header] {
   background: var(--shell-scrollbar-thumb-hover);
 }
 
+/* Marketing landing — hide document scrollbar while mounted */
+html.landing-scroll-hidden,
+body.landing-scroll-hidden {
+  scrollbar-width: none;
+}
+
+html.landing-scroll-hidden::-webkit-scrollbar,
+body.landing-scroll-hidden::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html.landing-scroll-hidden:hover,
+body.landing-scroll-hidden:hover {
+  scrollbar-color: transparent transparent;
+}
+
+html.landing-scroll-hidden:hover::-webkit-scrollbar-thumb,
+body.landing-scroll-hidden:hover::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+
 /* Kanban scrollbars — global classes so webkit pseudo-elements apply reliably */
 .kanban-board-scroll,
 .kanban-column-scroll {
