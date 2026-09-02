@@ -59,9 +59,15 @@ Without Supabase configured, the webhook returns dev stubs (no CRM writes).
 
 ## 6. Auth + login
 
-1. **Authentication → URL Configuration** — add redirect URLs:
-   - `http://localhost:3000/auth/callback`
-   - `https://<your-vercel-domain>/auth/callback`
+1. **Authentication → URL Configuration** — set:
+   - **Site URL:** `https://getreos.app`
+   - **Redirect URLs:**
+     - `https://getreos.app/auth/callback`
+     - `https://getreos.app/auth/confirm`
+     - `https://getreos.app/auth/accept-invite`
+     - `https://getreos.app/set-password`
+     - `http://localhost:3000/auth/callback` (local dev)
+     - `http://localhost:3000/**` (optional wildcard for local)
 2. Run [`supabase/migrations/002_platform_admins_policy.sql`](../supabase/migrations/002_platform_admins_policy.sql) in SQL Editor.
 3. **Authentication → Users** → create a user (email + password) for testing.
 4. Optional platform admin:

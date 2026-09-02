@@ -197,7 +197,14 @@ export function SetPasswordClient() {
       </div>
 
       <footer className={styles.pageFooter}>
-        © {new Date().getFullYear()} Foundry360
+        © {new Date().getFullYear()} Foundry360 ·{" "}
+        <a href="/privacy" target="_blank" rel="noopener noreferrer">
+          Privacy
+        </a>
+        {" · "}
+        <a href="/terms" target="_blank" rel="noopener noreferrer">
+          Terms of Service
+        </a>
       </footer>
     </div>
   );

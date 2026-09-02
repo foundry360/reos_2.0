@@ -306,6 +306,26 @@
   min-height: 0;
   overflow: auto;
   padding: 0.5rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--shell-scrollbar-thumb) transparent;
+}
+
+.emailPanelList::-webkit-scrollbar {
+  width: 2px;
+  height: 2px;
+}
+
+.emailPanelList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.emailPanelList::-webkit-scrollbar-thumb {
+  background: var(--shell-scrollbar-thumb);
+  border-radius: 2px;
+}
+
+.emailPanelList::-webkit-scrollbar-thumb:hover {
+  background: var(--shell-scrollbar-thumb-hover);
 }
 
 .emailPanelListEmpty {
@@ -535,14 +555,14 @@
 }
 
 .emailThreadBubbleInbound {
-  background: #fff;
+  background: var(--shell-surface);
   border: 1px solid var(--shell-border);
   border-bottom-left-radius: 0.25rem;
 }
 
 .emailThreadBubbleOutbound {
-  background: #ddeafe;
-  border: 1px solid color-mix(in srgb, #487095 22%, #ddeafe);
+  background: color-mix(in srgb, var(--shell-blue) 18%, var(--shell-surface));
+  border: 1px solid color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
   border-bottom-right-radius: 0.25rem;
 }
 
@@ -576,12 +596,12 @@
 
 .emailThreadBubbleOutbound .emailThreadBubbleHeader strong,
 .emailThreadBubbleOutbound .emailDetailBody {
-  color: #022342;
+  color: var(--shell-text);
 }
 
 .emailThreadBubbleOutbound .emailThreadBubbleHeader span,
 .emailThreadBubbleOutbound .emailThreadBubbleMeta {
-  color: color-mix(in srgb, #022342 55%, transparent);
+  color: var(--shell-muted);
 }
 
 .emailDetailBody {

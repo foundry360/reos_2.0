@@ -7206,7 +7206,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   padding-right: 0.5rem;
   padding-bottom: 0.35rem;
   scrollbar-width: thin;
-  scrollbar-color: #c5cdd6 transparent;
+  scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
 .personDetailColScroll::-webkit-scrollbar {
@@ -7219,12 +7219,12 @@ html[data-theme="dark"] .billingWalletIconBadge {
 }
 
 .personDetailColScroll::-webkit-scrollbar-thumb {
-  background: #c5cdd6;
+  background: var(--shell-scrollbar-thumb);
   border-radius: 2px;
 }
 
 .personDetailColScroll::-webkit-scrollbar-thumb:hover {
-  background: #a8b3c0;
+  background: var(--shell-scrollbar-thumb-hover);
 }
 
 .personDetailColScroll > * {
@@ -7242,7 +7242,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   scrollbar-gutter: stable;
   padding-right: 0.35rem;
   scrollbar-width: thin;
-  scrollbar-color: #c5cdd6 transparent;
+  scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
 .personDetailLayoutFill
@@ -7258,7 +7258,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
 .personDetailLayoutFill
   > .personDetailCenter:not(.personDetailCenterMessaging)::-webkit-scrollbar-thumb {
-  background: #c5cdd6;
+  background: var(--shell-scrollbar-thumb);
   border-radius: 2px;
 }
 
@@ -8377,7 +8377,7 @@ html[data-theme="dark"] .dealMetaPill {
   padding: 0.35rem 0.45rem;
   border: 1px solid var(--shell-border);
   border-radius: 0.55rem;
-  background: #fff;
+  background: var(--shell-surface);
   color: var(--shell-text-secondary);
   cursor: pointer;
 }
@@ -8421,12 +8421,12 @@ html[data-theme="dark"] .dealMetaPill {
 }
 
 .personMessagingChannelOption:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--shell-border) 45%, #fff);
+  background: var(--shell-hover);
 }
 
 .personMessagingChannelOptionActive {
-  background: color-mix(in srgb, #487095 14%, #fff);
-  color: #0b3557;
+  background: color-mix(in srgb, var(--shell-blue) 14%, var(--shell-surface));
+  color: var(--shell-text);
 }
 
 .personMessagingChannelOption:disabled {
@@ -8444,9 +8444,9 @@ html[data-theme="dark"] .dealMetaPill {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: color-mix(in srgb, var(--shell-border) 18%, #fff);
+  background: color-mix(in srgb, var(--shell-border) 35%, var(--shell-surface-muted));
   scrollbar-width: thin;
-  scrollbar-color: #c5cdd6 transparent;
+  scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
 .personMessagingThread::-webkit-scrollbar {
@@ -8459,12 +8459,12 @@ html[data-theme="dark"] .dealMetaPill {
 }
 
 .personMessagingThread::-webkit-scrollbar-thumb {
-  background: #c5cdd6;
+  background: var(--shell-scrollbar-thumb);
   border-radius: 2px;
 }
 
 .personMessagingThread::-webkit-scrollbar-thumb:hover {
-  background: #a8b3c0;
+  background: var(--shell-scrollbar-thumb-hover);
 }
 
 .personMessagingEmpty {
@@ -8503,7 +8503,7 @@ html[data-theme="dark"] .dealMetaPill {
   font-size: 0.925rem;
   line-height: 1.45;
   color: var(--shell-text);
-  background: #fff;
+  background: var(--shell-input-bg, var(--shell-surface));
 }
 
 .personMessagingInput:focus {
@@ -8634,23 +8634,23 @@ html[data-theme="dark"] .dealMetaPill {
 }
 
 .personMessageBubbleInbound {
-  background: #fff;
+  background: var(--shell-surface);
   border: 1px solid var(--shell-border);
   border-bottom-left-radius: 0.25rem;
 }
 
 .personMessageBubbleOutbound {
-  background: #ddeafe;
-  border: 1px solid color-mix(in srgb, #487095 22%, #ddeafe);
+  background: color-mix(in srgb, var(--shell-blue) 18%, var(--shell-surface));
+  border: 1px solid color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
   border-bottom-right-radius: 0.25rem;
 }
 
 .personMessageBubbleOutbound .personMessageBody {
-  color: #022342;
+  color: var(--shell-text);
 }
 
 .personMessageBubbleOutbound .personMessageMeta {
-  color: color-mix(in srgb, #022342 55%, transparent);
+  color: var(--shell-muted);
 }
 
 .personMessageBody {

@@ -31,6 +31,11 @@ export async function updateSession(request: NextRequest) {
   const isLogin = pathname.startsWith("/login");
   const isSetPassword = pathname.startsWith("/set-password");
   const isAuthRoute = pathname.startsWith("/auth/");
+  const isLegalPage =
+    pathname === "/privacy" ||
+    pathname.startsWith("/privacy/") ||
+    pathname === "/terms" ||
+    pathname.startsWith("/terms/");
   const isPublicApi =
     pathname.startsWith("/api/webhooks") || pathname === "/api/health";
 
@@ -39,6 +44,7 @@ export async function updateSession(request: NextRequest) {
     !isLogin &&
     !isSetPassword &&
     !isAuthRoute &&
+    !isLegalPage &&
     !isPublicApi &&
     !pathname.startsWith("/api/")
   ) {

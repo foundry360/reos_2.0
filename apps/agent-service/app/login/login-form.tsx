@@ -210,7 +210,13 @@ export function LoginForm() {
 
       <footer className={styles.pageFooter}>
         © {new Date().getFullYear()} Foundry360 ·{" "}
-        <a href="https://foundry360.com">Privacy</a>
+        <a href="/privacy" target="_blank" rel="noopener noreferrer">
+          Privacy
+        </a>
+        {" · "}
+        <a href="/terms" target="_blank" rel="noopener noreferrer">
+          Terms of Service
+        </a>
       </footer>
     </div>
   );
