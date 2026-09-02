@@ -7206,6 +7206,10 @@ html[data-theme="dark"] .billingWalletIconBadge {
   padding-right: 0.5rem;
   padding-bottom: 0.35rem;
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.personDetailColScroll:hover {
   scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
@@ -7219,11 +7223,15 @@ html[data-theme="dark"] .billingWalletIconBadge {
 }
 
 .personDetailColScroll::-webkit-scrollbar-thumb {
-  background: var(--shell-scrollbar-thumb);
+  background: transparent;
   border-radius: 2px;
 }
 
-.personDetailColScroll::-webkit-scrollbar-thumb:hover {
+.personDetailColScroll:hover::-webkit-scrollbar-thumb {
+  background: var(--shell-scrollbar-thumb);
+}
+
+.personDetailColScroll:hover::-webkit-scrollbar-thumb:hover {
   background: var(--shell-scrollbar-thumb-hover);
 }
 
@@ -7242,6 +7250,10 @@ html[data-theme="dark"] .billingWalletIconBadge {
   scrollbar-gutter: stable;
   padding-right: 0.35rem;
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.personDetailLayoutFill > .personDetailCenter:not(.personDetailCenterMessaging):hover {
   scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
@@ -7258,8 +7270,13 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
 .personDetailLayoutFill
   > .personDetailCenter:not(.personDetailCenterMessaging)::-webkit-scrollbar-thumb {
-  background: var(--shell-scrollbar-thumb);
+  background: transparent;
   border-radius: 2px;
+}
+
+.personDetailLayoutFill
+  > .personDetailCenter:not(.personDetailCenterMessaging):hover::-webkit-scrollbar-thumb {
+  background: var(--shell-scrollbar-thumb);
 }
 
 .personDetailCenterMessaging {
@@ -8446,6 +8463,10 @@ html[data-theme="dark"] .dealMetaPill {
   overscroll-behavior: contain;
   background: color-mix(in srgb, var(--shell-border) 35%, var(--shell-surface-muted));
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.personMessagingThread:hover {
   scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
@@ -8459,11 +8480,15 @@ html[data-theme="dark"] .dealMetaPill {
 }
 
 .personMessagingThread::-webkit-scrollbar-thumb {
-  background: var(--shell-scrollbar-thumb);
+  background: transparent;
   border-radius: 2px;
 }
 
-.personMessagingThread::-webkit-scrollbar-thumb:hover {
+.personMessagingThread:hover::-webkit-scrollbar-thumb {
+  background: var(--shell-scrollbar-thumb);
+}
+
+.personMessagingThread:hover::-webkit-scrollbar-thumb:hover {
   background: var(--shell-scrollbar-thumb-hover);
 }
 

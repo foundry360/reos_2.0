@@ -307,6 +307,10 @@
   overflow: auto;
   padding: 0.5rem 0;
   scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.emailPanelList:hover {
   scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
 
@@ -320,11 +324,15 @@
 }
 
 .emailPanelList::-webkit-scrollbar-thumb {
-  background: var(--shell-scrollbar-thumb);
+  background: transparent;
   border-radius: 2px;
 }
 
-.emailPanelList::-webkit-scrollbar-thumb:hover {
+.emailPanelList:hover::-webkit-scrollbar-thumb {
+  background: var(--shell-scrollbar-thumb);
+}
+
+.emailPanelList:hover::-webkit-scrollbar-thumb:hover {
   background: var(--shell-scrollbar-thumb-hover);
 }
 
