@@ -563,14 +563,14 @@
 }
 
 .emailThreadBubbleInbound {
-  background: var(--shell-surface);
+  background: #fff;
   border: 1px solid var(--shell-border);
   border-bottom-left-radius: 0.25rem;
 }
 
 .emailThreadBubbleOutbound {
-  background: color-mix(in srgb, var(--shell-blue) 18%, var(--shell-surface));
-  border: 1px solid color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
+  background: #ddeafe;
+  border: 1px solid color-mix(in srgb, #487095 22%, #ddeafe);
   border-bottom-right-radius: 0.25rem;
 }
 
@@ -604,11 +604,30 @@
 
 .emailThreadBubbleOutbound .emailThreadBubbleHeader strong,
 .emailThreadBubbleOutbound .emailDetailBody {
-  color: var(--shell-text);
+  color: #022342;
 }
 
 .emailThreadBubbleOutbound .emailThreadBubbleHeader span,
 .emailThreadBubbleOutbound .emailThreadBubbleMeta {
+  color: color-mix(in srgb, #022342 55%, transparent);
+}
+
+html[data-theme="dark"] .emailThreadBubbleInbound {
+  background: var(--shell-surface);
+}
+
+html[data-theme="dark"] .emailThreadBubbleOutbound {
+  background: color-mix(in srgb, var(--shell-blue) 18%, var(--shell-surface));
+  border-color: color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
+}
+
+html[data-theme="dark"] .emailThreadBubbleOutbound .emailThreadBubbleHeader strong,
+html[data-theme="dark"] .emailThreadBubbleOutbound .emailDetailBody {
+  color: var(--shell-text);
+}
+
+html[data-theme="dark"] .emailThreadBubbleOutbound .emailThreadBubbleHeader span,
+html[data-theme="dark"] .emailThreadBubbleOutbound .emailThreadBubbleMeta {
   color: var(--shell-muted);
 }
 

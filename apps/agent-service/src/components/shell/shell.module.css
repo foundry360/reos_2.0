@@ -8394,7 +8394,7 @@ html[data-theme="dark"] .dealMetaPill {
   padding: 0.35rem 0.45rem;
   border: 1px solid var(--shell-border);
   border-radius: 0.55rem;
-  background: var(--shell-surface);
+  background: #fff;
   color: var(--shell-text-secondary);
   cursor: pointer;
 }
@@ -8438,12 +8438,12 @@ html[data-theme="dark"] .dealMetaPill {
 }
 
 .personMessagingChannelOption:hover:not(:disabled) {
-  background: var(--shell-hover);
+  background: color-mix(in srgb, var(--shell-border) 45%, #fff);
 }
 
 .personMessagingChannelOptionActive {
-  background: color-mix(in srgb, var(--shell-blue) 14%, var(--shell-surface));
-  color: var(--shell-text);
+  background: color-mix(in srgb, #487095 14%, #fff);
+  color: #0b3557;
 }
 
 .personMessagingChannelOption:disabled {
@@ -8461,7 +8461,7 @@ html[data-theme="dark"] .dealMetaPill {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: color-mix(in srgb, var(--shell-border) 35%, var(--shell-surface-muted));
+  background: color-mix(in srgb, var(--shell-border) 18%, #fff);
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }
@@ -8528,7 +8528,7 @@ html[data-theme="dark"] .dealMetaPill {
   font-size: 0.925rem;
   line-height: 1.45;
   color: var(--shell-text);
-  background: var(--shell-input-bg, var(--shell-surface));
+  background: #fff;
 }
 
 .personMessagingInput:focus {
@@ -8659,22 +8659,60 @@ html[data-theme="dark"] .dealMetaPill {
 }
 
 .personMessageBubbleInbound {
-  background: var(--shell-surface);
+  background: #fff;
   border: 1px solid var(--shell-border);
   border-bottom-left-radius: 0.25rem;
 }
 
 .personMessageBubbleOutbound {
-  background: color-mix(in srgb, var(--shell-blue) 18%, var(--shell-surface));
-  border: 1px solid color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
+  background: #ddeafe;
+  border: 1px solid color-mix(in srgb, #487095 22%, #ddeafe);
   border-bottom-right-radius: 0.25rem;
 }
 
 .personMessageBubbleOutbound .personMessageBody {
-  color: var(--shell-text);
+  color: #022342;
 }
 
 .personMessageBubbleOutbound .personMessageMeta {
+  color: color-mix(in srgb, #022342 55%, transparent);
+}
+
+html[data-theme="dark"] .personMessagingChannelTrigger {
+  background: var(--shell-surface);
+}
+
+html[data-theme="dark"] .personMessagingChannelOption:hover:not(:disabled) {
+  background: var(--shell-hover);
+}
+
+html[data-theme="dark"] .personMessagingChannelOptionActive {
+  background: color-mix(in srgb, var(--shell-blue) 14%, var(--shell-surface));
+  color: var(--shell-text);
+}
+
+html[data-theme="dark"] .personMessagingThread {
+  background: color-mix(in srgb, var(--shell-border) 35%, var(--shell-surface-muted));
+}
+
+html[data-theme="dark"] .personMessagingInput {
+  background: var(--shell-input-bg, var(--shell-surface));
+}
+
+html[data-theme="dark"] .personMessageBubbleInbound {
+  background: var(--shell-surface);
+}
+
+html[data-theme="dark"] .personMessageBubbleOutbound {
+  background: color-mix(in srgb, var(--shell-blue) 18%, var(--shell-surface));
+  border-color: color-mix(in srgb, var(--shell-blue) 28%, var(--shell-border));
+}
+
+html[data-theme="dark"] .personMessageBubbleOutbound .personMessageBody {
+  color: var(--shell-text);
+}
+
+html[data-theme="dark"] .personMessageBubbleOutbound .personMessageMeta {
   color: var(--shell-muted);
 }
 
