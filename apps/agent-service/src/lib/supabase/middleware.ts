@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { resolvePostLoginPath } from "@/lib/auth/post-login-path";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -58,14 +59,19 @@ export async function updateSession(request: NextRequest) {
 
   if (user && isLogin) {
     const url = request.nextUrl.clone();
-    url.pathname = request.nextUrl.searchParams.get("next") || "/overview";
-    url.searchParams.delete("next");
+    const destination = await resolvePostLoginPath(
+      supabase,
+      user.id,
+      request.nextUrl.searchParams.get("next"),
+    );
+    url.pathname = destination;
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
   if (user && isMarketingHome) {
     const url = request.nextUrl.clone();
-    url.pathname = "/overview";
+    url.pathname = await resolvePostLoginPath(supabase, user.id, "/overview");
     return NextResponse.redirect(url);
   }
 

@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { resolvePostLoginPath } from "@/lib/auth/post-login-path";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -13,12 +14,6 @@ export async function GET(request: NextRequest) {
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const rawNext = searchParams.get("next") ?? "/overview";
-  const next =
-    rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/admin")
-      ? rawNext === "/"
-        ? "/overview"
-        : rawNext
-      : "/overview";
 
   const cookiesToApply: CookieToSet[] = [];
 
@@ -41,19 +36,26 @@ export async function GET(request: NextRequest) {
   );
 
   let accepted = false;
+  let userId: string | null = null;
 
   if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({
+    const { data, error } = await supabase.auth.verifyOtp({
       type: type as "invite" | "signup" | "magiclink" | "recovery" | "email",
       token_hash: tokenHash,
     });
     accepted = !error;
+    userId = data.user?.id ?? data.session?.user?.id ?? null;
     if (error) {
       console.error("auth/confirm verifyOtp failed:", error.message);
     }
   }
 
   const needsPassword = type === "invite" || type === "recovery" || type === "signup";
+  let next = "/overview";
+  if (accepted && userId && !needsPassword) {
+    next = await resolvePostLoginPath(supabase, userId, rawNext);
+  }
+
   const destination = accepted
     ? needsPassword
       ? `${origin}/set-password`

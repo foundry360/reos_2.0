@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { resolvePostLoginPath } from "@/lib/auth/post-login-path";
 import styles from "./login.module.css";
 
 export function LoginForm() {
@@ -28,12 +29,14 @@ export function LoginForm() {
 
     const supabase = createClient();
     let signInError: { message: string } | null = null;
+    let userId: string | null = null;
     try {
       const result = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
       signInError = result.error;
+      userId = result.data.user?.id ?? null;
     } catch (err) {
       setLoading(false);
       setError(err instanceof Error ? err.message : "Sign in failed. Please try again.");
@@ -47,7 +50,12 @@ export function LoginForm() {
       return;
     }
 
-    window.location.href = next;
+    let destination = next;
+    if (userId) {
+      destination = await resolvePostLoginPath(supabase, userId, next);
+    }
+
+    window.location.href = destination;
   }
 
   async function handleForgotPassword(e: React.MouseEvent) {

@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { resolvePostLoginPath } from "@/lib/auth/post-login-path";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -14,19 +15,13 @@ export async function GET(request: NextRequest) {
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const rawNext = searchParams.get("next") ?? "/overview";
-  const next =
-    rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.startsWith("/admin")
-      ? rawNext === "/"
-        ? "/overview"
-        : rawNext
-      : "/overview";
 
   // Invite-style links may still land here if redirectTo pointed at callback.
   if (tokenHash && type) {
     const url = new URL("/auth/confirm", origin);
     url.searchParams.set("token_hash", tokenHash);
     url.searchParams.set("type", type);
-    url.searchParams.set("next", next);
+    url.searchParams.set("next", rawNext);
     return NextResponse.redirect(url);
   }
 
@@ -51,13 +46,20 @@ export async function GET(request: NextRequest) {
   );
 
   let accepted = false;
+  let userId: string | null = null;
 
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     accepted = !error;
+    userId = data.user?.id ?? data.session?.user?.id ?? null;
     if (error) {
       console.error("auth/callback exchangeCodeForSession failed:", error.message);
     }
+  }
+
+  let next = "/overview";
+  if (accepted && userId) {
+    next = await resolvePostLoginPath(supabase, userId, rawNext);
   }
 
   const destination = accepted
