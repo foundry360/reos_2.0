@@ -4,6 +4,15 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import styles from "../login/login.module.css";
 
+type AuthEmailType = "invite" | "signup" | "magiclink" | "recovery" | "email";
+
+function readHashParams(): URLSearchParams {
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  return new URLSearchParams(hash);
+}
+
 export function SetPasswordClient() {
   const [email, setEmail] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -18,25 +27,81 @@ export function SetPasswordClient() {
     async function bootstrap() {
       const supabase = createClient();
       const url = new URL(window.location.href);
-      const code = url.searchParams.get("code");
+      const hashParams = readHashParams();
 
-      if (code) {
+      const oauthError =
+        url.searchParams.get("error_description") ||
+        url.searchParams.get("error") ||
+        hashParams.get("error_description") ||
+        hashParams.get("error");
+      if (oauthError) {
+        if (!cancelled) {
+          setError(decodeURIComponent(oauthError.replace(/\+/g, " ")));
+          setBooting(false);
+        }
+        return;
+      }
+
+      const code = url.searchParams.get("code");
+      const tokenHash =
+        url.searchParams.get("token_hash") || hashParams.get("token_hash");
+      const type = (url.searchParams.get("type") ||
+        hashParams.get("type") ||
+        "") as AuthEmailType | "";
+
+      if (tokenHash && type) {
+        const { error: otpError } = await supabase.auth.verifyOtp({
+          type: type as AuthEmailType,
+          token_hash: tokenHash,
+        });
+        if (otpError) {
+          if (!cancelled) {
+            setError(otpError.message);
+            setBooting(false);
+          }
+          return;
+        }
+        window.history.replaceState({}, "", "/set-password");
+      } else if (code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
         if (exchangeError) {
           if (!cancelled) {
-            setError(exchangeError.message);
+            // PKCE fails when the email is opened in a different browser than
+            // the one that requested the reset — guide the user clearly.
+            const pkceHint = /code verifier|pkce|both auth code|flow state/i.test(
+              exchangeError.message,
+            )
+              ? " Open the link in the same browser where you requested the reset, or request a new reset email from this browser."
+              : "";
+            setError(`${exchangeError.message}.${pkceHint}`);
+            setBooting(false);
+          }
+          return;
+        }
+        window.history.replaceState({}, "", "/set-password");
+      } else if (
+        hashParams.has("access_token") &&
+        hashParams.has("refresh_token")
+      ) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: hashParams.get("access_token")!,
+          refresh_token: hashParams.get("refresh_token")!,
+        });
+        if (sessionError) {
+          if (!cancelled) {
+            setError(sessionError.message);
             setBooting(false);
           }
           return;
         }
         window.history.replaceState({}, "", "/set-password");
       } else if (url.hash.includes("access_token")) {
-        // Implicit invite/recovery redirect: let the client parse the hash.
+        // Fallback: let the client parse an implicit hash if setSession fields differ.
         await new Promise<void>((resolve) => {
           const {
             data: { subscription },
           } = supabase.auth.onAuthStateChange((event) => {
-            if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+            if (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "PASSWORD_RECOVERY") {
               subscription.unsubscribe();
               resolve();
             }
@@ -44,7 +109,7 @@ export function SetPasswordClient() {
           window.setTimeout(() => {
             subscription.unsubscribe();
             resolve();
-          }, 2500);
+          }, 4000);
         });
         window.history.replaceState({}, "", "/set-password");
       }
@@ -57,7 +122,7 @@ export function SetPasswordClient() {
 
       if (!user?.email) {
         setError(
-          "This invite or reset link is expired or invalid. Ask your admin to resend the invite.",
+          "This invite or reset link is expired or invalid. Request a new reset from the login page (Forgot password), and open the email link in the same browser.",
         );
         setBooting(false);
         return;

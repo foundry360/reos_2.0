@@ -70,10 +70,18 @@ export async function updateSession(request: NextRequest) {
   }
 
   if (user && isMarketingHome) {
-    // Email auth `?code=` can land on Site URL `/` — never send those to the app shell.
-    if (request.nextUrl.searchParams.has("code")) {
+    // Email auth params can land on Site URL `/` — never send those to the app shell.
+    if (
+      request.nextUrl.searchParams.has("code") ||
+      request.nextUrl.searchParams.has("token_hash")
+    ) {
       const url = request.nextUrl.clone();
-      url.pathname = "/set-password";
+      if (request.nextUrl.searchParams.has("token_hash")) {
+        url.pathname = "/auth/confirm";
+        url.searchParams.set("next", "/set-password");
+      } else {
+        url.pathname = "/set-password";
+      }
       return NextResponse.redirect(url);
     }
     const url = request.nextUrl.clone();

@@ -57,7 +57,7 @@ export default function MarketingLayout({ children }: { children: React.ReactNod
     <ThemeProvider preference="light">
       <script
         dangerouslySetInnerHTML={{
-          __html: `(function(){try{var h=window.location.hash||"";var s=window.location.search||"";var hasCode=/[?&]code=/.test(s);var hasToken=/access_token|refresh_token/.test(h);var typeMatch=h.match(/[?&#]type=([^&]+)/)||s.match(/[?&]type=([^&]+)/);var type=typeMatch?decodeURIComponent(typeMatch[1]):"";var passwordFlow=type==="recovery"||type==="invite"||type==="signup"||hasToken||hasCode;if((hasToken||hasCode)&&passwordFlow){window.location.replace("/set-password"+(hasCode?s:"")+h);}}catch(e){}})();`,
+          __html: `(function(){try{var h=window.location.hash||"";var s=window.location.search||"";var hasCode=/[?&]code=/.test(s);var hasTokenHash=/[?&]token_hash=/.test(s);var hasToken=/access_token|refresh_token/.test(h);var typeMatch=s.match(/[?&]type=([^&]+)/)||h.match(/[?&#]type=([^&]+)/);var type=typeMatch?decodeURIComponent(typeMatch[1]):"";if(hasTokenHash&&type){var conf=new URL("/auth/confirm",window.location.origin);conf.search=s;conf.searchParams.set("next","/set-password");window.location.replace(conf.pathname+conf.search);return;}var passwordFlow=type==="recovery"||type==="invite"||type==="signup"||hasToken||hasCode;if((hasToken||hasCode)&&passwordFlow){window.location.replace("/set-password"+s+h);}}catch(e){}})();`,
         }}
       />
       <AuthSessionCatch />
