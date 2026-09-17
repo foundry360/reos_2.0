@@ -139,7 +139,7 @@ export async function getUserDisplayLabel(userId: string | null): Promise<string
 
 export async function invitePlatformAdminAction(
   formData: FormData,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; message?: string }> {
   await requirePlatformAdmin();
 
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -153,21 +153,43 @@ export async function invitePlatformAdminAction(
   }
 
   let userId = await findUserIdByEmail(admin, email);
+  let inviteEmailed = false;
+  let mailerFailed = false;
 
   if (!userId) {
     const headerStore = await headers();
-    const origin = headerStore.get("origin") ?? "http://localhost:3000";
+    const origin =
+      headerStore.get("origin") ??
+      process.env.NEXT_PUBLIC_SITE_URL ??
+      "http://localhost:3000";
 
     const { data: inviteData, error: inviteError } =
       await admin.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${origin}/auth/callback?next=/admin`,
+        redirectTo: `${origin.replace(/\/$/, "")}/set-password`,
       });
 
     if (inviteError) {
-      return { ok: false, error: inviteError.message };
+      mailerFailed = true;
+      const created = await admin.auth.admin.createUser({
+        email,
+        email_confirm: true,
+      });
+      if (created.error) {
+        const recovered = await findUserIdByEmail(admin, email);
+        if (!recovered) {
+          return {
+            ok: false,
+            error: `${inviteError.message}. Also could not create user: ${created.error.message}. Check Supabase Auth → SMTP (Resend).`,
+          };
+        }
+        userId = recovered;
+      } else {
+        userId = created.data.user?.id ?? null;
+      }
+    } else {
+      inviteEmailed = true;
+      userId = inviteData.user?.id ?? null;
     }
-
-    userId = inviteData.user?.id ?? null;
   }
 
   if (!userId) {
@@ -186,7 +208,26 @@ export async function invitePlatformAdminAction(
   }
 
   revalidatePath("/admin/settings");
-  return { ok: true };
+
+  if (mailerFailed) {
+    return {
+      ok: true,
+      message:
+        "Admin access granted, but invite email failed. Check Supabase Auth → SMTP (Resend), then have them use Forgot password on the login page.",
+    };
+  }
+
+  if (inviteEmailed) {
+    return {
+      ok: true,
+      message: "Invite sent. They will have platform admin access once they accept.",
+    };
+  }
+
+  return {
+    ok: true,
+    message: "Platform admin access granted for the existing account.",
+  };
 }
 
 export async function removePlatformAdminsAction(

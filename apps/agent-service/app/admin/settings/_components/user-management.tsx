@@ -34,7 +34,10 @@ export function UserManagement({ admins, currentUserId }: UserManagementProps) {
         return;
       }
       setEmail("");
-      setSuccess("Invite sent. They will have platform admin access once they accept.");
+      setSuccess(
+        result.message ??
+          "Invite sent. They will have platform admin access once they accept.",
+      );
       router.refresh();
     });
   }

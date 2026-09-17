@@ -12,6 +12,29 @@ function isRateLimitError(message: string): boolean {
   return /rate.?limit/i.test(message);
 }
 
+/** Supabase wraps SMTP/mailer failures as this generic message. */
+function isInviteMailerError(message: string): boolean {
+  return /error sending invite email|error sending.*email|smtp|mailer/i.test(message);
+}
+
+async function ensureAuthUserWithoutEmail(
+  admin: AdminClient,
+  email: string,
+): Promise<{ ok: true; userId: string } | { ok: false; error: string }> {
+  const created = await admin.auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
+  if (created.error) {
+    const recovered = await findAuthUserByEmail(admin, email);
+    if (!recovered) return { ok: false, error: created.error.message };
+    return { ok: true, userId: recovered.id };
+  }
+  const userId = created.data.user?.id;
+  if (!userId) return { ok: false, error: "Could not create auth user after mail failure." };
+  return { ok: true, userId };
+}
+
 export type SendPasswordSetupResult =
   | { ok: true; userId: string; emailed: true }
   | { ok: true; userId: string; emailed: false; rateLimited: true }
@@ -43,23 +66,15 @@ export async function sendPasswordSetupEmail(
       return { ok: true, userId, emailed: true };
     }
 
-    if (!isRateLimitError(error.message)) {
-      return { ok: false, error: error.message };
+    // Rate limit or SMTP/mailer failure: still create the user and let the
+    // admin UI offer an accept-invite link while mail is fixed.
+    if (isRateLimitError(error.message) || isInviteMailerError(error.message)) {
+      const ensured = await ensureAuthUserWithoutEmail(admin, email);
+      if (!ensured.ok) return ensured;
+      return { ok: true, userId: ensured.userId, emailed: false, rateLimited: true };
     }
 
-    // Rate limited: create the auth user without sending mail.
-    const created = await admin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-    });
-    if (created.error) {
-      const recovered = await findAuthUserByEmail(admin, email);
-      if (!recovered) return { ok: false, error: created.error.message };
-      return { ok: true, userId: recovered.id, emailed: false, rateLimited: true };
-    }
-    const userId = created.data.user?.id;
-    if (!userId) return { ok: false, error: "Could not create auth user after rate limit." };
-    return { ok: true, userId, emailed: false, rateLimited: true };
+    return { ok: false, error: error.message };
   }
 
   const env = getEnv();
@@ -87,7 +102,7 @@ export async function sendPasswordSetupEmail(
   }
 
   const body = await response.text();
-  if (isRateLimitError(body) || response.status === 429) {
+  if (isRateLimitError(body) || response.status === 429 || isInviteMailerError(body)) {
     return { ok: true, userId: existingUserId, emailed: false, rateLimited: true };
   }
 

@@ -131,7 +131,7 @@ export async function createTenantUserAction(formData: FormData): Promise<Action
           invited: true,
           inviteUrl: buildAcceptInviteUrl(origin, email),
           message:
-            "Supabase email rate limit hit. Open this invite link in a private window (email will work again after the limit resets, or add custom SMTP).",
+            "Invite email could not be sent (Supabase mailer/rate limit). Open this invite link in a private window. Fix Auth SMTP (Resend) so email works again.",
         };
       }
       return {
@@ -178,7 +178,7 @@ export async function createTenantUserAction(formData: FormData): Promise<Action
       invited: true,
       inviteUrl: buildAcceptInviteUrl(origin, email),
       message:
-        "User added, but Supabase email rate limit hit. Open this invite link in a private window for now.",
+        "User added, but invite email could not be sent (Supabase mailer/rate limit). Open this invite link in a private window. Fix Auth SMTP (Resend) so email works again.",
     };
   }
 
