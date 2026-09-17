@@ -60,14 +60,17 @@ Without Supabase configured, the webhook returns dev stubs (no CRM writes).
 ## 6. Auth + login
 
 1. **Authentication → URL Configuration** — set:
-   - **Site URL:** `https://getreos.app`
+   - **Site URL:** `https://www.getreos.app`
    - **Redirect URLs:**
-     - `https://getreos.app/auth/callback`
-     - `https://getreos.app/auth/confirm`
-     - `https://getreos.app/auth/accept-invite`
-     - `https://getreos.app/set-password`
+     - `https://www.getreos.app/auth/callback`
+     - `https://www.getreos.app/auth/confirm`
+     - `https://www.getreos.app/auth/accept-invite`
+     - `https://www.getreos.app/set-password`
+     - `https://getreos.app/set-password` (if apex is used)
      - `http://localhost:3000/auth/callback` (local dev)
+     - `http://localhost:3000/set-password`
      - `http://localhost:3000/**` (optional wildcard for local)
+   - Password reset / invite emails must use RedirectTo `/set-password` (not Site URL alone).
 2. Run [`supabase/migrations/002_platform_admins_policy.sql`](../supabase/migrations/002_platform_admins_policy.sql) in SQL Editor.
 3. **Authentication → Users** → create a user (email + password) for testing.
 4. Optional platform admin:

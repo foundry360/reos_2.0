@@ -59,7 +59,12 @@ export async function GET(request: NextRequest) {
 
   let next = "/overview";
   if (accepted && userId) {
-    next = await resolvePostLoginPath(supabase, userId, rawNext);
+    // Password recovery/invite via callback must never be redirected to admin/home.
+    if (rawNext === "/set-password" || rawNext.startsWith("/set-password")) {
+      next = "/set-password";
+    } else {
+      next = await resolvePostLoginPath(supabase, userId, rawNext);
+    }
   }
 
   const destination = accepted

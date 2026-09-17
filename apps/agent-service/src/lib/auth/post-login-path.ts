@@ -11,6 +11,10 @@ function isDefaultAppHome(path: string): boolean {
   return path === "/overview" || path === "/";
 }
 
+function isPasswordSetupPath(path: string): boolean {
+  return path === "/set-password" || path.startsWith("/set-password?");
+}
+
 type PlatformAdminLookup = {
   from: (table: string) => {
     select: (columns: string) => {
@@ -27,6 +31,7 @@ type PlatformAdminLookup = {
 /**
  * After sign-in: platform admins land in /admin unless they requested a
  * specific non-home path (e.g. deep link). Non-admins never land in /admin.
+ * Password setup links always win over admin/home redirects.
  */
 export async function resolvePostLoginPath(
   supabase: SupabaseClient | PlatformAdminLookup,
@@ -34,6 +39,10 @@ export async function resolvePostLoginPath(
   requestedNext?: string | null,
 ): Promise<string> {
   const next = sanitizeNextPath(requestedNext);
+
+  if (isPasswordSetupPath(next)) {
+    return "/set-password";
+  }
 
   const { data: admin } = await supabase
     .from("platform_admins")

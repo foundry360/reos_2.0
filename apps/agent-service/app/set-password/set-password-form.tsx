@@ -96,7 +96,15 @@ export function SetPasswordClient() {
       return;
     }
 
-    window.location.href = "/";
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const { resolvePostLoginPath } = await import("@/lib/auth/post-login-path");
+      window.location.href = await resolvePostLoginPath(supabase, user.id, "/overview");
+      return;
+    }
+    window.location.href = "/login";
   }
 
   return (

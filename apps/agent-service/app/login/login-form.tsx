@@ -69,7 +69,8 @@ export function LoginForm() {
     setLoading(true);
 
     const supabase = createClient();
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent("/set-password")}`;
+    // Land directly on set-password so Site URL `/` cannot swallow the session.
+    const redirectTo = `${window.location.origin}/set-password`;
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo,
     });

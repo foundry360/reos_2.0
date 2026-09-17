@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { AuthSessionCatch } from "@/components/auth/auth-session-catch";
 import { LandingScrollLock } from "./landing-scroll-lock";
 
-const SITE_URL = "https://getreos.app";
+const SITE_URL = "https://www.getreos.app";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -54,6 +55,12 @@ export const metadata: Metadata = {
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
     <ThemeProvider preference="light">
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `(function(){try{var h=window.location.hash||"";var s=window.location.search||"";var hasCode=/[?&]code=/.test(s);var hasToken=/access_token|refresh_token/.test(h);var typeMatch=h.match(/[?&#]type=([^&]+)/)||s.match(/[?&]type=([^&]+)/);var type=typeMatch?decodeURIComponent(typeMatch[1]):"";var passwordFlow=type==="recovery"||type==="invite"||type==="signup"||hasToken||hasCode;if((hasToken||hasCode)&&passwordFlow){window.location.replace("/set-password"+(hasCode?s:"")+h);}}catch(e){}})();`,
+        }}
+      />
+      <AuthSessionCatch />
       <LandingScrollLock />
       <div className={plusJakarta.variable}>{children}</div>
     </ThemeProvider>
