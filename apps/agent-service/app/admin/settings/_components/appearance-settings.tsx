@@ -7,9 +7,9 @@ import { applyTheme, type ThemePreference } from "@/lib/theme";
 import styles from "@/components/shell/shell.module.css";
 
 const THEMES: { value: ThemePreference; label: string; image: string }[] = [
-  { value: "system", label: "System", image: "/theme/system.png?v=2" },
   { value: "light", label: "Light", image: "/theme/light.png?v=3" },
   { value: "dark", label: "Dark", image: "/theme/dark.png" },
+  { value: "system", label: "System", image: "/theme/system.png?v=2" },
 ];
 
 interface AppearanceSettingsProps {
@@ -48,8 +48,8 @@ export function AppearanceSettings({ themePreference }: AppearanceSettingsProps)
       <section className={styles.settingsSection}>
         <h2 className={styles.settingsSectionTitle}>Appearance</h2>
         <p className={styles.settingsSectionDesc}>
-          Choose how REOS looks to you. Select a single theme, or sync with your
-          system.
+          Choose how REOS looks. New accounts start in light mode — switch to dark
+          or match your system here anytime.
         </p>
 
         {error && <p className={styles.error}>{error}</p>}

@@ -1,7 +1,7 @@
 export type ThemePreference = "light" | "dark" | "system";
 
 export const THEME_COOKIE = "reos-theme";
-export const THEME_OPTIONS: ThemePreference[] = ["system", "light", "dark"];
+export const THEME_OPTIONS: ThemePreference[] = ["light", "dark", "system"];
 
 export function isThemePreference(value: string): value is ThemePreference {
   return THEME_OPTIONS.includes(value as ThemePreference);

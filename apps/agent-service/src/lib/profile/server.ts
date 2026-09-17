@@ -25,13 +25,14 @@ export async function getCurrentProfile(userId: string, email: string): Promise<
     await supabase.from("profiles").upsert({
       id: userId,
       display_name: displayName,
+      theme_preference: "light",
     });
-    return { displayName, avatarUrl: null, themePreference: "system" };
+    return { displayName, avatarUrl: null, themePreference: "light" };
   }
 
   const themePreference = isThemePreference(data.theme_preference ?? "")
     ? data.theme_preference
-    : "system";
+    : "light";
 
   return {
     displayName: data.display_name ?? email.split("@")[0] ?? "User",

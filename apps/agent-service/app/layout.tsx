@@ -24,7 +24,7 @@ export default async function RootLayout({
   const cookieTheme = cookieStore.get(THEME_COOKIE)?.value ?? "";
   const themePreference: ThemePreference = isThemePreference(cookieTheme)
     ? cookieTheme
-    : "system";
+    : "light";
 
   return (
     <html lang="en" suppressHydrationWarning>

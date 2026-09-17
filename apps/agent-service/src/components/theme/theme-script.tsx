@@ -11,7 +11,7 @@ export function ThemeScript() {
     return;
   }
   var m = document.cookie.match(/${THEME_COOKIE}=([^;]+)/);
-  var pref = m ? m[1] : 'system';
+  var pref = m ? m[1] : 'light';
   var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   var resolved = pref === 'system' ? (dark ? 'dark' : 'light') : pref;
   document.documentElement.dataset.theme = resolved;
