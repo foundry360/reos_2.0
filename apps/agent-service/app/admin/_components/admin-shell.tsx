@@ -6,11 +6,13 @@ import { ThemeProvider } from "@/components/theme/theme-provider";
 import { AdminSidebarNav } from "./admin-sidebar-nav";
 import type { UserProfile } from "@/lib/profile/server";
 import type { UserNotification } from "@/lib/notifications/types";
+import type { AssignedTenant } from "@/lib/tenant/current-tenant";
 
 interface AdminShellProps {
   email: string;
   profile: UserProfile;
   notifications?: UserNotification[];
+  assignedTenants?: AssignedTenant[];
   children: React.ReactNode;
 }
 
@@ -18,6 +20,7 @@ export function AdminShell({
   email,
   profile,
   notifications = [],
+  assignedTenants = [],
   children,
 }: AdminShellProps) {
   return (
@@ -29,7 +32,7 @@ export function AdminShell({
           email={email}
           profile={profile}
           accountHref="/admin/settings"
-          tenantAppHref="/"
+          tenantWorkspaces={assignedTenants}
           notifications={notifications}
         />
         <ShellLayout

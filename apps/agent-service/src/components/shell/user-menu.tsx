@@ -3,8 +3,14 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { signOutAction } from "@/lib/auth/actions";
+import { openTenantAction } from "@/lib/admin/account-actions";
 import { UserAvatar } from "./user-avatar";
 import styles from "./shell.module.css";
+
+export interface UserMenuTenant {
+  id: string;
+  name: string;
+}
 
 export interface UserMenuProps {
   email: string;
@@ -12,6 +18,7 @@ export interface UserMenuProps {
   avatarUrl?: string | null;
   accountHref?: string;
   tenantAppHref?: string;
+  tenantWorkspaces?: UserMenuTenant[];
   compact?: boolean;
 }
 
@@ -21,6 +28,7 @@ export function UserMenu({
   avatarUrl,
   accountHref,
   tenantAppHref,
+  tenantWorkspaces = [],
   compact = false,
 }: UserMenuProps) {
   const [open, setOpen] = useState(false);
@@ -28,7 +36,7 @@ export function UserMenu({
 
   const name = displayName ?? email.split("@")[0];
   const showAccountLink = Boolean(accountHref);
-  const showTenantLink = Boolean(tenantAppHref);
+  const showTenantLink = tenantWorkspaces.length === 0 && Boolean(tenantAppHref);
 
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
@@ -90,6 +98,20 @@ export function UserMenu({
                 Account
               </Link>
             )}
+
+            {tenantWorkspaces.map((tenant) => (
+              <form key={tenant.id} action={openTenantAction}>
+                <input type="hidden" name="tenantId" value={tenant.id} />
+                <button
+                  type="submit"
+                  className={styles.dropdownItem}
+                  role="menuitem"
+                  onClick={() => setOpen(false)}
+                >
+                  {tenant.name}
+                </button>
+              </form>
+            ))}
 
             {showTenantLink && (
               <Link

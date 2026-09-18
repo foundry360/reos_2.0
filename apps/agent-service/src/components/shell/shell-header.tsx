@@ -5,6 +5,7 @@ import { NotificationsMenu } from "./notifications-menu";
 import { UserMenu } from "./user-menu";
 import type { UserProfile } from "@/lib/profile/server";
 import type { UserNotification } from "@/lib/notifications/types";
+import type { UserMenuTenant } from "./user-menu";
 
 interface ShellHeaderProps {
   logoHref: string;
@@ -13,6 +14,7 @@ interface ShellHeaderProps {
   profile: UserProfile;
   accountHref?: string;
   tenantAppHref?: string;
+  tenantWorkspaces?: UserMenuTenant[];
   adminLink?: boolean;
   showGlobalSearch?: boolean;
   notifications?: UserNotification[];
@@ -25,6 +27,7 @@ export function ShellHeader({
   profile,
   accountHref,
   tenantAppHref,
+  tenantWorkspaces,
   adminLink,
   showGlobalSearch = false,
   notifications = [],
@@ -62,6 +65,7 @@ export function ShellHeader({
           avatarUrl={profile.avatarUrl}
           accountHref={accountHref}
           tenantAppHref={tenantAppHref}
+          tenantWorkspaces={tenantWorkspaces}
           compact
         />
       </div>
