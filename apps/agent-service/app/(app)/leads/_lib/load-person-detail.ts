@@ -243,7 +243,11 @@ export async function loadPersonDetail(
       : null;
     const pageToken = (metaChannel?.metadata as MetaChannelMetadata | null)?.access_token?.trim();
     if (metaIdentity?.external_id && pageToken) {
-      const profile = await fetchMetaSenderProfile(metaIdentity.external_id, pageToken);
+      const profile = await fetchMetaSenderProfile(
+        metaIdentity.external_id,
+        pageToken,
+        metaIdentity.channel === "instagram" ? "instagram" : "messenger",
+      );
       if (profile?.avatarUrl) {
         avatarUrl = profile.avatarUrl;
         if (!avatarSelect.error) {

@@ -52,12 +52,15 @@ function afternoonWindow(): { startHour: number; endHour: number } {
   return { startHour: 13, endHour: 17 };
 }
 
-async function refreshAccessToken(refreshToken: string): Promise<{
-  accessToken: string;
-  expiresIn: number | null;
-} | null> {
+type RefreshResult =
+  | { ok: true; accessToken: string; expiresIn: number | null }
+  | { ok: false; revoked: boolean };
+
+async function refreshAccessToken(refreshToken: string): Promise<RefreshResult> {
   const env = getEnv();
-  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) return null;
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    return { ok: false, revoked: false };
+  }
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -71,19 +74,49 @@ async function refreshAccessToken(refreshToken: string): Promise<{
   });
 
   if (!response.ok) {
-    console.error("Google token refresh failed:", await response.text());
-    return null;
+    const body = await response.text();
+    const revoked = /invalid_grant/i.test(body);
+    // Expected when the user revoked access or the refresh token expired —
+    // avoid console.error so Next.js does not surface a redbox Console Error.
+    if (!revoked) {
+      console.warn("Google token refresh failed:", body);
+    }
+    return { ok: false, revoked };
   }
 
   const data = (await response.json()) as {
     access_token?: string;
     expires_in?: number;
   };
-  if (!data.access_token) return null;
+  if (!data.access_token) return { ok: false, revoked: false };
   return {
+    ok: true,
     accessToken: data.access_token,
     expiresIn: data.expires_in ?? null,
   };
+}
+
+/** Mark calendar OAuth as broken so we stop retrying every page load. */
+async function markCalendarAuthBroken(
+  rowId: string,
+  metadata: CalendarMetadata,
+): Promise<void> {
+  const db = getSupabaseAdmin();
+  if (!db) return;
+  await db
+    .from("channel_accounts")
+    .update({
+      status: "error",
+      metadata: {
+        ...metadata,
+        access_token: null,
+        // Keep refresh_token out of further attempts until reconnect.
+        refresh_token: null,
+        auth_error: "invalid_grant",
+        auth_error_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", rowId);
 }
 
 async function loadCalendarAccount(tenantId: string): Promise<{
@@ -113,9 +146,13 @@ async function loadCalendarAccount(tenantId: string): Promise<{
   const needsRefresh =
     !accessToken || (expiresAt > 0 && expiresAt < Date.now() + 60_000);
 
-  if (needsRefresh && refreshToken) {
+  if (needsRefresh) {
+    if (!refreshToken) {
+      await markCalendarAuthBroken(data.id, metadata);
+      return null;
+    }
     const refreshed = await refreshAccessToken(refreshToken);
-    if (refreshed) {
+    if (refreshed.ok) {
       accessToken = refreshed.accessToken;
       const expiresAtIso = refreshed.expiresIn
         ? new Date(Date.now() + refreshed.expiresIn * 1000).toISOString()
@@ -131,6 +168,11 @@ async function loadCalendarAccount(tenantId: string): Promise<{
           },
         })
         .eq("id", data.id);
+    } else {
+      if (refreshed.revoked) {
+        await markCalendarAuthBroken(data.id, metadata);
+      }
+      return null;
     }
   }
 
@@ -317,14 +359,16 @@ export async function getAvailableConsultSlots(params: {
 
   if (!freeBusyRes.ok) {
     const body = await freeBusyRes.text();
-    console.error("Google FreeBusy failed:", body);
+    if (freeBusyRes.status !== 401) {
+      console.warn("Google FreeBusy failed:", body);
+    }
     if (
       freeBusyRes.status === 401 &&
       !params._retried &&
       account.metadata.refresh_token
     ) {
       const refreshed = await refreshAccessToken(account.metadata.refresh_token);
-      if (refreshed) {
+      if (refreshed.ok) {
         const db = getSupabaseAdmin();
         if (db) {
           await db
@@ -344,6 +388,9 @@ export async function getAvailableConsultSlots(params: {
             .eq("id", account.rowId);
         }
         return getAvailableConsultSlots({ ...params, _retried: true });
+      }
+      if (refreshed.revoked) {
+        await markCalendarAuthBroken(account.rowId, account.metadata);
       }
     }
     return { ok: false, error: "Could not read calendar availability." };
@@ -673,14 +720,16 @@ export async function listGoogleCalendarEvents(params: {
 
   if (!response.ok) {
     const body = await response.text();
-    console.error("Google Calendar events.list failed:", body);
+    if (response.status !== 401) {
+      console.warn("Google Calendar events.list failed:", body);
+    }
     if (
       response.status === 401 &&
       !params._retried &&
       account.metadata.refresh_token
     ) {
       const refreshed = await refreshAccessToken(account.metadata.refresh_token);
-      if (refreshed) {
+      if (refreshed.ok) {
         const db = getSupabaseAdmin();
         if (db) {
           await db
@@ -698,6 +747,9 @@ export async function listGoogleCalendarEvents(params: {
             .eq("id", account.rowId);
         }
         return listGoogleCalendarEvents({ ...params, _retried: true });
+      }
+      if (refreshed.revoked) {
+        await markCalendarAuthBroken(account.rowId, account.metadata);
       }
     }
     return { ok: false, error: "Could not load Google Calendar events." };

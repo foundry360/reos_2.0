@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { signOutAction } from "@/lib/auth/actions";
-import { openTenantAction } from "@/lib/admin/account-actions";
+import { selectTenantWorkspaceAction } from "@/lib/admin/account-actions";
 import { UserAvatar } from "./user-avatar";
 import styles from "./shell.module.css";
 
@@ -32,6 +32,7 @@ export function UserMenu({
   compact = false,
 }: UserMenuProps) {
   const [open, setOpen] = useState(false);
+  const [pending, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
 
   const name = displayName ?? email.split("@")[0];
@@ -48,6 +49,17 @@ export function UserMenu({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
+  function openWorkspace(tenantId: string) {
+    startTransition(async () => {
+      const result = await selectTenantWorkspaceAction(tenantId);
+      if (!result.ok) {
+        console.error(result.error ?? "Could not open workspace.");
+        return;
+      }
+      window.location.assign("/overview");
+    });
+  }
+
   return (
     <div className={styles.userMenu} ref={ref}>
       <button
@@ -57,6 +69,7 @@ export function UserMenu({
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label="Account menu"
+        disabled={pending}
       >
         <UserAvatar email={email} displayName={displayName} avatarUrl={avatarUrl} />
         {!compact && (
@@ -100,17 +113,16 @@ export function UserMenu({
             )}
 
             {tenantWorkspaces.map((tenant) => (
-              <form key={tenant.id} action={openTenantAction}>
-                <input type="hidden" name="tenantId" value={tenant.id} />
-                <button
-                  type="submit"
-                  className={styles.dropdownItem}
-                  role="menuitem"
-                  onClick={() => setOpen(false)}
-                >
-                  {tenant.name}
-                </button>
-              </form>
+              <button
+                key={tenant.id}
+                type="button"
+                className={styles.dropdownItem}
+                role="menuitem"
+                disabled={pending}
+                onClick={() => openWorkspace(tenant.id)}
+              >
+                {pending ? "Opening…" : tenant.name}
+              </button>
             ))}
 
             {showTenantLink && (
@@ -127,6 +139,7 @@ export function UserMenu({
               <button
                 type="submit"
                 className={`${styles.dropdownItem} ${styles.dropdownItemDanger}`}
+                disabled={pending}
               >
                 Sign Out
               </button>

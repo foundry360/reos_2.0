@@ -240,7 +240,7 @@ export async function fetchCalendarEvents(
     });
 
     if (!googleResult.ok) {
-      console.error("calendar google events failed:", googleResult.error);
+      console.warn("calendar google events failed:", googleResult.error);
     } else {
       const accountLabel = googleResult.calendarLabel;
       for (const row of googleResult.events) {

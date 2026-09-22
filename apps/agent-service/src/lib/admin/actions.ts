@@ -107,15 +107,23 @@ export async function updateTenantStatus(tenantId: string, status: string): Prom
 
 const IMPERSONATE_COOKIE = "reos_impersonate_tenant";
 
-export async function startImpersonation(tenantId: string): Promise<void> {
+/** Set the active tenant workspace cookie (no redirect). */
+export async function selectTenantWorkspace(tenantId: string): Promise<void> {
   await requirePlatformAdmin();
+  const id = tenantId.trim();
+  if (!id) throw new Error("Missing account id.");
+
   const cookieStore = await cookies();
-  cookieStore.set(IMPERSONATE_COOKIE, tenantId, {
+  cookieStore.set(IMPERSONATE_COOKIE, id, {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 8,
   });
+}
+
+export async function startImpersonation(tenantId: string): Promise<void> {
+  await selectTenantWorkspace(tenantId);
   redirect("/overview");
 }
 

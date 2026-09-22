@@ -57,8 +57,8 @@ export async function listAssignedTenants(userId: string): Promise<AssignedTenan
 
 /**
  * Resolve the active workspace for the logged-in tenant user.
- * Uses membership first. Impersonation is only a fallback for platform ops
- * previewing a tenant they are not a member of.
+ * Prefer an explicit workspace cookie (Admin avatar switcher); otherwise
+ * use membership. Platform admins may open tenants they are not members of.
  */
 export const resolveCurrentTenant = cache(async (): Promise<CurrentTenantContext> => {
   const supabase = await createClient();
@@ -80,17 +80,17 @@ export const resolveCurrentTenant = cache(async (): Promise<CurrentTenantContext
     .filter((id): id is string => Boolean(id));
 
   const impersonated = await getImpersonatedTenantId();
-  if (impersonated && membershipIds.includes(impersonated)) {
-    return { tenantId: impersonated, reason: null };
+  const platformAdmin = await isPlatformAdmin(user.id);
+
+  // Explicit workspace selection (Admin avatar / Open account) wins.
+  if (impersonated) {
+    if (membershipIds.includes(impersonated) || platformAdmin) {
+      return { tenantId: impersonated, reason: null };
+    }
   }
 
   if (membershipIds[0]) {
     return { tenantId: membershipIds[0], reason: null };
-  }
-
-  const platformAdmin = await isPlatformAdmin(user.id);
-  if (platformAdmin && impersonated) {
-    return { tenantId: impersonated, reason: null };
   }
 
   return { tenantId: null, reason: "no_membership" };

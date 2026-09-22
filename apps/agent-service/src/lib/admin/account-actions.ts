@@ -2,10 +2,34 @@
 
 import { revalidatePath } from "next/cache";
 import { isValidTenantStatus } from "@/lib/admin/account-status";
-import { startImpersonation, updateTenantStatus } from "@/lib/admin/actions";
+import {
+  selectTenantWorkspace,
+  startImpersonation,
+  updateTenantStatus,
+} from "@/lib/admin/actions";
 import { requirePlatformAdmin } from "@/lib/admin/auth";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/lib/admin/tenant-config-actions";
+
+/**
+ * Set the active tenant workspace cookie (no redirect).
+ * Caller should hard-navigate to /overview so the cookie is on the next request
+ * without relying on redirect() inside startTransition (avoids error overlay noise).
+ */
+export async function selectTenantWorkspaceAction(
+  tenantId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const id = tenantId.trim();
+  if (!id) return { ok: false, error: "Missing account id." };
+  try {
+    await selectTenantWorkspace(id);
+    return { ok: true };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not open workspace.";
+    return { ok: false, error: message };
+  }
+}
 
 export async function openTenantAction(formData: FormData): Promise<void> {
   const tenantId = String(formData.get("tenantId") ?? "");
