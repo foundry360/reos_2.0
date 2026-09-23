@@ -33,6 +33,7 @@ interface NewOpportunityModalProps {
   contactOptions: SelectOption[];
   agentOptions: SelectOption[];
   defaultContactId?: string;
+  defaultAssignedAgentId?: string;
   /** When true, contact is fixed to defaultContactId and cannot be changed. */
   lockContact?: boolean;
   trigger?: "pill" | "link" | "cta" | "footer" | "secondary";
@@ -44,6 +45,7 @@ export function NewOpportunityModal({
   contactOptions,
   agentOptions,
   defaultContactId = "",
+  defaultAssignedAgentId = "",
   lockContact = false,
   trigger = "pill",
   linkLabel = "Add the first one",
@@ -61,7 +63,9 @@ export function NewOpportunityModal({
   const [stage, setStage] = useState<OpportunityStage | "">("");
   const [amount, setAmount] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
-  const [assignedAgentId, setAssignedAgentId] = useState("none");
+  const [assignedAgentId, setAssignedAgentId] = useState(
+    defaultAssignedAgentId || "none",
+  );
   const [leadSource, setLeadSource] = useState("none");
   const [priority, setPriority] = useState("none");
   const panelRef = useRef<HTMLDivElement>(null);
@@ -69,6 +73,7 @@ export function NewOpportunityModal({
   const resolvedDefaultContactId = lockContact
     ? defaultContactId || contactOptions[0]?.id || ""
     : defaultContactId;
+  const resolvedDefaultAgentId = defaultAssignedAgentId || "none";
   const stageOptions = pipeline ? stagesForPipeline(pipeline) : [];
 
   useEffect(() => {
@@ -86,6 +91,7 @@ export function NewOpportunityModal({
       if (resolvedDefaultContactId) {
         setContactId(resolvedDefaultContactId);
       }
+      setAssignedAgentId(resolvedDefaultAgentId);
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -93,17 +99,17 @@ export function NewOpportunityModal({
     return () => {
       document.body.style.overflow = "";
     };
-  }, [open, resolvedDefaultContactId]);
+  }, [open, resolvedDefaultContactId, resolvedDefaultAgentId]);
 
   function resetForm() {
     setName("");
     setContactId(resolvedDefaultContactId);
+    setAssignedAgentId(resolvedDefaultAgentId);
     setOpportunityType(DEFAULT_OPPORTUNITY_TYPE);
     setPipeline("");
     setStage("");
     setAmount("");
     setExpectedCloseDate("");
-    setAssignedAgentId("none");
     setLeadSource("none");
     setPriority("none");
     setError(null);

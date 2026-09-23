@@ -312,6 +312,10 @@ function resolvePreferredDay(
   return null;
 }
 
+/**
+ * @deprecated Concierge availability uses getAvailableReosConsultSlots.
+ * Kept for optional/future Google FreeBusy sync — do not call from Scheduler tools.
+ */
 export async function getAvailableConsultSlots(params: {
   tenantId: string;
   preference?: SlotPreference;
@@ -513,6 +517,10 @@ function isBookableStart(start: Date): string | null {
   return null;
 }
 
+/**
+ * @deprecated Concierge booking uses bookReosConsultSlot (REOS calendar SoR).
+ * Kept for optional/future Google sync — do not call from Scheduler tools.
+ */
 export async function bookConsultSlot(params: {
   tenantId: string;
   start: string;

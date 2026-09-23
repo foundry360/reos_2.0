@@ -59,6 +59,17 @@ export function isValidEmailAddress(value: string): boolean {
   return EMAIL_RE.test(value.trim().toLowerCase());
 }
 
+/** Prefer an optional profile override; otherwise the login email. */
+export function resolveReplyToEmail(
+  loginEmail: string,
+  preferred: string | null | undefined,
+): string {
+  const fallback = normalizeEmailAddress(loginEmail);
+  const override = preferred?.trim() ? normalizeEmailAddress(preferred) : "";
+  if (override && isValidEmailAddress(override)) return override;
+  return fallback;
+}
+
 export function normalizeEmailAddress(value: string): string {
   return value.trim().toLowerCase();
 }

@@ -23,6 +23,7 @@ import type {
   PersonOpportunitySummary,
 } from "../_lib/person-detail-types";
 import { NewActivityModal } from "./new-activity-modal";
+import { NewMeetingModal } from "./new-meeting-modal";
 import { NewOpportunityModal } from "../../opportunities/_components/new-opportunity-modal";
 import { NewTaskModal } from "../../tasks/_components/new-task-modal";
 import { ExpandableTasksList } from "../../tasks/_components/expandable-tasks-list";
@@ -470,6 +471,7 @@ export function PersonDetailView({
       contactOptions={[contactOption]}
       agentOptions={agentOptions}
       defaultContactId={person.id}
+      defaultAssignedAgentId={person.assignedAgentId ?? ""}
       lockContact
       trigger="secondary"
       linkLabel="Add"
@@ -544,6 +546,17 @@ export function PersonDetailView({
                     />
                   );
                 }
+                if (action.id === "meeting") {
+                  return (
+                    <NewMeetingModal
+                      key={action.id}
+                      contactId={person.id}
+                      trigger="quickAction"
+                      linkLabel="Meeting"
+                      triggerIcon={action.icon}
+                    />
+                  );
+                }
                 if (action.id === "email") {
                   return (
                     <button
@@ -575,7 +588,11 @@ export function PersonDetailView({
             </div>
           </section>
 
-          <PersonAboutCard person={person} onComposeEmail={composeEmail} />
+          <PersonAboutCard
+            person={person}
+            agentOptions={agentOptions}
+            onComposeEmail={composeEmail}
+          />
           <PersonAdditionalInfoCard person={person} />
           </div>
         </aside>
@@ -695,7 +712,7 @@ export function PersonDetailView({
                   <div className={styles.personFeedEmptyState}>
                     <EmptyState
                       title="Keep every touchpoint in one place"
-                      description="Log notes, calls, emails, and meetings so the full story stays with this record."
+                      description="Log notes, calls, and emails so the full story stays with this record."
                       action={addActivityCta}
                     />
                   </div>

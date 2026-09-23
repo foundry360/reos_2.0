@@ -50,24 +50,27 @@ export function activityGroupForDate(
   }
 
   const monthStart = startOfLocalMonth(date);
+  // Keep older months after "This Month" (sort 4), newest month first.
+  const monthIndex = monthStart.getFullYear() * 12 + monthStart.getMonth();
   return {
     key: `month-${monthStart.getFullYear()}-${monthStart.getMonth()}`,
     label: new Intl.DateTimeFormat("en-US", {
       month: "long",
       year: "numeric",
     }).format(monthStart),
-    sort: 1000 - (monthStart.getFullYear() * 12 + monthStart.getMonth()),
+    sort: 5 + (2100 * 12 - monthIndex),
   };
 }
 
 export function groupByActivityDate<T>(
   items: T[],
   getIso: (item: T) => string,
+  now = new Date(),
 ): { key: string; label: string; items: T[] }[] {
   const groups = new Map<string, { key: string; label: string; sort: number; items: T[] }>();
 
   for (const item of items) {
-    const meta = activityGroupForDate(getIso(item));
+    const meta = activityGroupForDate(getIso(item), now);
     const existing = groups.get(meta.key);
     if (existing) {
       existing.items.push(item);
@@ -79,12 +82,12 @@ export function groupByActivityDate<T>(
   return [...groups.values()]
     .sort((a, b) => a.sort - b.sort)
     .map(({ key, label, items: groupItems }) => {
-      const sorted =
-        key === "upcoming"
-          ? [...groupItems].sort(
-              (a, b) => new Date(getIso(a)).getTime() - new Date(getIso(b)).getTime(),
-            )
-          : groupItems;
+      const sorted = [...groupItems].sort((a, b) => {
+        const aTime = new Date(getIso(a)).getTime();
+        const bTime = new Date(getIso(b)).getTime();
+        // Upcoming: soonest first. Past groups: most recent first.
+        return key === "upcoming" ? aTime - bTime : bTime - aTime;
+      });
       return { key, label, items: sorted };
     });
 }

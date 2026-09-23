@@ -27,6 +27,7 @@ interface NewLeadModalProps {
   disabled?: boolean;
   kind?: PersonKind;
   defaultEmail?: string;
+  agentOptions?: Array<{ id: string; label: string }>;
   onCreated?: (contact: { id: string; name: string; email: string }) => void;
 }
 
@@ -36,6 +37,7 @@ export function NewLeadModal({
   disabled = false,
   kind = "lead",
   defaultEmail = "",
+  agentOptions = [],
   onCreated,
 }: NewLeadModalProps) {
   const router = useRouter();
@@ -51,6 +53,7 @@ export function NewLeadModal({
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<LeadStatus>("New");
   const [contactType, setContactType] = useState<ContactType>(DEFAULT_CONTACT_TYPE);
+  const [assignedAgentId, setAssignedAgentId] = useState("none");
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,6 +88,7 @@ export function NewLeadModal({
     setEmail("");
     setStatus("New");
     setContactType(DEFAULT_CONTACT_TYPE);
+    setAssignedAgentId("none");
     setError(null);
   }
 
@@ -93,6 +97,10 @@ export function NewLeadModal({
     setError(null);
     const formData = new FormData(e.currentTarget);
     formData.set("recordType", kind);
+    formData.set(
+      "assignedAgentId",
+      assignedAgentId === "none" ? "" : assignedAgentId,
+    );
     if (kind === "contact") {
       formData.set("contactType", contactType);
     } else {
@@ -269,6 +277,26 @@ export function NewLeadModal({
                     }))}
                   />
                 )}
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor={`new-${kind}-assigned-agent`}>
+                  Assigned agent
+                </label>
+                <DropdownSelect
+                  id={`new-${kind}-assigned-agent`}
+                  value={assignedAgentId}
+                  ariaLabel="Assigned agent"
+                  disabled={pending}
+                  onChange={setAssignedAgentId}
+                  options={[
+                    { value: "none", label: "Unassigned" },
+                    ...agentOptions.map((option) => ({
+                      value: option.id,
+                      label: option.label,
+                    })),
+                  ]}
+                />
               </div>
 
               <div className={styles.modalFooter}>

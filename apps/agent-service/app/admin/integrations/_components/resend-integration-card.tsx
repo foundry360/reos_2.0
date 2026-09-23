@@ -52,7 +52,7 @@ export function ResendIntegrationCard({ overview }: { overview: IntegrationsOver
   return (
     <IntegrationAccordionCard
       title="Resend"
-      subtitle="Transactional email for invites and product notifications"
+      subtitle="REOS CRM email, invites, and product notifications"
       icon={
         <span className={`${styles.dashStatIcon} ${styles.dashStatIconBlue}`} aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -81,6 +81,12 @@ export function ResendIntegrationCard({ overview }: { overview: IntegrationsOver
           then, use <code>RESEND_API_KEY</code> in the environment.
         </p>
       )}
+
+      <p className={styles.integrationNotice}>
+        CRM email also requires <code>RESEND_FROM_EMAIL</code> set to an address on your verified
+        Resend domain. Optionally set <code>RESEND_FROM_NAME</code> (defaults to REOS). Customer
+        replies go to the authenticated agent&apos;s REOS login email.
+      </p>
 
       <p className={styles.integrationNotice}>
         For Auth invites and password emails, also set Supabase custom SMTP: host{" "}

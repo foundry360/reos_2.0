@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   removeAvatarAction,
   updateDisplayNameAction,
+  updateReplyToEmailAction,
   uploadAvatarAction,
 } from "@/lib/profile/actions";
 import { UserAvatar } from "@/components/shell/user-avatar";
@@ -16,25 +17,35 @@ interface AccountSettingsFormProps {
   email: string;
   displayName: string;
   avatarUrl: string | null;
+  replyToEmail: string | null;
 }
 
 export function AccountSettingsForm({
   email,
   displayName,
   avatarUrl,
+  replyToEmail,
 }: AccountSettingsFormProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(displayName);
+  const [replyTo, setReplyTo] = useState(replyToEmail ?? "");
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [nameSuccess, setNameSuccess] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
+  const [replySuccess, setReplySuccess] = useState(false);
   const [photoPending, startPhotoTransition] = useTransition();
   const [namePending, startNameTransition] = useTransition();
+  const [replyPending, startReplyTransition] = useTransition();
 
   useEffect(() => {
     setName(displayName);
   }, [displayName]);
+
+  useEffect(() => {
+    setReplyTo(replyToEmail ?? "");
+  }, [replyToEmail]);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -90,6 +101,25 @@ export function AccountSettingsForm({
         return;
       }
       setNameSuccess(true);
+      router.refresh();
+    });
+  }
+
+  function handleReplyToSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setReplyError(null);
+    setReplySuccess(false);
+
+    const formData = new FormData();
+    formData.set("replyToEmail", replyTo);
+
+    startReplyTransition(async () => {
+      const result = await updateReplyToEmailAction(formData);
+      if (!result.ok) {
+        setReplyError(result.error ?? "Could not save reply-to email.");
+        return;
+      }
+      setReplySuccess(true);
       router.refresh();
     });
   }
@@ -183,6 +213,44 @@ export function AccountSettingsForm({
           Sign-in email for this account. Contact support to change it.
         </p>
         <p className={styles.settingsReadOnly}>{email}</p>
+      </section>
+
+      <section className={styles.settingsSection}>
+        <h2 className={styles.settingsSectionTitle}>Email Replies</h2>
+        <p className={styles.settingsSectionDesc}>
+          When customers reply to emails you send from REOS, messages go here.
+          Leave blank to use your sign-in email ({email}).
+        </p>
+
+        <form className={styles.settingsForm} onSubmit={handleReplyToSubmit}>
+          {replyError && <p className={styles.error}>{replyError}</p>}
+          {replySuccess && (
+            <p className={styles.success}>Email Replies saved.</p>
+          )}
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="replyToEmail">
+              Email
+            </label>
+            <input
+              id="replyToEmail"
+              type="email"
+              className={styles.input}
+              value={replyTo}
+              onChange={(e) => {
+                setReplyTo(e.target.value);
+                setReplySuccess(false);
+              }}
+              placeholder={email}
+              disabled={replyPending}
+              autoComplete="email"
+            />
+          </div>
+
+          <button type="submit" className={styles.btnPrimary} disabled={replyPending}>
+            {replyPending ? "Saving…" : "Save"}
+          </button>
+        </form>
       </section>
     </div>
   );

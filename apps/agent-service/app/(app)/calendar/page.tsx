@@ -7,7 +7,6 @@ import {
   anchorDate,
   parseCalendarParams,
 } from "@/lib/calendar/calendar-params";
-import { isGoogleCalendarConnected } from "@/lib/google/calendar";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import styles from "@/components/shell/shell.module.css";
 
@@ -33,16 +32,12 @@ export default async function CalendarPage({ searchParams }: PageProps) {
 
   const anchor = anchorDate(params);
   const { start, end } = getVisibleRange(params.view, anchor);
-  const [events, googleConnected] = await Promise.all([
-    fetchCalendarEvents(tenantId, start, end, params.filters),
-    isGoogleCalendarConnected(tenantId),
-  ]);
+  const events = await fetchCalendarEvents(tenantId, start, end, params.filters);
 
   return (
     <CalendarShell
       params={params}
       events={events}
-      googleConnected={googleConnected}
     />
   );
 }

@@ -6,6 +6,11 @@ export const ACTIVITY_TYPE_OPTIONS = [
   { value: "other", label: "Other" },
 ] as const;
 
+/** Types shown in the generic Log Activity picker (meetings use Schedule Meeting). */
+export const LOG_ACTIVITY_TYPE_OPTIONS = ACTIVITY_TYPE_OPTIONS.filter(
+  (option) => option.value !== "meeting",
+);
+
 export type ActivityType = (typeof ACTIVITY_TYPE_OPTIONS)[number]["value"];
 
 /** Includes system-generated types not shown in the log-activity picker. */

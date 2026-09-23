@@ -35,6 +35,7 @@ export default async function AdminSettingsPage() {
             email={admin.email}
             displayName={profile.displayName}
             avatarUrl={profile.avatarUrl}
+            replyToEmail={profile.replyToEmail}
           />
         </div>
 

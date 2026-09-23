@@ -191,7 +191,10 @@ export async function applyToolCalls(
   }
 
   if (fields.appt_booked === true) {
-    await ensureAppointmentSetOpportunity(activeContactId);
+    const bookedViaTool = toolCalls.some((call) => call.name === "book_appointment");
+    await ensureAppointmentSetOpportunity(activeContactId, {
+      skipAppointmentActivityLog: bookedViaTool,
+    });
   } else if (
     touchedQualification ||
     fields.intent ||

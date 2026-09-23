@@ -35,6 +35,12 @@ export interface CalendarEvent {
   end: string;
   allDay: boolean;
   href: string | null;
+  /** Optional appointment fields (REOS meetings). */
+  body?: string | null;
+  location?: string | null;
+  conferenceUrl?: string | null;
+  conferenceHostUrl?: string | null;
+  contactName?: string | null;
 }
 
 export function eventColor(kind: CalendarEventKind): string {

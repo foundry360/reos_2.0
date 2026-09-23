@@ -17,6 +17,63 @@ function personHref(recordType: string | null | undefined, contactId: string): s
   return `${personBasePath(kind)}/${contactId}`;
 }
 
+function readMetaString(
+  metadata: unknown,
+  key: string,
+): string | null {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return null;
+  const value = (metadata as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function appointmentFromRow(row: {
+  id: string;
+  title: string;
+  body?: string | null;
+  occurred_at: string;
+  ends_at?: string | null;
+  contact_id?: string | null;
+  metadata?: unknown;
+  contacts?:
+    | { first_name: string | null; last_name: string | null; record_type: string | null }
+    | { first_name: string | null; last_name: string | null; record_type: string | null }[]
+    | null;
+}): CalendarEvent {
+  const start = new Date(row.occurred_at);
+  const end = row.ends_at
+    ? new Date(row.ends_at)
+    : new Date(start.getTime() + APPOINTMENT_MINUTES * 60 * 1000);
+  const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts;
+  const contactName = contact
+    ? personName(contact.first_name, contact.last_name)
+    : null;
+  const location = readMetaString(row.metadata, "location");
+  const conferenceUrl = readMetaString(row.metadata, "conference_url");
+  const conferenceHostUrl = readMetaString(row.metadata, "conference_host_url");
+  const physicalLocation =
+    location && location !== conferenceUrl && location !== conferenceHostUrl
+      ? location
+      : null;
+
+  return {
+    id: `activity:${row.id}`,
+    kind: "appointment",
+    title: row.title,
+    subtitle: contactName ?? row.body?.trim() ?? null,
+    start: start.toISOString(),
+    end: end.toISOString(),
+    allDay: false,
+    href: row.contact_id
+      ? personHref(contact?.record_type, row.contact_id)
+      : null,
+    body: row.body?.trim() || null,
+    location: physicalLocation,
+    conferenceUrl,
+    conferenceHostUrl,
+    contactName,
+  };
+}
+
 function overlapsRange(
   start: Date,
   end: Date,
@@ -149,7 +206,7 @@ export async function fetchCalendarEvents(
       .from("contact_activities")
       .select(
         `
-        id, title, body, activity_type, occurred_at, contact_id,
+        id, title, body, activity_type, occurred_at, ends_at, contact_id, metadata,
         contacts ( first_name, last_name, record_type )
       `,
       )
@@ -160,29 +217,33 @@ export async function fetchCalendarEvents(
       .order("occurred_at", { ascending: true })
       .limit(500);
 
-    if (error) {
+    if (error && /ends_at|metadata|schema cache|column/i.test(error.message)) {
+      const legacy = await supabase
+        .from("contact_activities")
+        .select(
+          `
+          id, title, body, activity_type, occurred_at, contact_id,
+          contacts ( first_name, last_name, record_type )
+        `,
+        )
+        .eq("tenant_id", tenantId)
+        .in("activity_type", ["appointment", "meeting"])
+        .gte("occurred_at", rangeStart.toISOString())
+        .lte("occurred_at", rangeEnd.toISOString())
+        .order("occurred_at", { ascending: true })
+        .limit(500);
+      if (legacy.error) {
+        console.error("calendar appointments failed:", legacy.error.message);
+      } else {
+        for (const row of legacy.data ?? []) {
+          events.push(appointmentFromRow(row));
+        }
+      }
+    } else if (error) {
       console.error("calendar appointments failed:", error.message);
     } else {
       for (const row of activityRows ?? []) {
-        const start = new Date(row.occurred_at);
-        const end = new Date(start.getTime() + APPOINTMENT_MINUTES * 60 * 1000);
-        const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts;
-        const contactName = contact
-          ? personName(contact.first_name, contact.last_name)
-          : null;
-
-        events.push({
-          id: `activity:${row.id}`,
-          kind: "appointment",
-          title: row.title,
-          subtitle: contactName ?? row.body?.trim() ?? null,
-          start: start.toISOString(),
-          end: end.toISOString(),
-          allDay: false,
-          href: row.contact_id
-            ? personHref(contact?.record_type, row.contact_id)
-            : null,
-        });
+        events.push(appointmentFromRow(row));
       }
     }
   }

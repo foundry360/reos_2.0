@@ -66,6 +66,8 @@ export interface PersonDetailData {
   statusLabel: string;
   contactType: ContactType | null;
   contactTypeLabel: string;
+  assignedAgentId: string | null;
+  assignedAgentLabel: string | null;
   score: number | null;
   temperature: string | null;
   optedOut: boolean;

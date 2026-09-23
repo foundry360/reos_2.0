@@ -226,8 +226,8 @@ export function PersonEmailPanel({
     return (
       <div className={`${styles.emailPanel} ${styles.emailPanelEmpty}`}>
         <EmailEmptyState
-          title="Connect Email"
-          description="Connect Gmail in Admin → Accounts → Connections to send and track emails here."
+          title="Email not available"
+          description="Email sending is not configured for this workspace yet. Ask your platform admin to enable it."
         />
       </div>
     );

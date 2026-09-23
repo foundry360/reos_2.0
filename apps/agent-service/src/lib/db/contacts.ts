@@ -21,7 +21,7 @@ export interface InboundChannel {
 }
 
 const CONTACT_SELECT =
-  "id, tenant_id, first_name, last_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences";
+  "id, tenant_id, first_name, last_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences, assigned_agent_id";
 
 type ContactRow = {
   id: string;
@@ -48,6 +48,7 @@ type ContactRow = {
   must_haves?: string | null;
   motivation?: string | null;
   preferences?: string | null;
+  assigned_agent_id?: string | null;
 };
 
 function toContactContext(
@@ -508,7 +509,7 @@ export async function ensureScoreAndTemperature(
  */
 export async function markConsultBooked(
   contactId: string,
-  options?: { email?: string | null },
+  options?: { email?: string | null; skipAppointmentActivityLog?: boolean },
 ): Promise<string | null> {
   const fields: Record<string, string | number | boolean | null> = {
     appt_booked: true,
@@ -531,7 +532,9 @@ export async function markConsultBooked(
 
   await ensureAiSummary(survivorId, { force: false });
   await ensureScoreAndTemperature(survivorId, { force: true });
-  await ensureAppointmentSetOpportunity(survivorId);
+  await ensureAppointmentSetOpportunity(survivorId, {
+    skipAppointmentActivityLog: options?.skipAppointmentActivityLog,
+  });
   return survivorId;
 }
 

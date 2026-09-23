@@ -208,18 +208,24 @@ export async function syncContactGmailMessages(params: {
 
   const { data: tenantRows } = await db
     .from("crm_emails")
-    .select("provider_message_id")
+    .select("provider_message_id, metadata")
     .eq("tenant_id", params.tenantId)
     .eq("provider", "gmail")
     .not("provider_message_id", "is", null);
 
   const existing = new Set(
-    (tenantRows ?? []).map((row) => row.provider_message_id).filter(Boolean) as string[],
+    (tenantRows ?? [])
+      .filter((row) => {
+        const meta = (row.metadata ?? {}) as { delivery_provider?: string };
+        return meta.delivery_provider !== "resend";
+      })
+      .map((row) => row.provider_message_id)
+      .filter(Boolean) as string[],
   );
 
   const { data: contactRows } = await db
     .from("crm_emails")
-    .select("thread_id")
+    .select("thread_id, metadata")
     .eq("tenant_id", params.tenantId)
     .eq("contact_id", params.contactId)
     .eq("provider", "gmail");
@@ -227,6 +233,10 @@ export async function syncContactGmailMessages(params: {
   const threadIds = [
     ...new Set(
       (contactRows ?? [])
+        .filter((row) => {
+          const meta = (row.metadata ?? {}) as { delivery_provider?: string };
+          return meta.delivery_provider !== "resend";
+        })
         .map((row) => row.thread_id)
         .filter((id): id is string => Boolean(id)),
     ),

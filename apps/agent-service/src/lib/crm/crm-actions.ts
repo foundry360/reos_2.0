@@ -30,6 +30,22 @@ import {
   notifyTenantNewLead,
 } from "@/lib/notifications/create-notification";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  defaultAppointmentEnd,
+  resolveAssignedAgentUserId,
+  sendAppointmentInvites,
+} from "@/lib/calendar/appointment-invites";
+import {
+  createMeetingRoomName,
+  isVideoConferencingConfigured,
+} from "@/lib/calendar/jitsi";
+import { buildMeetingJoinUrl } from "@/lib/calendar/meeting-join";
+import {
+  CONSULT_MINUTES,
+  DEFAULT_TIME_ZONE,
+  formatSlotLabel,
+} from "@/lib/calendar/consult-slots";
+import { isValidEmailAddress } from "@/lib/email/email-utils";
 
 export interface CrmActionResult {
   ok: boolean;
@@ -227,6 +243,7 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
     : kind === "contact"
       ? DEFAULT_CONTACT_TYPE
       : null;
+  const assignedAgentId = parseOptionalContactId(formData.get("assignedAgentId"));
 
   const phoneResult = parsePhoneForStorage(phoneRaw);
   if (!phoneResult.ok) {
@@ -242,6 +259,18 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
   }
 
   const supabase = await createClient();
+
+  if (assignedAgentId) {
+    const { data: membership } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("tenant_id", tenant.tenantId)
+      .eq("user_id", assignedAgentId)
+      .maybeSingle();
+    if (!membership) {
+      return { ok: false, error: "Selected agent was not found." };
+    }
+  }
 
   if (phoneResult.phone) {
     const digits = phoneResult.phone.replace(/\D/g, "");
@@ -275,6 +304,7 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
       lead_status: kind === "contact" ? "Converted" : status,
       record_type: kind,
       contact_type: contactType,
+      assigned_agent_id: assignedAgentId,
     })
     .select("id")
     .single();
@@ -357,6 +387,7 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
   const phoneRaw = String(formData.get("phone") ?? "");
   const statusRaw = String(formData.get("status") ?? "New");
   const contactTypeRaw = String(formData.get("contactType") ?? "").trim();
+  const assignedAgentId = parseOptionalContactId(formData.get("assignedAgentId"));
 
   const phoneResult = parsePhoneForStorage(phoneRaw);
   if (!phoneResult.ok) {
@@ -375,13 +406,27 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
 
   const { data: existing } = await supabase
     .from("contacts")
-    .select("id, record_type, contact_type, lead_status, first_name, last_name, email")
+    .select(
+      "id, record_type, contact_type, lead_status, first_name, last_name, email, assigned_agent_id",
+    )
     .eq("id", leadId)
     .eq("tenant_id", tenant.tenantId)
     .maybeSingle();
 
   if (!existing) {
     return { ok: false, error: "Record not found." };
+  }
+
+  if (assignedAgentId) {
+    const { data: membership } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("tenant_id", tenant.tenantId)
+      .eq("user_id", assignedAgentId)
+      .maybeSingle();
+    if (!membership) {
+      return { ok: false, error: "Selected agent was not found." };
+    }
   }
 
   const { data: existingSmsIdentity } = await supabase
@@ -399,6 +444,7 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
     first_name: firstName || null,
     last_name: lastName || null,
     email: email || null,
+    assigned_agent_id: assignedAgentId,
   };
 
   if (kind === "lead") {
@@ -454,6 +500,16 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
 
   if (contactError) {
     return { ok: false, error: contactError.message };
+  }
+
+  // Carry newly set assigned agent onto open opportunities that have none yet.
+  if (assignedAgentId && (existing.assigned_agent_id ?? null) !== assignedAgentId) {
+    await supabase
+      .from("opportunities")
+      .update({ assigned_agent_id: assignedAgentId })
+      .eq("tenant_id", tenant.tenantId)
+      .eq("contact_id", leadId)
+      .is("assigned_agent_id", null);
   }
 
   const { data: smsIdentity } = existingSmsIdentity
@@ -527,6 +583,9 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
     changes.push(
       `Type ${formatContactTypeLabel(existing.contact_type)} → ${formatContactTypeLabel(String(updates.contact_type ?? ""))}`,
     );
+  }
+  if ((existing.assigned_agent_id ?? null) !== (assignedAgentId ?? null)) {
+    changes.push("Assigned agent updated");
   }
   if (nextKind !== kind) {
     changes.push(`Converted to ${personSingular(nextKind)}`);
@@ -758,7 +817,7 @@ export async function createOpportunityAction(
 
   const { data: contact } = await supabase
     .from("contacts")
-    .select("id")
+    .select("id, assigned_agent_id")
     .eq("id", contactId)
     .eq("tenant_id", tenant.tenantId)
     .maybeSingle();
@@ -766,12 +825,17 @@ export async function createOpportunityAction(
     return { ok: false, error: "Selected contact was not found." };
   }
 
-  if (assignedAgentId) {
+  let resolvedAssignedAgentId = assignedAgentId;
+  if (!resolvedAssignedAgentId && contact.assigned_agent_id) {
+    resolvedAssignedAgentId = contact.assigned_agent_id;
+  }
+
+  if (resolvedAssignedAgentId) {
     const { data: membership } = await supabase
       .from("memberships")
       .select("user_id")
       .eq("tenant_id", tenant.tenantId)
-      .eq("user_id", assignedAgentId)
+      .eq("user_id", resolvedAssignedAgentId)
       .maybeSingle();
     if (!membership) {
       return { ok: false, error: "Selected agent was not found." };
@@ -787,7 +851,7 @@ export async function createOpportunityAction(
       pipeline,
       stage,
       opportunity_type: opportunityType,
-      assigned_agent_id: assignedAgentId,
+      assigned_agent_id: resolvedAssignedAgentId,
       lead_source: leadSource,
       priority,
       amount_cents: typeof amount === "number" ? amount : null,
@@ -1490,6 +1554,15 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
   const title = String(formData.get("title") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim() || null;
   const occurredDate = String(formData.get("occurredDate") ?? "").trim();
+  const startDateRaw = String(formData.get("startDate") ?? "").trim() || occurredDate;
+  const startTimeRaw = String(formData.get("startTime") ?? "").trim();
+  const endDateRaw = String(formData.get("endDate") ?? "").trim() || startDateRaw;
+  const endTimeRaw = String(formData.get("endTime") ?? "").trim();
+  const locationRaw = String(formData.get("location") ?? "").trim() || null;
+  const addVideo =
+    String(formData.get("addVideo") ?? "").trim() === "true" ||
+    String(formData.get("locationMode") ?? "").trim() === "video";
+  const locationMode = addVideo ? "video" : "in_person";
 
   if (!contactId) {
     return { ok: false, error: "A contact is required." };
@@ -1501,21 +1574,74 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
     return { ok: false, error: "Activity title is required." };
   }
 
-  // Notes always use the current system time; other activities may pick a date.
-  const occurredAt =
-    activityTypeRaw === "note"
-      ? new Date().toISOString()
-      : occurredDate
-        ? new Date(`${occurredDate}T12:00:00`).toISOString()
-        : new Date().toISOString();
+  const isMeeting = activityTypeRaw === "meeting";
+
+  function combineDateAndTime(date: string, time: string): string | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const clock = /^\d{2}:\d{2}$/.test(time) ? time : "12:00";
+    const value = new Date(`${date}T${clock}:00`);
+    if (Number.isNaN(value.getTime())) return null;
+    return value.toISOString();
+  }
+
+  let occurredAt: string;
+  let meetingEnd: Date | null = null;
+
+  if (activityTypeRaw === "note") {
+    occurredAt = new Date().toISOString();
+  } else if (isMeeting) {
+    if (!startDateRaw) {
+      return { ok: false, error: "Select a meeting date." };
+    }
+    if (startTimeRaw && !/^\d{2}:\d{2}$/.test(startTimeRaw)) {
+      return { ok: false, error: "Enter a valid start time." };
+    }
+    if (endTimeRaw && !/^\d{2}:\d{2}$/.test(endTimeRaw)) {
+      return { ok: false, error: "Enter a valid end time." };
+    }
+    const startIso = combineDateAndTime(startDateRaw, startTimeRaw || "10:00");
+    if (!startIso) {
+      return { ok: false, error: "Enter a valid meeting start." };
+    }
+    occurredAt = startIso;
+    const endIso = endTimeRaw
+      ? combineDateAndTime(endDateRaw, endTimeRaw)
+      : null;
+    meetingEnd = endIso
+      ? new Date(endIso)
+      : new Date(new Date(startIso).getTime() + CONSULT_MINUTES * 60 * 1000);
+    if (meetingEnd.getTime() <= new Date(occurredAt).getTime()) {
+      return { ok: false, error: "End must be after start." };
+    }
+  } else {
+    occurredAt = occurredDate
+      ? new Date(`${occurredDate}T12:00:00`).toISOString()
+      : new Date().toISOString();
+  }
+
+  const startDate = new Date(occurredAt);
+  const endDate = meetingEnd;
 
   const supabase = await createClient();
-  const { data: contact } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let { data: contact, error: contactLoadError } = await supabase
     .from("contacts")
-    .select("id, record_type")
+    .select("id, record_type, email, first_name, last_name, assigned_agent_id")
     .eq("id", contactId)
     .eq("tenant_id", tenant.tenantId)
     .maybeSingle();
+
+  if (contactLoadError && /assigned_agent_id|schema cache|column/i.test(contactLoadError.message)) {
+    ({ data: contact } = await supabase
+      .from("contacts")
+      .select("id, record_type, email, first_name, last_name")
+      .eq("id", contactId)
+      .eq("tenant_id", tenant.tenantId)
+      .maybeSingle());
+  }
 
   if (!contact) {
     return { ok: false, error: "Selected contact was not found." };
@@ -1540,7 +1666,7 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
       : "lead";
   const relatedEntityId = opportunityId ?? contactId;
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     tenant_id: tenant.tenantId,
     contact_id: contactId,
     activity_type: activityTypeRaw,
@@ -1551,14 +1677,68 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
     related_entity_id: relatedEntityId,
   };
 
+  if (isMeeting && endDate) {
+    payload.ends_at = endDate.toISOString();
+    payload.source = "agent";
+
+    const metadata: Record<string, unknown> = {
+      location_mode: locationMode,
+      add_video: addVideo,
+    };
+
+    if (locationRaw) {
+      metadata.location = locationRaw;
+    }
+
+    if (addVideo) {
+      if (!isVideoConferencingConfigured()) {
+        return {
+          ok: false,
+          error:
+            "Video conferencing is not configured. Add JAAS_APP_ID, JAAS_API_KEY_ID, and JAAS_PRIVATE_KEY.",
+        };
+      }
+      const room = createMeetingRoomName(title);
+      metadata.conference_provider = "jaas";
+      metadata.conference_room = room;
+      // Join URLs are filled after insert (need activity id for signed redirects).
+    }
+
+    if (metadata.location || addVideo) {
+      payload.metadata = metadata;
+    }
+  }
+
   let { data: activity, error } = await supabase
     .from("contact_activities")
     .insert(payload)
     .select("id")
     .single();
 
+  if (error && /metadata|schema cache|column/i.test(error.message) && payload.metadata) {
+    const { metadata: _m, ...withoutMeta } = payload;
+    ({ data: activity, error } = await supabase
+      .from("contact_activities")
+      .insert(withoutMeta)
+      .select("id")
+      .single());
+  }
+
+  if (error && /ends_at|source|schema cache|column/i.test(error.message)) {
+    const { ends_at: _e, source: _s, ...withoutTiming } = payload;
+    ({ data: activity, error } = await supabase
+      .from("contact_activities")
+      .insert(withoutTiming)
+      .select("id")
+      .single());
+  }
+
   if (error && /related_entity|schema cache|column/i.test(error.message)) {
-    const { related_entity_type: _t, related_entity_id: _i, ...legacyPayload } = payload;
+    const {
+      related_entity_type: _t,
+      related_entity_id: _i,
+      ...legacyPayload
+    } = payload;
     ({ data: activity, error } = await supabase
       .from("contact_activities")
       .insert(legacyPayload)
@@ -1568,6 +1748,93 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
 
   if (error || !activity) {
     return { ok: false, error: error?.message ?? "Could not create activity." };
+  }
+
+  if (isMeeting && activity.id) {
+    const leadName = [contact.first_name, contact.last_name]
+      .map((part) => part?.trim())
+      .filter(Boolean)
+      .join(" ");
+    const leadEmail = contact.email?.trim().toLowerCase() || null;
+    const timeZone = await (async () => {
+      const { data: tenantRow } = await supabase
+        .from("tenants")
+        .select("timezone")
+        .eq("id", tenant.tenantId)
+        .maybeSingle();
+      return tenantRow?.timezone?.trim() || DEFAULT_TIME_ZONE;
+    })();
+    const label = formatSlotLabel(occurredAt, timeZone);
+    const agentUserId =
+      user?.id ||
+      (await resolveAssignedAgentUserId({
+        tenantId: tenant.tenantId,
+        contactId,
+        opportunityId,
+      }));
+
+    const meta = (payload.metadata ?? {}) as {
+      location?: string;
+      conference_room?: string;
+      conference_provider?: string;
+      add_video?: boolean;
+    };
+    const meetingEnd = endDate ?? defaultAppointmentEnd(startDate);
+    let guestConferenceUrl: string | null = null;
+    let hostConferenceUrl: string | null = null;
+
+    if (addVideo && meta.conference_room) {
+      guestConferenceUrl = buildMeetingJoinUrl({
+        activityId: activity.id,
+        tenantId: tenant.tenantId,
+        role: "guest",
+        endsAt: meetingEnd,
+      });
+      hostConferenceUrl = buildMeetingJoinUrl({
+        activityId: activity.id,
+        tenantId: tenant.tenantId,
+        role: "host",
+        endsAt: meetingEnd,
+      });
+
+      const updatedMeta = {
+        ...meta,
+        conference_url: guestConferenceUrl,
+        conference_host_url: hostConferenceUrl,
+        ...(locationRaw ? {} : { location: guestConferenceUrl }),
+      };
+      payload.metadata = updatedMeta;
+      const { error: metaUpdateError } = await supabase
+        .from("contact_activities")
+        .update({ metadata: updatedMeta })
+        .eq("id", activity.id)
+        .eq("tenant_id", tenant.tenantId);
+      if (metaUpdateError && !/metadata|schema cache|column/i.test(metaUpdateError.message)) {
+        console.warn("Could not store conference join URLs:", metaUpdateError.message);
+      }
+    }
+
+    const inviteLocation = locationRaw || guestConferenceUrl || null;
+
+    const invite = await sendAppointmentInvites({
+      tenantId: tenant.tenantId,
+      appointmentId: activity.id,
+      summary: title,
+      label,
+      start: startDate,
+      end: meetingEnd,
+      location: inviteLocation,
+      conferenceUrl: guestConferenceUrl,
+      hostConferenceUrl,
+      lead:
+        leadEmail && isValidEmailAddress(leadEmail)
+          ? { email: leadEmail, name: leadName || null }
+          : null,
+      agentUserId,
+    });
+    if (invite.errors.length > 0) {
+      console.warn("Meeting invite issues:", invite.errors.join("; "));
+    }
   }
 
   revalidatePath(`/leads/${contactId}`);
@@ -1640,6 +1907,88 @@ export async function updateActivityAction(formData: FormData): Promise<CrmActio
 
   revalidatePath(`/leads/${existing.contact_id}`);
   revalidatePath(`/contacts/${existing.contact_id}`);
+  if (
+    existing.related_entity_type === "opportunity" &&
+    typeof existing.related_entity_id === "string" &&
+    existing.related_entity_id
+  ) {
+    revalidatePath(`/opportunities/${existing.related_entity_id}`);
+  }
+  return { ok: true, id: activityId };
+}
+
+/**
+ * Remove a REOS calendar appointment/meeting (contact_activities row).
+ * Accepts raw activity UUID or calendar event id (`activity:<uuid>`).
+ */
+export async function deleteCalendarAppointmentAction(
+  eventId: string,
+): Promise<CrmActionResult> {
+  const tenant = await requireTenantId();
+  if (!("tenantId" in tenant)) return tenant;
+
+  const activityId = eventId.startsWith("activity:")
+    ? eventId.slice("activity:".length).trim()
+    : eventId.trim();
+  if (!activityId) {
+    return { ok: false, error: "Appointment is required." };
+  }
+
+  const supabase = await createClient();
+  let existing: {
+    id: string;
+    contact_id: string | null;
+    activity_type: string;
+    related_entity_type?: string | null;
+    related_entity_id?: string | null;
+  } | null = null;
+
+  const withRelated = await supabase
+    .from("contact_activities")
+    .select("id, contact_id, activity_type, related_entity_type, related_entity_id")
+    .eq("id", activityId)
+    .eq("tenant_id", tenant.tenantId)
+    .maybeSingle();
+
+  if (withRelated.error && /related_entity|schema cache|column/i.test(withRelated.error.message)) {
+    const legacy = await supabase
+      .from("contact_activities")
+      .select("id, contact_id, activity_type")
+      .eq("id", activityId)
+      .eq("tenant_id", tenant.tenantId)
+      .maybeSingle();
+    if (legacy.error || !legacy.data) {
+      return { ok: false, error: legacy.error?.message ?? "Appointment was not found." };
+    }
+    existing = legacy.data;
+  } else if (withRelated.error || !withRelated.data) {
+    return { ok: false, error: withRelated.error?.message ?? "Appointment was not found." };
+  } else {
+    existing = withRelated.data;
+  }
+
+  if (
+    existing.activity_type !== "appointment" &&
+    existing.activity_type !== "meeting"
+  ) {
+    return { ok: false, error: "Only appointments can be removed from the calendar." };
+  }
+
+  const { error } = await supabase
+    .from("contact_activities")
+    .delete()
+    .eq("id", activityId)
+    .eq("tenant_id", tenant.tenantId);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/calendar");
+  if (existing.contact_id) {
+    revalidatePath(`/leads/${existing.contact_id}`);
+    revalidatePath(`/contacts/${existing.contact_id}`);
+  }
   if (
     existing.related_entity_type === "opportunity" &&
     typeof existing.related_entity_id === "string" &&

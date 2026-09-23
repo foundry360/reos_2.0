@@ -12,6 +12,7 @@ import { formatLeadStatusLabel } from "@/lib/leads/lead-status";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import { fetchOpportunitiesForContact } from "@/lib/opportunities/opportunities-list";
 import { syncContactGmailMessages } from "@/lib/email/gmail-sync";
+import { isResendEmailConfigured } from "@/lib/email/resend";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
 import { ensureAiSummary, ensureScoreAndTemperature } from "@/lib/db/contacts";
@@ -47,6 +48,7 @@ export async function loadPersonDetail(
       record_type,
       lead_status,
       contact_type,
+      assigned_agent_id,
       qualification_score,
       lead_temperature,
       ai_summary,
@@ -104,6 +106,7 @@ export async function loadPersonDetail(
         record_type,
         lead_status,
         contact_type,
+        assigned_agent_id,
         qualification_score,
         lead_temperature,
         ai_summary,
@@ -358,9 +361,11 @@ export async function loadPersonDetail(
   const emailAccount = (channelAccountsRes.data ?? []).find(
     (row) => row.channel === "email" && row.status === "connected",
   );
-  const emailConnected = Boolean(emailAccount?.metadata);
+  const gmailConnected = Boolean(emailAccount?.metadata);
+  const emailConnected = await isResendEmailConfigured();
 
-  if (emailConnected && contact.email?.trim()) {
+  // Gmail remains an optional history sync. It is not required to send from REOS.
+  if (gmailConnected && contact.email?.trim()) {
     await syncContactGmailMessages({
       tenantId,
       contactId: contact.id,
@@ -384,6 +389,18 @@ export async function loadPersonDetail(
     console.error("person emails failed:", emailsRes.error.message);
   }
 
+  const assignedAgentId =
+    typeof contact.assigned_agent_id === "string" ? contact.assigned_agent_id : null;
+  let assignedAgentLabel: string | null = null;
+  if (assignedAgentId) {
+    const { data: agentProfile } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", assignedAgentId)
+      .maybeSingle();
+    assignedAgentLabel = agentProfile?.display_name?.trim() || null;
+  }
+
   return {
     id: contact.id,
     kind,
@@ -397,6 +414,8 @@ export async function loadPersonDetail(
     statusLabel: formatLeadStatusLabel(contact.lead_status),
     contactType,
     contactTypeLabel: formatContactTypeLabel(contactType),
+    assignedAgentId,
+    assignedAgentLabel,
     score: contact.qualification_score,
     temperature: contact.lead_temperature,
     optedOut: Boolean(contact.opted_out),

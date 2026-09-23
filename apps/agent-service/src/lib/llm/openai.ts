@@ -14,11 +14,10 @@ import { SCHEDULER_SYSTEM } from "@/agents/scheduler";
 import { FOLLOW_UP_SYSTEM } from "@/agents/follow-up";
 import { applyToolCalls } from "@/lib/apply-tools";
 import {
-  bookConsultSlot,
-  getAvailableConsultSlots,
+  bookReosConsultSlot,
+  getAvailableReosConsultSlots,
   type SlotPreference,
-} from "@/lib/google/calendar";
-import { markConsultBooked } from "@/lib/db/contacts";
+} from "@/lib/calendar/consult-appointments";
 
 const CRM_TOOLS: ChatCompletionTool[] = [
   {
@@ -122,7 +121,7 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_available_slots",
       description:
-        "Fetch 2-3 real open consult times from the connected Google Calendar. Call after you know mornings vs afternoons (or any). Pass day when the lead names a weekday. Never invent times.",
+        "Fetch 2-3 real open consult times from the REOS calendar. Call after you know mornings vs afternoons (or any). Pass day when the lead names a weekday. Never invent times.",
       parameters: {
         type: "object",
         properties: {
@@ -150,7 +149,7 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Book a consult on the connected Google Calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked and an email invite is sent when attendee_email is known. Never invent start times.",
+        "Book a consult on the REOS calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked. Never invent start times.",
       parameters: {
         type: "object",
         properties: {
@@ -164,7 +163,7 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
           },
           attendee_email: {
             type: "string",
-            description: "Lead email for the calendar invite when available",
+            description: "Lead email to store on the booking when available",
           },
         },
         required: ["start"],
@@ -263,7 +262,7 @@ async function executeOneTool(
         : "any";
     const limit = typeof args.limit === "number" ? args.limit : 3;
     const day = typeof args.day === "string" ? args.day : undefined;
-    return getAvailableConsultSlots({
+    return getAvailableReosConsultSlots({
       tenantId: options.tenantId,
       preference,
       day,
@@ -281,32 +280,25 @@ async function executeOneTool(
       (typeof args.attendee_email === "string" && args.attendee_email) ||
       options.email ||
       null;
-    const booked = await bookConsultSlot({
+    const booked = await bookReosConsultSlot({
       tenantId: options.tenantId,
+      contactId: options.contactId,
       start,
       end,
       attendeeEmail,
       leadName: options.leadName,
     });
-    if (booked.ok && options.contactId) {
-      const survivor = await markConsultBooked(options.contactId, {
-        email: attendeeEmail,
-      });
-      if (survivor) options.contactId = survivor;
-    }
-    // Do not return htmlLink — the model pastes it as markdown links.
     if (!booked.ok) return booked;
+    options.contactId = booked.contactId;
     return {
       ok: true,
-      eventId: booked.eventId,
+      appointmentId: booked.appointmentId,
       start: booked.start,
       end: booked.end,
       label: booked.label,
       inviteSent: booked.inviteSent,
       attendeeEmail: booked.attendeeEmail,
-      confirmation: booked.inviteSent
-        ? `Booked ${booked.label}. Calendar invite emailed to ${booked.attendeeEmail}.`
-        : `Booked ${booked.label}. No invite emailed (no attendee email).`,
+      confirmation: booked.confirmation,
     };
   }
 

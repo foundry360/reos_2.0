@@ -35,7 +35,6 @@ const VIEW_LABELS: Record<CalendarView, string> = {
 interface CalendarShellProps {
   params: CalendarParams;
   events: CalendarEvent[];
-  googleConnected: boolean;
 }
 
 function periodLabel(view: CalendarView, date: string): string {
@@ -76,7 +75,7 @@ function shiftDate(view: CalendarView, date: string, direction: -1 | 1): string 
   return toIsoDate(addMonths(anchor, direction));
 }
 
-export function CalendarShell({ params, events, googleConnected }: CalendarShellProps) {
+export function CalendarShell({ params, events }: CalendarShellProps) {
   const router = useRouter();
 
   function navigate(next: Partial<CalendarParams>) {
@@ -145,13 +144,6 @@ export function CalendarShell({ params, events, googleConnected }: CalendarShell
           <CalendarFilterDropdown filters={params.filters} onChange={setFilters} />
         </div>
       </div>
-
-      {params.filters.includes("google") && !googleConnected ? (
-        <p className={styles.calendarNotice}>
-          Google Calendar is not connected for this workspace. Connect it in Admin → Accounts →
-          Connections.
-        </p>
-      ) : null}
 
       <div className={styles.calendarBody}>
         {params.view === "month" ? (

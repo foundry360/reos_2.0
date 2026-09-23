@@ -41,6 +41,7 @@ interface ContactQueryRow {
   record_type: PersonKind | null;
   lead_status: LeadStatus;
   contact_type: string | null;
+  assigned_agent_id: string | null;
   qualification_score: number | null;
   lead_temperature: "Hot" | "Warm" | "Cold" | null;
   opted_out: boolean;
@@ -99,6 +100,7 @@ function mapContactRows(contacts: ContactQueryRow[]): LeadRow[] {
           : contact.record_type === "contact"
             ? DEFAULT_CONTACT_TYPE
             : null,
+      assignedAgentId: contact.assigned_agent_id ?? null,
       qualificationScore: contact.qualification_score,
       leadTemperature: contact.lead_temperature,
       optedOut: contact.opted_out,
@@ -210,6 +212,7 @@ export async function fetchLeadsList(
       record_type,
       lead_status,
       contact_type,
+      assigned_agent_id,
       qualification_score,
       lead_temperature,
       opted_out,

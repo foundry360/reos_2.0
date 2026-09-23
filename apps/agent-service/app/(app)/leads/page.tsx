@@ -13,6 +13,7 @@ import {
   parseLeadsListParams,
 } from "@/lib/leads/leads-list";
 import { leadViewLabel } from "@/lib/leads/leads-views";
+import { listAgentOptionsForTenant } from "@/lib/crm/crm-lists";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import styles from "@/components/shell/shell.module.css";
 
@@ -37,10 +38,13 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   }
 
   const isKanban = params.layout === "kanban";
-  const listResult = isKanban ? null : await fetchLeadsList(tenantId, params);
-  const kanbanResult = isKanban
-    ? await fetchPeopleKanban(tenantId, params, { kind: "lead" })
-    : null;
+  const [listResult, kanbanResult, agentOptions] = await Promise.all([
+    isKanban ? Promise.resolve(null) : fetchLeadsList(tenantId, params),
+    isKanban
+      ? fetchPeopleKanban(tenantId, params, { kind: "lead" })
+      : Promise.resolve(null),
+    listAgentOptionsForTenant(),
+  ]);
 
   const total = listResult?.total ?? kanbanResult?.total ?? 0;
   const hasFilters =
@@ -59,7 +63,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
           <PeopleLayoutToggle params={params} kind="lead" />
           <LeadsHeaderActions params={params} />
           <ExportLeadsButton params={params} />
-          <NewLeadModal />
+          <NewLeadModal agentOptions={agentOptions} />
         </div>
       </div>
 
@@ -70,13 +74,22 @@ export default async function LeadsPage({ searchParams }: PageProps) {
           <EmptyState
             title="Top sellers add their leads first"
             description="It's the fastest way to win more deals."
-            action={<NewLeadModal trigger="cta" />}
+            action={<NewLeadModal trigger="cta" agentOptions={agentOptions} />}
           />
         )
       ) : isKanban && kanbanResult ? (
-        <PeopleKanban columns={kanbanResult.columns} kind="lead" />
+        <PeopleKanban
+          columns={kanbanResult.columns}
+          kind="lead"
+          agentOptions={agentOptions}
+        />
       ) : listResult ? (
-        <LeadsTable rows={listResult.rows} params={params} total={listResult.total} />
+        <LeadsTable
+          rows={listResult.rows}
+          params={params}
+          total={listResult.total}
+          agentOptions={agentOptions}
+        />
       ) : null}
     </div>
   );

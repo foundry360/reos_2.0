@@ -60,6 +60,7 @@ type ColumnOption = { value: string; label: string };
 interface PeopleKanbanProps {
   columns: Record<string, LeadRow[]>;
   kind?: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
 }
 
 function columnOptionsForKind(kind: PersonKind): ColumnOption[] {
@@ -194,11 +195,13 @@ function CardTypeBadge({ lead, kind }: { lead: LeadRow; kind: PersonKind }) {
 function KanbanCardContent({
   lead,
   kind,
+  agentOptions = [],
   linkTitle = true,
   showActions = false,
 }: {
   lead: LeadRow;
   kind: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
   linkTitle?: boolean;
   showActions?: boolean;
 }) {
@@ -210,7 +213,14 @@ function KanbanCardContent({
     <>
       <div className={styles.kanbanCardTop}>
         <CardTypeBadge lead={lead} kind={kind} />
-        {showActions && <LeadRowActions lead={lead} kind={kind} stopDrag />}
+        {showActions && (
+          <LeadRowActions
+            lead={lead}
+            kind={kind}
+            agentOptions={agentOptions}
+            stopDrag
+          />
+        )}
       </div>
       {linkTitle ? (
         <Link
@@ -255,10 +265,23 @@ function KanbanCardContent({
   );
 }
 
-function KanbanCardStatic({ lead, kind }: { lead: LeadRow; kind: PersonKind }) {
+function KanbanCardStatic({
+  lead,
+  kind,
+  agentOptions = [],
+}: {
+  lead: LeadRow;
+  kind: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
+}) {
   return (
     <div className={styles.kanbanCard}>
-      <KanbanCardContent lead={lead} kind={kind} showActions />
+      <KanbanCardContent
+        lead={lead}
+        kind={kind}
+        agentOptions={agentOptions}
+        showActions
+      />
     </div>
   );
 }
@@ -267,11 +290,13 @@ function KanbanColumnStatic({
   stage,
   cards,
   kind,
+  agentOptions = [],
   emptyLabel,
 }: {
   stage: ColumnOption;
   cards: LeadRow[];
   kind: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
   emptyLabel: string;
 }) {
   return (
@@ -284,14 +309,29 @@ function KanbanColumnStatic({
         {cards.length === 0 ? (
           <p className={styles.kanbanEmpty}>{emptyLabel}</p>
         ) : (
-          cards.map((lead) => <KanbanCardStatic key={lead.id} lead={lead} kind={kind} />)
+          cards.map((lead) => (
+            <KanbanCardStatic
+              key={lead.id}
+              lead={lead}
+              kind={kind}
+              agentOptions={agentOptions}
+            />
+          ))
         )}
       </div>
     </section>
   );
 }
 
-function KanbanCard({ lead, kind }: { lead: LeadRow; kind: PersonKind }) {
+function KanbanCard({
+  lead,
+  kind,
+  agentOptions = [],
+}: {
+  lead: LeadRow;
+  kind: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: lead.id,
     data: { column: cardColumnKey(lead, kind) },
@@ -307,7 +347,12 @@ function KanbanCard({ lead, kind }: { lead: LeadRow; kind: PersonKind }) {
       {...listeners}
       {...attributes}
     >
-      <KanbanCardContent lead={lead} kind={kind} showActions />
+      <KanbanCardContent
+        lead={lead}
+        kind={kind}
+        agentOptions={agentOptions}
+        showActions
+      />
     </div>
   );
 }
@@ -316,11 +361,13 @@ function KanbanColumn({
   stage,
   cards,
   kind,
+  agentOptions = [],
   emptyLabel,
 }: {
   stage: ColumnOption;
   cards: LeadRow[];
   kind: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
   emptyLabel: string;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -340,14 +387,25 @@ function KanbanColumn({
         {cards.length === 0 ? (
           <p className={styles.kanbanEmpty}>{emptyLabel}</p>
         ) : (
-          cards.map((lead) => <KanbanCard key={lead.id} lead={lead} kind={kind} />)
+          cards.map((lead) => (
+            <KanbanCard
+              key={lead.id}
+              lead={lead}
+              kind={kind}
+              agentOptions={agentOptions}
+            />
+          ))
         )}
       </div>
     </section>
   );
 }
 
-export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleKanbanProps) {
+export function PeopleKanban({
+  columns: initialColumns,
+  kind = "lead",
+  agentOptions = [],
+}: PeopleKanbanProps) {
   const router = useRouter();
   const plural = personPlural(kind);
   const emptyLabel = `No ${plural}`;
@@ -420,6 +478,7 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
             stage={stage}
             cards={columns[stage.value] ?? []}
             kind={kind}
+            agentOptions={agentOptions}
             emptyLabel={emptyLabel}
           />
         ))}
@@ -446,6 +505,7 @@ export function PeopleKanban({ columns: initialColumns, kind = "lead" }: PeopleK
             stage={stage}
             cards={columns[stage.value] ?? []}
             kind={kind}
+            agentOptions={agentOptions}
             emptyLabel={emptyLabel}
           />
         ))}

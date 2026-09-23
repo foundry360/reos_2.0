@@ -617,12 +617,47 @@
   padding: 0.85rem 0.9rem 0.9rem;
 }
 
+.eventDetailHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
 .eventDetailKind {
-  margin: 0 0 0.25rem;
+  margin: 0;
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+.eventDetailDelete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: -0.25rem -0.35rem 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--shell-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.eventDetailDelete:hover:not(:disabled) {
+  background: color-mix(in srgb, #ef4444 14%, var(--shell-surface));
+  color: #dc2626;
+}
+
+.eventDetailDelete:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .eventDetailTitle {
@@ -663,16 +698,98 @@
   color: var(--shell-text);
 }
 
+.eventDetailError {
+  margin: 0.65rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #dc2626;
+}
+
 .eventDetailLink {
   display: inline-block;
   margin-top: 0.75rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--shell-blue);
   text-decoration: none;
+  cursor: pointer;
 }
 
 .eventDetailLink:hover {
+  text-decoration: underline;
+}
+
+.eventDetailModalPanel {
+  width: min(100%, 440px);
+}
+
+.eventDetailModalHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.eventDetailModalDeleteIcon:hover:not(:disabled) {
+  color: #dc2626;
+  background: color-mix(in srgb, #ef4444 12%, var(--shell-surface));
+}
+
+.eventDetailModalMeta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.eventDetailModalRow {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.eventDetailModalRow dt {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--shell-muted);
+  padding-top: 0.1rem;
+}
+
+.eventDetailModalRow dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--shell-text);
+  word-break: break-word;
+}
+
+.eventDetailModalNotes {
+  white-space: pre-wrap;
+}
+
+.eventDetailModalLinks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.eventDetailModalInlineLink {
+  color: var(--shell-blue);
+  font-weight: 600;
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.eventDetailModalInlineLink:hover {
   text-decoration: underline;
 }
 

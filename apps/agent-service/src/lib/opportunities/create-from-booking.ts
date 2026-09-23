@@ -104,6 +104,7 @@ type ContactForIntake = {
   financing_status: string | null;
   must_haves: string | null;
   motivation: string | null;
+  assigned_agent_id?: string | null;
 };
 
 function hasQualifyingSignal(contact: ContactForIntake): boolean {
@@ -354,6 +355,7 @@ function opportunityPatchFromContact(contact: ContactForIntake): {
  */
 export async function syncIntakeOpportunityStage(
   contactId: string,
+  options?: { skipAppointmentActivityLog?: boolean },
 ): Promise<string | null> {
   const db = getSupabaseAdmin();
   if (!db) {
@@ -361,13 +363,23 @@ export async function syncIntakeOpportunityStage(
     return null;
   }
 
-  const { data: contact, error: contactError } = await db
+  let { data: contact, error: contactError } = await db
     .from("contacts")
     .select(
-      "id, tenant_id, first_name, last_name, intent, appt_booked, ready_to_book, lead_status, qualification_score, lead_temperature, target_location, property_type, budget, timeline, financing_status, must_haves, motivation",
+      "id, tenant_id, first_name, last_name, intent, appt_booked, ready_to_book, lead_status, qualification_score, lead_temperature, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, assigned_agent_id",
     )
     .eq("id", contactId)
     .maybeSingle();
+
+  if (contactError && /assigned_agent_id|schema cache|column/i.test(contactError.message)) {
+    ({ data: contact, error: contactError } = await db
+      .from("contacts")
+      .select(
+        "id, tenant_id, first_name, last_name, intent, appt_booked, ready_to_book, lead_status, qualification_score, lead_temperature, target_location, property_type, budget, timeline, financing_status, must_haves, motivation",
+      )
+      .eq("id", contactId)
+      .maybeSingle());
+  }
 
   if (contactError || !contact) {
     console.error(
@@ -386,7 +398,7 @@ export async function syncIntakeOpportunityStage(
 
   const { data: existingRows, error: existingError } = await db
     .from("opportunities")
-    .select("id, stage, amount_cents")
+    .select("id, stage, amount_cents, assigned_agent_id")
     .eq("tenant_id", contact.tenant_id)
     .eq("contact_id", contactId)
     .eq("pipeline", DEFAULT_OPPORTUNITY_PIPELINE)
@@ -403,6 +415,13 @@ export async function syncIntakeOpportunityStage(
       openOpp.stage !== target && canAdvanceTo(openOpp.stage, target);
     const updatePayload: Record<string, string | number> = { ...fieldPatch };
     if (shouldAdvance) updatePayload.stage = target;
+    // Carry contact assigned agent onto open opps that do not have one yet.
+    if (
+      contactRow.assigned_agent_id &&
+      !openOpp.assigned_agent_id
+    ) {
+      updatePayload.assigned_agent_id = contactRow.assigned_agent_id;
+    }
 
     const { error: updateError } = await db
       .from("opportunities")
@@ -432,15 +451,17 @@ export async function syncIntakeOpportunityStage(
             : undefined;
 
       if (target === "Appointment_Set") {
-        await logSystemContactActivity({
-          tenantId: contact.tenant_id,
-          contactId,
-          activityType: "appointment",
-          title: "Appointment booked",
-          body: opportunityActivityBody(contactRow, amountCents),
-          relatedEntityType: "opportunity",
-          relatedEntityId: openOpp.id,
-        });
+        if (!options?.skipAppointmentActivityLog) {
+          await logSystemContactActivity({
+            tenantId: contact.tenant_id,
+            contactId,
+            activityType: "appointment",
+            title: "Appointment booked",
+            body: opportunityActivityBody(contactRow, amountCents),
+            relatedEntityType: "opportunity",
+            relatedEntityId: openOpp.id,
+          });
+        }
         await logSystemContactActivity({
           tenantId: contact.tenant_id,
           contactId,
@@ -503,6 +524,7 @@ export async function syncIntakeOpportunityStage(
     pipeline: DEFAULT_OPPORTUNITY_PIPELINE,
     stage: target,
     ...fieldPatch,
+    assigned_agent_id: contactRow.assigned_agent_id ?? null,
     lead_source: "Other" as const,
     priority: target === "Appointment_Set" ? ("High" as const) : ("Medium" as const),
     notes: stageNotes(target),
@@ -547,15 +569,17 @@ export async function syncIntakeOpportunityStage(
   });
 
   if (target === "Appointment_Set") {
-    await logSystemContactActivity({
-      tenantId: contact.tenant_id,
-      contactId,
-      activityType: "appointment",
-      title: "Appointment booked",
-      body: opportunityActivityBody(contactRow, amountCents),
-      relatedEntityType: "opportunity",
-      relatedEntityId: opportunity.id,
-    });
+    if (!options?.skipAppointmentActivityLog) {
+      await logSystemContactActivity({
+        tenantId: contact.tenant_id,
+        contactId,
+        activityType: "appointment",
+        title: "Appointment booked",
+        body: opportunityActivityBody(contactRow, amountCents),
+        relatedEntityType: "opportunity",
+        relatedEntityId: opportunity.id,
+      });
+    }
   }
 
   await syncLeadStatusForStage(contactId, target, contact.lead_status);
@@ -567,7 +591,7 @@ export async function syncIntakeOpportunityStage(
  */
 export async function ensureAppointmentSetOpportunity(
   contactId: string,
-  options?: { requireApptBooked?: boolean },
+  options?: { requireApptBooked?: boolean; skipAppointmentActivityLog?: boolean },
 ): Promise<string | null> {
   const db = getSupabaseAdmin();
   if (!db) {
@@ -590,5 +614,7 @@ export async function ensureAppointmentSetOpportunity(
     }
   }
 
-  return syncIntakeOpportunityStage(contactId);
+  return syncIntakeOpportunityStage(contactId, {
+    skipAppointmentActivityLog: options?.skipAppointmentActivityLog,
+  });
 }

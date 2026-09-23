@@ -20,6 +20,8 @@ import {
   CALENDAR_EVENT_KIND_LABELS,
   eventColor,
 } from "@/lib/calendar/calendar-types";
+import { CalendarDeleteAppointmentModal } from "./calendar-delete-appointment-modal";
+import { CalendarEventDetailModal } from "./calendar-event-detail-modal";
 import styles from "./calendar.module.css";
 
 const GAP_PX = 10;
@@ -31,6 +33,41 @@ interface CalendarEventHoverDetailProps {
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
+}
+
+function IconTrash() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 7h16"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+      <path
+        d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6.5 7v11.5A1.5 1.5 0 0 0 8 20h8a1.5 1.5 0 0 0 1.5-1.5V7"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 11v5M14 11v5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function canDeleteEvent(event: CalendarEvent): boolean {
+  return event.kind === "appointment" && event.id.startsWith("activity:");
 }
 
 function computePopoverPosition(
@@ -65,8 +102,13 @@ export function CalendarEventHoverDetail({
   const popoverRef = useRef<HTMLDivElement>(null);
   const hideTimerRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
+  const deletable = canDeleteEvent(event);
+  const showDetailCta = event.kind === "appointment" || Boolean(event.href);
+  const blockingModal = detailOpen || deleteOpen;
 
   useEffect(() => {
     setMounted(true);
@@ -80,9 +122,10 @@ export function CalendarEventHoverDetail({
   }, []);
 
   const scheduleHide = useCallback(() => {
+    if (blockingModal) return;
     clearHideTimer();
     hideTimerRef.current = window.setTimeout(() => setOpen(false), HIDE_DELAY_MS);
-  }, [clearHideTimer]);
+  }, [clearHideTimer, blockingModal]);
 
   const show = useCallback(() => {
     clearHideTimer();
@@ -90,7 +133,7 @@ export function CalendarEventHoverDetail({
   }, [clearHideTimer]);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open || blockingModal) return;
 
     const anchor = anchorRef.current;
     const popover = popoverRef.current;
@@ -103,10 +146,10 @@ export function CalendarEventHoverDetail({
       popover.offsetHeight,
     );
     setPosition(next);
-  }, [open, event.id]);
+  }, [open, blockingModal, event.id]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || blockingModal) return;
 
     function close() {
       setOpen(false);
@@ -118,14 +161,31 @@ export function CalendarEventHoverDetail({
       window.removeEventListener("scroll", close, true);
       window.removeEventListener("resize", close);
     };
-  }, [open]);
+  }, [open, blockingModal]);
+
+  function openDelete(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!deletable) return;
+    clearHideTimer();
+    setOpen(false);
+    setDeleteOpen(true);
+  }
+
+  function openDetails(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    clearHideTimer();
+    setOpen(false);
+    setDetailOpen(true);
+  }
 
   const color = eventColor(event.kind);
   const dateLine = formatCalendarEventDateLine(event);
   const timeLine = formatCalendarEventTimeLine(event);
 
   const popover =
-    open && mounted ? (
+    open && mounted && !blockingModal ? (
       <div
         ref={popoverRef}
         className={styles.eventDetailPopover}
@@ -140,12 +200,22 @@ export function CalendarEventHoverDetail({
           aria-hidden
         />
         <div className={styles.eventDetailBody}>
-          <p
-            className={styles.eventDetailKind}
-            style={{ color }}
-          >
-            {CALENDAR_EVENT_KIND_LABELS[event.kind]}
-          </p>
+          <div className={styles.eventDetailHeader}>
+            <p className={styles.eventDetailKind} style={{ color }}>
+              {CALENDAR_EVENT_KIND_LABELS[event.kind]}
+            </p>
+            {deletable ? (
+              <button
+                type="button"
+                className={styles.eventDetailDelete}
+                aria-label="Remove from calendar"
+                title="Remove from calendar"
+                onClick={openDelete}
+              >
+                <IconTrash />
+              </button>
+            ) : null}
+          </div>
           <h3 className={styles.eventDetailTitle}>{event.title}</h3>
           <dl className={styles.eventDetailMeta}>
             <div className={styles.eventDetailRow}>
@@ -163,10 +233,20 @@ export function CalendarEventHoverDetail({
               </div>
             ) : null}
           </dl>
-          {event.href ? (
-            <Link href={event.href} className={styles.eventDetailLink}>
-              View details
-            </Link>
+          {showDetailCta ? (
+            event.kind === "appointment" ? (
+              <button
+                type="button"
+                className={styles.eventDetailLink}
+                onClick={openDetails}
+              >
+                View details
+              </button>
+            ) : event.href ? (
+              <Link href={event.href} className={styles.eventDetailLink}>
+                View details
+              </Link>
+            ) : null
           ) : null}
         </div>
       </div>
@@ -186,6 +266,16 @@ export function CalendarEventHoverDetail({
         {children}
       </div>
       {mounted && popover ? createPortal(popover, document.body) : null}
+      <CalendarEventDetailModal
+        event={event}
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+      />
+      <CalendarDeleteAppointmentModal
+        event={event}
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+      />
     </>
   );
 }

@@ -158,10 +158,11 @@ export function EmailComposeWidget() {
   }
 
   const connected = bootstrap?.connected ?? false;
-  const fromLabel = bootstrap?.accounts[0]
-    ? bootstrap.accounts[0].label
-      ? `${bootstrap.accounts[0].label} <${bootstrap.accounts[0].email}>`
-      : bootstrap.accounts[0].email
+  const fromAccount = bootstrap?.accounts[0];
+  const fromLabel = fromAccount
+    ? fromAccount.label
+      ? `${fromAccount.label} <${fromAccount.email}>`
+      : fromAccount.email
     : "";
 
   return (
@@ -190,16 +191,17 @@ export function EmailComposeWidget() {
 
       {!connected ? (
         <div className={styles.widgetEmpty}>
-          <p className={styles.widgetEmptyTitle}>Connect Email</p>
+          <p className={styles.widgetEmptyTitle}>Email not available</p>
           <p className={styles.widgetEmptyText}>
-            Connect your Gmail account to send and track customer emails directly from REOS.
+            Email sending is not configured for this workspace yet. You can still track emails once
+            it is enabled.
           </p>
           {bootstrap?.showAdminConnect ? (
-            <Link href="/admin" className={styles.widgetPrimaryBtn}>
-              Connect in Admin
+            <Link href="/admin/integrations" className={styles.widgetPrimaryBtn}>
+              Open Integrations
             </Link>
           ) : (
-            <p className={styles.widgetHint}>Ask your workspace admin to connect Gmail.</p>
+            <p className={styles.widgetHint}>Ask your platform admin to enable email sending.</p>
           )}
         </div>
       ) : (

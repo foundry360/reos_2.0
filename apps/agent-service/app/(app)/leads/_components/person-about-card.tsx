@@ -64,9 +64,11 @@ function resolveContactType(value: string | null | undefined): ContactType {
 
 export function PersonAboutCard({
   person,
+  agentOptions = [],
   onComposeEmail,
 }: {
   person: PersonDetailData;
+  agentOptions?: Array<{ id: string; label: string }>;
   onComposeEmail?: () => void;
 }) {
   const router = useRouter();
@@ -85,6 +87,9 @@ export function PersonAboutCard({
   const [contactType, setContactType] = useState<ContactType>(
     resolveContactType(person.contactType),
   );
+  const [assignedAgentId, setAssignedAgentId] = useState(
+    person.assignedAgentId ?? "none",
+  );
 
   useEffect(() => {
     if (editing) return;
@@ -94,6 +99,7 @@ export function PersonAboutCard({
     setPhone(person.phone ?? "");
     setStatus(resolveStatus(person.leadStatus));
     setContactType(resolveContactType(person.contactType));
+    setAssignedAgentId(person.assignedAgentId ?? "none");
   }, [person, editing]);
 
   function startEdit() {
@@ -105,6 +111,7 @@ export function PersonAboutCard({
     setPhone(person.phone ?? "");
     setStatus(resolveStatus(person.leadStatus));
     setContactType(resolveContactType(person.contactType));
+    setAssignedAgentId(person.assignedAgentId ?? "none");
     setOpen(true);
     setEditing(true);
   }
@@ -119,6 +126,7 @@ export function PersonAboutCard({
     setPhone(person.phone ?? "");
     setStatus(resolveStatus(person.leadStatus));
     setContactType(resolveContactType(person.contactType));
+    setAssignedAgentId(person.assignedAgentId ?? "none");
   }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -130,6 +138,10 @@ export function PersonAboutCard({
     formData.set("firstName", firstName);
     formData.set("lastName", lastName);
     formData.set("email", email);
+    formData.set(
+      "assignedAgentId",
+      assignedAgentId === "none" ? "" : assignedAgentId,
+    );
     if (isContact) {
       formData.set("contactType", contactType);
     } else {
@@ -202,6 +214,10 @@ export function PersonAboutCard({
             ) : (
               <PropertyRow label="Lead status" value={person.statusLabel} />
             )}
+            <PropertyRow
+              label="Assigned agent"
+              value={person.assignedAgentLabel || displayValue(null)}
+            />
             <PropertyRow label="Opted out" value={person.optedOut ? "Yes" : "No"} />
           </div>
         ) : (
@@ -300,6 +316,26 @@ export function PersonAboutCard({
                 />
               </div>
             )}
+
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="person-about-assigned-agent">
+                Assigned agent
+              </label>
+              <DropdownSelect
+                id="person-about-assigned-agent"
+                value={assignedAgentId}
+                ariaLabel="Assigned agent"
+                disabled={pending}
+                onChange={setAssignedAgentId}
+                options={[
+                  { value: "none", label: "Unassigned" },
+                  ...agentOptions.map((option) => ({
+                    value: option.id,
+                    label: option.label,
+                  })),
+                ]}
+              />
+            </div>
 
             <EditFormActions pending={pending} onCancel={cancelEdit} />
           </form>

@@ -1,4 +1,4 @@
-export type EmailProvider = "gmail" | "outlook";
+export type EmailProvider = "gmail" | "outlook" | "resend";
 
 export type EmailDirection = "outbound" | "inbound";
 

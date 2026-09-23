@@ -17,10 +17,16 @@ import styles from "@/components/shell/shell.module.css";
 interface LeadRowActionsProps {
   lead: LeadRow;
   kind?: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
   stopDrag?: boolean;
 }
 
-export function LeadRowActions({ lead, kind = "lead", stopDrag = false }: LeadRowActionsProps) {
+export function LeadRowActions({
+  lead,
+  kind = "lead",
+  agentOptions = [],
+  stopDrag = false,
+}: LeadRowActionsProps) {
   const router = useRouter();
   const basePath = personBasePath(kind);
   const singular = personSingular(kind);
@@ -84,7 +90,12 @@ export function LeadRowActions({ lead, kind = "lead", stopDrag = false }: LeadRo
       </RowActionsMenu>
 
       {editOpen && (
-        <EditLeadModal lead={lead} kind={kind} onClose={() => setEditOpen(false)} />
+        <EditLeadModal
+          lead={lead}
+          kind={kind}
+          agentOptions={agentOptions}
+          onClose={() => setEditOpen(false)}
+        />
       )}
 
       {deleteOpen &&

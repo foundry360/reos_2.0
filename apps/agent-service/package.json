@@ -6,13 +6,15 @@
     "dev": "NODE_OPTIONS='--disable-warning=DEP0169' next dev --port 3000",
     "build": "next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/lib/calendar/*.test.ts src/lib/email/*.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.112.4",
+    "jose": "^5.10.0",
     "next": "^15.2.0",
     "openai": "^4.86.0",
     "react": "^19.0.0",

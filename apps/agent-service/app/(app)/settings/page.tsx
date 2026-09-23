@@ -41,6 +41,7 @@ export default async function TenantSettingsPage() {
             email={user.email}
             displayName={profile.displayName}
             avatarUrl={profile.avatarUrl}
+            replyToEmail={profile.replyToEmail}
           />
         </div>
 

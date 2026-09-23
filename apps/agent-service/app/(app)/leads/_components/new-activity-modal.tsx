@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { createActivityAction } from "@/lib/crm/crm-actions";
 import {
-  ACTIVITY_TYPE_OPTIONS,
+  LOG_ACTIVITY_TYPE_OPTIONS,
   type ActivityType,
 } from "@/lib/crm/person-activities";
 import { DropdownSelect } from "@/components/shell/dropdown-select";
@@ -37,6 +37,10 @@ interface NewActivityModalProps {
   disabled?: boolean;
 }
 
+function resolveLogActivityType(type: ActivityType): ActivityType {
+  return type === "meeting" ? "note" : type;
+}
+
 export function NewActivityModal({
   contactId,
   opportunityId,
@@ -51,7 +55,8 @@ export function NewActivityModal({
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [activityType, setActivityType] = useState<ActivityType>(defaultActivityType);
+  const initialType = resolveLogActivityType(defaultActivityType);
+  const [activityType, setActivityType] = useState<ActivityType>(initialType);
   const [title, setTitle] = useState("");
   const [occurredDate, setOccurredDate] = useState("");
   const [mounted, setMounted] = useState(false);
@@ -73,7 +78,7 @@ export function NewActivityModal({
   useEffect(() => {
     if (open) {
       setError(null);
-      setActivityType(defaultActivityType);
+      setActivityType(resolveLogActivityType(defaultActivityType));
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -84,7 +89,7 @@ export function NewActivityModal({
   }, [open, defaultActivityType]);
 
   function resetForm() {
-    setActivityType(defaultActivityType);
+    setActivityType(resolveLogActivityType(defaultActivityType));
     setTitle("");
     setOccurredDate("");
     setError(null);
@@ -95,10 +100,10 @@ export function NewActivityModal({
     setError(null);
     const formData = new FormData(e.currentTarget);
     formData.set("contactId", contactId);
-    formData.set(
-      "activityType",
+    const resolvedType = resolveLogActivityType(
       lockActivityType ? defaultActivityType : activityType,
     );
+    formData.set("activityType", resolvedType);
     if (opportunityId) {
       formData.set("opportunityId", opportunityId);
     }
@@ -115,7 +120,7 @@ export function NewActivityModal({
     });
   }
 
-  const typeOptions = ACTIVITY_TYPE_OPTIONS.map((option) => ({
+  const typeOptions = LOG_ACTIVITY_TYPE_OPTIONS.map((option) => ({
     value: option.value,
     label: option.label,
   }));
@@ -126,7 +131,7 @@ export function NewActivityModal({
   const modalTitle = isNote ? "Add Note" : "Log Activity";
   const modalSubtitle = isNote
     ? "Capture context and follow-ups for this record."
-    : "Capture a note, call, email, or meeting on this record.";
+    : "Capture a note, call, or email on this record.";
   const ctaLabel =
     linkLabel === "Add"
       ? isNote

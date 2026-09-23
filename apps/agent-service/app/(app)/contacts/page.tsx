@@ -14,6 +14,7 @@ import {
 } from "@/lib/leads/leads-list";
 import { personPluralTitle } from "@/lib/crm/person-kind";
 import { leadViewLabel } from "@/lib/leads/leads-views";
+import { listAgentOptionsForTenant } from "@/lib/crm/crm-lists";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import styles from "@/components/shell/shell.module.css";
 
@@ -38,12 +39,15 @@ export default async function ContactsPage({ searchParams }: PageProps) {
   }
 
   const isKanban = params.layout === "kanban";
-  const listResult = isKanban
-    ? null
-    : await fetchLeadsList(tenantId, params, { kind: "contact" });
-  const kanbanResult = isKanban
-    ? await fetchPeopleKanban(tenantId, params, { kind: "contact" })
-    : null;
+  const [listResult, kanbanResult, agentOptions] = await Promise.all([
+    isKanban
+      ? Promise.resolve(null)
+      : fetchLeadsList(tenantId, params, { kind: "contact" }),
+    isKanban
+      ? fetchPeopleKanban(tenantId, params, { kind: "contact" })
+      : Promise.resolve(null),
+    listAgentOptionsForTenant(),
+  ]);
 
   const total = listResult?.total ?? kanbanResult?.total ?? 0;
   const hasFilters =
@@ -62,7 +66,7 @@ export default async function ContactsPage({ searchParams }: PageProps) {
           <PeopleLayoutToggle params={params} kind="contact" />
           <LeadsHeaderActions params={params} kind="contact" />
           <ExportLeadsButton params={params} kind="contact" />
-          <NewLeadModal kind="contact" />
+          <NewLeadModal kind="contact" agentOptions={agentOptions} />
         </div>
       </div>
 
@@ -73,17 +77,24 @@ export default async function ContactsPage({ searchParams }: PageProps) {
           <EmptyState
             title="Top sellers add their clients first"
             description="It's the fastest way to win more deals."
-            action={<NewLeadModal kind="contact" trigger="cta" />}
+            action={
+              <NewLeadModal kind="contact" trigger="cta" agentOptions={agentOptions} />
+            }
           />
         )
       ) : isKanban && kanbanResult ? (
-        <PeopleKanban columns={kanbanResult.columns} kind="contact" />
+        <PeopleKanban
+          columns={kanbanResult.columns}
+          kind="contact"
+          agentOptions={agentOptions}
+        />
       ) : listResult ? (
         <LeadsTable
           rows={listResult.rows}
           params={params}
           total={listResult.total}
           kind="contact"
+          agentOptions={agentOptions}
         />
       ) : null}
     </div>

@@ -13,6 +13,7 @@ export interface LeadRow {
   leadStatus: LeadStatus;
   leadStatusLabel: string;
   contactType: ContactType | null;
+  assignedAgentId: string | null;
   qualificationScore: number | null;
   leadTemperature: "Hot" | "Warm" | "Cold" | null;
   optedOut: boolean;

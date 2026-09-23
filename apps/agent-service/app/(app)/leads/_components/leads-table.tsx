@@ -118,9 +118,16 @@ interface LeadsTableProps {
   params: LeadsListParams;
   total: number;
   kind?: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
 }
 
-export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTableProps) {
+export function LeadsTable({
+  rows,
+  params,
+  total,
+  kind = "lead",
+  agentOptions = [],
+}: LeadsTableProps) {
   const router = useRouter();
   const basePath = personBasePath(kind);
   const plural = personPlural(kind);
@@ -280,7 +287,7 @@ export function LeadsTable({ rows, params, total, kind = "lead" }: LeadsTablePro
                     </time>
                   </td>
                   <td className={`${styles.tableActionCol} ${styles.tableActionsCell}`}>
-                    <LeadRowActions lead={lead} kind={kind} />
+                    <LeadRowActions lead={lead} kind={kind} agentOptions={agentOptions} />
                   </td>
                 </tr>
               );

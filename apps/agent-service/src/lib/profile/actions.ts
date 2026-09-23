@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { isThemePreference, THEME_COOKIE, type ThemePreference } from "@/lib/theme";
+import { isValidEmailAddress } from "@/lib/email/email-utils";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
@@ -175,6 +176,50 @@ export async function updateDisplayNameAction(
   });
 
   if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  revalidatePath("/", "layout");
+  revalidatePath("/admin", "layout");
+  revalidatePath("/admin/settings");
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function updateReplyToEmailAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const raw = formData.get("replyToEmail");
+  if (typeof raw !== "string") {
+    return { ok: false, error: "Invalid reply-to email." };
+  }
+
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed && !isValidEmailAddress(trimmed)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: "Not signed in." };
+  }
+
+  const { error } = await supabase.from("profiles").upsert({
+    id: user.id,
+    reply_to_email: trimmed || null,
+  });
+
+  if (error) {
+    if (/reply_to_email/i.test(error.message)) {
+      return {
+        ok: false,
+        error: "Reply-to settings need migration 044 applied in Supabase first.",
+      };
+    }
     return { ok: false, error: error.message };
   }
 

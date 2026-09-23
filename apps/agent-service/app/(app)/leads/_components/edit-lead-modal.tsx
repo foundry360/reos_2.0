@@ -26,10 +26,16 @@ import styles from "@/components/shell/shell.module.css";
 interface EditLeadModalProps {
   lead: LeadRow;
   kind?: PersonKind;
+  agentOptions?: Array<{ id: string; label: string }>;
   onClose: () => void;
 }
 
-export function EditLeadModal({ lead, kind = "lead", onClose }: EditLeadModalProps) {
+export function EditLeadModal({
+  lead,
+  kind = "lead",
+  agentOptions = [],
+  onClose,
+}: EditLeadModalProps) {
   const router = useRouter();
   const singularTitle = personSingularTitle(kind);
   const isContact = kind === "contact";
@@ -41,6 +47,9 @@ export function EditLeadModal({ lead, kind = "lead", onClose }: EditLeadModalPro
   const [status, setStatus] = useState<LeadStatus>(lead.leadStatus);
   const [contactType, setContactType] = useState<ContactType>(
     isContactType(lead.contactType ?? "") ? lead.contactType! : DEFAULT_CONTACT_TYPE,
+  );
+  const [assignedAgentId, setAssignedAgentId] = useState(
+    lead.assignedAgentId ?? "none",
   );
 
   useEffect(() => {
@@ -61,6 +70,10 @@ export function EditLeadModal({ lead, kind = "lead", onClose }: EditLeadModalPro
     setError(null);
     const formData = new FormData(e.currentTarget);
     formData.set("leadId", lead.id);
+    formData.set(
+      "assignedAgentId",
+      assignedAgentId === "none" ? "" : assignedAgentId,
+    );
     if (isContact) {
       formData.set("contactType", contactType);
     } else {
@@ -203,6 +216,26 @@ export function EditLeadModal({ lead, kind = "lead", onClose }: EditLeadModalPro
                 }))}
               />
             )}
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="edit-lead-assigned-agent">
+              Assigned agent
+            </label>
+            <DropdownSelect
+              id="edit-lead-assigned-agent"
+              value={assignedAgentId}
+              ariaLabel="Assigned agent"
+              disabled={pending}
+              onChange={setAssignedAgentId}
+              options={[
+                { value: "none", label: "Unassigned" },
+                ...agentOptions.map((option) => ({
+                  value: option.id,
+                  label: option.label,
+                })),
+              ]}
+            />
           </div>
 
           <div className={styles.modalFooter}>
