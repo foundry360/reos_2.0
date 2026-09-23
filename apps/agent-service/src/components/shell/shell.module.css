@@ -6878,6 +6878,10 @@ a.kanbanCardContactText.contactLink:hover {
 }
 
 .billingTableHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   padding: 1rem 1.15rem 0.35rem;
 }
 
@@ -6924,6 +6928,61 @@ a.kanbanCardContactText.contactLink:hover {
   margin: 0.85rem 0 0;
   font-size: 0.8125rem;
   color: var(--shell-muted);
+}
+
+.billingHistoryMonthButton {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.billingHistoryMonthButton:hover .tableCellName {
+  color: var(--brand);
+}
+
+.billingHistoryToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-muted);
+  cursor: pointer;
+}
+
+.billingHistoryToggle:hover {
+  color: var(--shell-text);
+}
+
+.billingHistoryChevron {
+  display: block;
+  transition: transform 0.15s ease;
+}
+
+.billingHistoryChevronOpen {
+  transform: rotate(180deg);
+}
+
+.billingHistoryDetailRow:hover,
+.billingHistoryDetailRow td {
+  background: var(--shell-surface) !important;
+}
+
+.billingHistoryDetailRow td {
+  padding: 0 !important;
+}
+
+.billingHistoryDetail {
+  padding: 0.85rem 1.5rem 1.15rem;
 }
 
 .billingWalletCard {

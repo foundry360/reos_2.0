@@ -7,7 +7,6 @@ import {
   disconnectTenantChannelAction,
   disconnectTenantPrimaryPhoneAction,
   linkTenantStripeCustomerAction,
-  updateTenantAgentToggleAction,
 } from "@/lib/admin/tenant-config-actions";
 import {
   completeMetaPageConnectionAction,
@@ -33,25 +32,8 @@ const SECTIONS: { id: ConnectionSection; label: string }[] = [
 ];
 
 type SocialChannel = "messenger" | "instagram";
-type ConnectedIntegrationChannel = "email" | "calendar";
 
 const SOCIAL_CHANNELS: SocialChannel[] = ["messenger", "instagram"];
-const CONNECTED_INTEGRATION_CHANNELS: ConnectedIntegrationChannel[] = ["email", "calendar"];
-
-const INTEGRATION_CHANNEL_LABELS: Record<ConnectedIntegrationChannel, string> = {
-  email: "Gmail",
-  calendar: "Google Calendar",
-};
-
-const INTEGRATION_CHANNEL_DESCRIPTIONS: Record<ConnectedIntegrationChannel, string> = {
-  email: "Connect the tenant's Gmail inbox",
-  calendar: "Connect Google Calendar for scheduling",
-};
-
-const INTEGRATION_CHANNEL_ICONS: Record<ConnectedIntegrationChannel, string> = {
-  email: "/integrations/gmail.png",
-  calendar: "/integrations/google-calendar.png",
-};
 
 const SOCIAL_CHANNEL_ICONS: Record<SocialChannel, string> = {
   messenger: "/integrations/facebook.png",
@@ -197,7 +179,7 @@ const ACCORDION_ICON_CLASSES: Record<ConnectionSection, string> = {
 
 function getChannelStatus(
   tenant: TenantConfig,
-  channel: ConnectedIntegrationChannel | SocialChannel,
+  channel: SocialChannel,
 ): TenantChannelStatus {
   return (
     tenant.channelAccounts.find((entry) => entry.channel === channel) ?? {
@@ -213,12 +195,7 @@ function getChannelStatus(
 function getConnectedChannelCount(tenant: TenantConfig): number {
   let count = 0;
   if (tenant.primaryPhone) count++;
-  if (tenant.agents.conciergeEnabled) count++;
-  if (tenant.agents.intakeEnabled) count++;
   if (tenant.stripeBillingReady) count++;
-  for (const channel of CONNECTED_INTEGRATION_CHANNELS) {
-    if (getChannelStatus(tenant, channel).status === "connected") count++;
-  }
   return count;
 }
 
@@ -234,14 +211,6 @@ function getConnectedSocialChannelCount(tenant: TenantConfig): number {
 function getSectionCount(sectionId: ConnectionSection, tenant: TenantConfig): number {
   if (sectionId === "connected") return getConnectedChannelCount(tenant);
   return getConnectedSocialChannelCount(tenant);
-}
-
-function integrationChannelMeta(channel: TenantChannelStatus): string {
-  if (channel.status === "connected") {
-    return channel.accountLabel?.trim() || "Connected";
-  }
-  if (channel.status === "error") return "Connection error";
-  return "Not connected";
 }
 
 function socialChannelMeta(channel: TenantChannelStatus): string {
@@ -378,23 +347,11 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
     });
   }
 
-  function setAgentEnabled(field: "conciergeEnabled" | "intakeEnabled", enabled: boolean) {
-    const formData = new FormData();
-    formData.set("tenantId", tenant.id);
-    formData.set("field", field);
-    formData.set("enabled", String(enabled));
-    runAction(() => updateTenantAgentToggleAction(formData));
-  }
-
-  function disconnectChannel(channel: ConnectedIntegrationChannel | SocialChannel) {
+  function disconnectChannel(channel: SocialChannel) {
     const formData = new FormData();
     formData.set("tenantId", tenant.id);
     formData.set("channel", channel);
     runAction(() => disconnectTenantChannelAction(formData));
-  }
-
-  function connectIntegrationChannel(channel: ConnectedIntegrationChannel) {
-    window.location.href = `/api/oauth/google/start?tenantId=${encodeURIComponent(tenant.id)}&channel=${channel}`;
   }
 
   function connectSocialChannel(channel: SocialChannel) {
@@ -467,71 +424,6 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
             pending={pending}
             onConnect={connectTwilio}
             onDisconnect={disconnectTwilio}
-          />
-        </li>
-
-        {CONNECTED_INTEGRATION_CHANNELS.map((channel) => {
-          const status = getChannelStatus(tenant, channel);
-          const connected = status.status === "connected";
-          const label = INTEGRATION_CHANNEL_LABELS[channel];
-          const icon = INTEGRATION_CHANNEL_ICONS[channel];
-
-          return (
-            <li key={channel} className={styles.connectionRow}>
-              <ConnectionBrandIcon src={icon} label={label} />
-              <div className={styles.connectionMeta}>
-                <span className={styles.connectionName}>{label}</span>
-                <span className={styles.connectionDesc}>
-                  {connected ? (
-                    <span className={styles.connectionDescRow}>
-                      <span>{integrationChannelMeta(status)}</span>
-                      <ConnectionReadyCheck />
-                    </span>
-                  ) : (
-                    INTEGRATION_CHANNEL_DESCRIPTIONS[channel]
-                  )}
-                </span>
-              </div>
-              <ConnectionButton
-                connected={connected}
-                name={label}
-                pending={pending}
-                onConnect={() => connectIntegrationChannel(channel)}
-                onDisconnect={() => disconnectChannel(channel)}
-              />
-            </li>
-          );
-        })}
-
-        <li className={styles.connectionRow}>
-          <div className={styles.connectionMeta}>
-            <span className={styles.connectionName}>AI Concierge</span>
-            <span className={styles.connectionDesc}>
-              {tenant.agents.conciergeEnabled ? "Enabled" : "Inbound SMS agent responses"}
-            </span>
-          </div>
-          <ConnectionButton
-            connected={tenant.agents.conciergeEnabled}
-            name="AI Concierge"
-            pending={pending}
-            onConnect={() => setAgentEnabled("conciergeEnabled", true)}
-            onDisconnect={() => setAgentEnabled("conciergeEnabled", false)}
-          />
-        </li>
-
-        <li className={styles.connectionRow}>
-          <div className={styles.connectionMeta}>
-            <span className={styles.connectionName}>Intake</span>
-            <span className={styles.connectionDesc}>
-              {tenant.agents.intakeEnabled ? "Enabled" : "Create contacts from new leads"}
-            </span>
-          </div>
-          <ConnectionButton
-            connected={tenant.agents.intakeEnabled}
-            name="Intake"
-            pending={pending}
-            onConnect={() => setAgentEnabled("intakeEnabled", true)}
-            onDisconnect={() => setAgentEnabled("intakeEnabled", false)}
           />
         </li>
 

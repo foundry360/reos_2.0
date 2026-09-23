@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountStatusBadge } from "@/lib/admin/account-status";
 import type { BillingTenantRow } from "@/lib/admin/billing-types";
 import { formatUsdFromCents } from "@/lib/admin/billing-format";
@@ -15,6 +15,23 @@ function csvEscape(value: string): string {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
+}
+
+function IconSearch() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="7" />
+      <path d="M20 20l-3.5-3.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconClose() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 interface BillingTenantsTableProps {
@@ -57,8 +74,38 @@ export function BillingTenantsTable({
   layout = "list",
 }: BillingTenantsTableProps) {
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState<(typeof PAGE_SIZES)[number]>(25);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const searchActive = search.trim().length > 0;
+  const searchExpanded = searchOpen || searchActive;
+
+  useEffect(() => {
+    function onDocClick(e: MouseEvent) {
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+        if (!search.trim()) setSearchOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [search]);
+
+  useEffect(() => {
+    if (searchExpanded) inputRef.current?.focus();
+  }, [searchExpanded]);
+
+  function openSearch() {
+    setSearchOpen(true);
+  }
+
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearch("");
+    setPage(1);
+  }
 
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -117,20 +164,45 @@ export function BillingTenantsTable({
       <div className={styles.billingTableHeader}>
         <div>
           <h2 className={styles.dashCardTitle}>Tenant usage</h2>
-          <p className={styles.dashCardSubtitle}>Current cycle by account</p>
         </div>
-        <div className={styles.pageHeaderActions}>
-          <input
-            type="search"
-            className={styles.input}
-            placeholder="Search accounts"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            aria-label="Search billing tenants"
-          />
+        <div className={styles.pageHeaderActions} ref={toolbarRef}>
+          <form
+            className={`${styles.expandableSearch} ${searchExpanded ? styles.expandableSearchOpen : ""}`}
+            onSubmit={(e) => e.preventDefault()}
+          >
+            <button
+              type="button"
+              className={`${styles.iconBtn} ${searchActive ? styles.iconBtnActive : ""}`}
+              aria-label="Search accounts"
+              aria-expanded={searchExpanded}
+              onClick={openSearch}
+            >
+              <IconSearch />
+            </button>
+            <input
+              ref={inputRef}
+              type="search"
+              className={styles.expandableSearchInput}
+              placeholder="Search accounts"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              aria-label="Search billing tenants"
+              tabIndex={searchExpanded ? 0 : -1}
+            />
+            {searchExpanded ? (
+              <button
+                type="button"
+                className={styles.expandableSearchClear}
+                aria-label="Clear search"
+                onClick={closeSearch}
+              >
+                <IconClose />
+              </button>
+            ) : null}
+          </form>
           <button type="button" className={`${styles.btnSecondary} ${styles.btnPill}`} onClick={exportCsv}>
             Export
           </button>

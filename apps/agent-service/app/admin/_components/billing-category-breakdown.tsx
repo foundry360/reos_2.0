@@ -1,7 +1,5 @@
-import {
-  formatUsdFromCents,
-  type UsageCategoryTotal,
-} from "@/lib/admin/billing-stats";
+import { formatUsdFromCents } from "@/lib/admin/billing-format";
+import type { UsageCategoryTotal } from "@/lib/admin/billing-stats";
 import type { UsageCategory } from "@/lib/admin/billing-categories";
 import styles from "@/components/shell/shell.module.css";
 

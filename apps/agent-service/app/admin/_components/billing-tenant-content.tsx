@@ -75,6 +75,11 @@ export function BillingTenantContent({ stats }: { stats: TenantBillingStats }) {
             title="Account Status"
             iconBadgeClassName={styles.dashCardIconHealth}
             icon={<IconBillingStatus />}
+            action={
+              <Link href={stats.historyHref} className={styles.dashCardLink}>
+                Previous Months Billing
+              </Link>
+            }
           />
           <div className={styles.dashCardBody}>
             <p className={styles.dashCardSubtitle}>Billing readiness</p>

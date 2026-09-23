@@ -10,6 +10,8 @@ import styles from "@/components/shell/shell.module.css";
 interface BillingTenantSelectProps {
   tenantOptions: BillingTenantOption[];
   selectedTenantId?: string;
+  /** When set, tenant switches stay on this path suffix (e.g. "history"). */
+  tenantPathSuffix?: string;
 }
 
 function AllTenantsIcon() {
@@ -31,8 +33,10 @@ function TenantIcon({ name }: { name: string }) {
 export function BillingTenantSelect({
   tenantOptions,
   selectedTenantId,
+  tenantPathSuffix,
 }: BillingTenantSelectProps) {
   const router = useRouter();
+  const suffix = tenantPathSuffix ? `/${tenantPathSuffix.replace(/^\/+/, "")}` : "";
 
   const options = [
     {
@@ -56,7 +60,7 @@ export function BillingTenantSelect({
             router.push("/admin/billing");
             return;
           }
-          router.push(`/admin/billing/tenants/${value}`);
+          router.push(`/admin/billing/tenants/${value}${suffix}`);
         }}
         options={options}
         variant="inline"

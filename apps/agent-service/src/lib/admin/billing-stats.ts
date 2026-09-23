@@ -3,7 +3,11 @@ import {
   USAGE_CATEGORY_LABELS,
   type UsageCategory,
 } from "@/lib/admin/billing-categories";
-import { getCurrentBillingCycle, type BillingCycleWindow } from "@/lib/admin/billing-cycle";
+import {
+  getBillingCycleForMonth,
+  getCurrentBillingCycle,
+  type BillingCycleWindow,
+} from "@/lib/admin/billing-cycle";
 import type { BillingTenantOption, BillingTenantRow } from "@/lib/admin/billing-types";
 import { normalizeTenantStatus } from "@/lib/admin/account-status";
 import { createClient } from "@/lib/supabase/server";
@@ -42,6 +46,33 @@ export interface TenantBillingStats {
   };
   totalUsageCents: number;
   categoryTotals: UsageCategoryTotal[];
+  accountHref: string;
+  historyHref: string;
+}
+
+export type BillingCycleStatus = "open" | "closing" | "invoiced" | "paid" | "failed" | "unbilled";
+
+export interface TenantBillingHistoryMonth {
+  cycle: BillingCycleWindow;
+  periodKey: string;
+  totalUsageCents: number;
+  categoryTotals: UsageCategoryTotal[];
+  status: BillingCycleStatus;
+  stripeInvoiceId: string | null;
+  closedAt: string | null;
+  paidAt: string | null;
+}
+
+export interface TenantBillingHistory {
+  tenant: {
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    stripeCustomerId: string | null;
+  };
+  months: TenantBillingHistoryMonth[];
+  currentHref: string;
   accountHref: string;
 }
 
@@ -254,6 +285,186 @@ export async function fetchTenantBillingStats(
     },
     totalUsageCents,
     categoryTotals: buildCategoryTotals(categoryAccumulator),
+    accountHref: `/admin/accounts/${tenant.id}`,
+    historyHref: `/admin/billing/tenants/${tenant.id}/history`,
+  };
+}
+
+const HISTORY_MONTH_COUNT = 12;
+
+function listPreviousBillingCycles(count = HISTORY_MONTH_COUNT): BillingCycleWindow[] {
+  const current = getCurrentBillingCycle();
+  const currentStart = new Date(current.start);
+  const months: BillingCycleWindow[] = [];
+
+  for (let offset = 1; offset <= count; offset += 1) {
+    const year = currentStart.getFullYear();
+    const month = currentStart.getMonth() + 1 - offset;
+    const adjustedYear = month <= 0 ? year - 1 : year;
+    const adjustedMonth = month <= 0 ? month + 12 : month;
+    const cycle = getBillingCycleForMonth(adjustedYear, adjustedMonth);
+    if (cycle) months.push(cycle);
+  }
+
+  return months;
+}
+
+function periodKeyFromCycle(cycle: BillingCycleWindow): string {
+  return cycle.start.slice(0, 7);
+}
+
+function normalizeBillingCycleStatus(value: string | null | undefined): BillingCycleStatus {
+  if (
+    value === "open" ||
+    value === "closing" ||
+    value === "invoiced" ||
+    value === "paid" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+  return "unbilled";
+}
+
+export async function fetchTenantBillingHistory(
+  tenantId: string,
+): Promise<TenantBillingHistory | null> {
+  const supabase = await createClient();
+
+  const { data: tenant, error } = await supabase
+    .from("tenants")
+    .select("id, name, slug, status, stripe_customer_id")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (error || !tenant) {
+    if (error) console.error("tenant billing history query failed:", error.message);
+    return null;
+  }
+
+  const previousCycles = listPreviousBillingCycles();
+
+  const [{ data: cycleRows, error: cycleError }, usageByPeriod] = await Promise.all([
+    supabase
+      .from("billing_cycles")
+      .select(
+        "period_start, period_end, status, subtotal_cents, stripe_invoice_id, closed_at, paid_at",
+      )
+      .eq("tenant_id", tenantId)
+      .order("period_start", { ascending: false }),
+    (async () => {
+      const byKey = new Map<string, UsageAggregateRow[]>();
+      await Promise.all(
+        previousCycles.map(async (cycle) => {
+          const rows = await fetchUsageAggregates(cycle, tenantId);
+          byKey.set(periodKeyFromCycle(cycle), rows);
+        }),
+      );
+      return byKey;
+    })(),
+  ]);
+
+  if (cycleError && cycleError.code !== "42P01") {
+    console.error("billing_cycles history query failed:", cycleError.message);
+  }
+
+  const cyclesByPeriod = new Map<
+    string,
+    {
+      status: BillingCycleStatus;
+      subtotalCents: number;
+      stripeInvoiceId: string | null;
+      closedAt: string | null;
+      paidAt: string | null;
+    }
+  >();
+
+  for (const row of cycleRows ?? []) {
+    const key =
+      typeof row.period_start === "string" ? row.period_start.slice(0, 7) : null;
+    if (!key) continue;
+    cyclesByPeriod.set(key, {
+      status: normalizeBillingCycleStatus(row.status),
+      subtotalCents: Number(row.subtotal_cents ?? 0),
+      stripeInvoiceId:
+        typeof row.stripe_invoice_id === "string" ? row.stripe_invoice_id : null,
+      closedAt: typeof row.closed_at === "string" ? row.closed_at : null,
+      paidAt: typeof row.paid_at === "string" ? row.paid_at : null,
+    });
+  }
+
+  const months: TenantBillingHistoryMonth[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const cycle of previousCycles) {
+    const key = periodKeyFromCycle(cycle);
+    seenKeys.add(key);
+    const usageRows = usageByPeriod.get(key) ?? [];
+    const categoryAccumulator = usageRows.map((row) => ({
+      category: row.category,
+      amountCents: row.total_cents,
+    }));
+    const totalUsageCents = categoryAccumulator.reduce((sum, row) => sum + row.amountCents, 0);
+    const closed = cyclesByPeriod.get(key);
+
+    if (totalUsageCents <= 0 && !closed) continue;
+
+    months.push({
+      cycle,
+      periodKey: key,
+      totalUsageCents:
+        closed?.subtotalCents && closed.subtotalCents > 0
+          ? closed.subtotalCents
+          : totalUsageCents,
+      categoryTotals: buildCategoryTotals(categoryAccumulator),
+      status: closed?.status ?? "unbilled",
+      stripeInvoiceId: closed?.stripeInvoiceId ?? null,
+      closedAt: closed?.closedAt ?? null,
+      paidAt: closed?.paidAt ?? null,
+    });
+  }
+
+  const currentKey = periodKeyFromCycle(getCurrentBillingCycle());
+  for (const row of cycleRows ?? []) {
+    const key =
+      typeof row.period_start === "string" ? row.period_start.slice(0, 7) : null;
+    if (!key || seenKeys.has(key) || key >= currentKey) continue;
+
+    const [yearText, monthText] = key.split("-");
+    const cycle = getBillingCycleForMonth(Number(yearText), Number(monthText));
+    if (!cycle) continue;
+
+    const usageRows = await fetchUsageAggregates(cycle, tenantId);
+    const categoryAccumulator = usageRows.map((entry) => ({
+      category: entry.category,
+      amountCents: entry.total_cents,
+    }));
+
+    months.push({
+      cycle,
+      periodKey: key,
+      totalUsageCents: Number(row.subtotal_cents ?? 0),
+      categoryTotals: buildCategoryTotals(categoryAccumulator),
+      status: normalizeBillingCycleStatus(row.status),
+      stripeInvoiceId:
+        typeof row.stripe_invoice_id === "string" ? row.stripe_invoice_id : null,
+      closedAt: typeof row.closed_at === "string" ? row.closed_at : null,
+      paidAt: typeof row.paid_at === "string" ? row.paid_at : null,
+    });
+  }
+
+  months.sort((a, b) => b.periodKey.localeCompare(a.periodKey));
+
+  return {
+    tenant: {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      status: tenant.status,
+      stripeCustomerId: tenant.stripe_customer_id,
+    },
+    months,
+    currentHref: `/admin/billing/tenants/${tenant.id}`,
     accountHref: `/admin/accounts/${tenant.id}`,
   };
 }
