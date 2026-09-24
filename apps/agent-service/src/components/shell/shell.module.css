@@ -88,6 +88,19 @@
   object-position: left center;
 }
 
+/* White wordmark for dark surfaces; navy wordmark for light header */
+.headerLogoOnLight {
+  display: none;
+}
+
+:global(html:not([data-theme="dark"])) .headerLogoOnDark {
+  display: none;
+}
+
+:global(html:not([data-theme="dark"])) .headerLogoOnLight {
+  display: block;
+}
+
 .headerActions {
   display: flex;
   align-items: center;
@@ -324,15 +337,15 @@
   gap: 0.55rem;
   height: 2.35rem;
   padding: 0 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.28);
+  border: 1px solid var(--shell-header-control-border, rgba(255, 255, 255, 0.28));
   border-radius: 999px;
-  background: transparent;
+  background: var(--shell-header-control-bg, transparent);
   color: var(--shell-header-text, #fff);
 }
 
 .globalSearchField:focus-within {
-  border-color: rgba(255, 255, 255, 0.4);
-  background: transparent;
+  border-color: var(--shell-control-border-hover, var(--shell-header-control-border));
+  background: var(--shell-header-control-bg, transparent);
 }
 
 .globalSearchIcon {
@@ -515,6 +528,19 @@
   overflow: hidden;
 }
 
+:global(html:not([data-theme="dark"])) .sidebar,
+:global(html:not([data-theme="dark"])) .subnav {
+  border-right-color: var(--shell-sidebar-border, var(--shell-border));
+  color: var(--shell-sidebar-text, var(--shell-text));
+  --shell-text: var(--shell-sidebar-text);
+  --shell-text-secondary: var(--shell-sidebar-text-secondary);
+  --shell-muted: var(--shell-sidebar-muted);
+  --shell-border: var(--shell-sidebar-border);
+  --shell-hover: var(--shell-sidebar-hover);
+  --nav-active-bg: var(--shell-sidebar-nav-active-bg);
+  --nav-active-text: var(--shell-sidebar-nav-active-text);
+}
+
 .subnavPanel {
   display: flex;
   flex-direction: column;
@@ -588,9 +614,19 @@
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
+:global(html:not([data-theme="dark"])) .sidebarToggle {
+  background: #55a9db;
+  box-shadow: 0 0 0 6px color-mix(in srgb, #55a9db 18%, transparent);
+}
+
 .sidebarToggle:hover {
   background: var(--shell-blue-dark);
   box-shadow: 0 0 0 8px color-mix(in srgb, var(--shell-blue) 22%, transparent);
+}
+
+:global(html:not([data-theme="dark"])) .sidebarToggle:hover {
+  background: #3d8fc4;
+  box-shadow: 0 0 0 8px color-mix(in srgb, #55a9db 22%, transparent);
 }
 
 .sidebarToggleIcon {
@@ -634,8 +670,8 @@
 }
 
 :global(html:not([data-theme="dark"])) .appHeader .logoMark {
-  background: #ffffff;
-  color: #022342;
+  background: #022342;
+  color: #ffffff;
 }
 
 .logoSub {
@@ -4442,6 +4478,7 @@ html[data-theme="dark"] .menuError {
   border-radius: 10px;
   overflow: hidden;
   background: var(--shell-surface);
+  box-shadow: var(--shell-card-shadow);
 }
 
 .accordionTrigger {
@@ -7369,8 +7406,28 @@ html[data-theme="dark"] .billingWalletIconBadge {
 .personDetailNav {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  justify-content: center;
+  gap: 1rem;
   flex-shrink: 0;
+  min-width: 0;
+  position: relative;
+}
+
+.personDetailNav .personDetailBack {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-shrink: 0;
+  padding-bottom: 0;
+}
+
+.personDetailNav .personDetailTabs {
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: center;
+  margin: 0;
+  border-bottom: none;
 }
 
 .personDetailBack {
@@ -7490,6 +7547,17 @@ html[data-theme="dark"] .billingWalletIconBadge {
   scrollbar-color: transparent transparent;
 }
 
+.personDetailLayoutFill > .personDetailCenter:has(.personDetailCenterStackFill) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.personDetailLayoutFill > .personDetailCenter:has(.personDetailCenterStackFill) > .personDetailCenterStackFill {
+  flex: 1;
+  min-height: 0;
+}
+
 .personDetailLayoutFill > .personDetailCenter:not(.personDetailCenterMessaging):hover {
   scrollbar-color: var(--shell-scrollbar-thumb) transparent;
 }
@@ -7527,10 +7595,6 @@ html[data-theme="dark"] .billingWalletIconBadge {
   flex-direction: column;
 }
 
-.personDetailCenterMessaging .personDetailTabs {
-  flex-shrink: 0;
-}
-
 .personMessagingFull {
   min-height: 0;
   flex: 1;
@@ -7549,6 +7613,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  box-shadow: var(--shell-card-shadow);
 }
 
 .personProfileCard {
@@ -7791,7 +7856,7 @@ html[data-theme="dark"] .billingWalletIconBadge {
   margin: 0 0 1rem;
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--shell-border);
+  border-bottom: none;
   border-radius: 0;
   overflow: visible;
 }
@@ -7847,8 +7912,32 @@ html[data-theme="dark"] .billingWalletIconBadge {
   gap: 0.85rem;
 }
 
+.personDetailCenterStackFill {
+  min-height: 100%;
+  height: 100%;
+}
+
 .personCenterCard {
   padding: 1rem 1.1rem 1.1rem;
+}
+
+.personCenterCardFill {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.personCenterCardFill .personCenterCardHeader {
+  flex-shrink: 0;
+}
+
+.personCenterCardFill .personFeedEmptyState {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
 }
 
 .personCenterCardHeader {
@@ -8192,6 +8281,23 @@ html[data-theme="dark"] .billingWalletIconBadge {
 
   .personDetailRight {
     grid-template-columns: 1fr;
+  }
+
+  .personDetailNav {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .personDetailNav .personDetailBack {
+    position: static;
+    transform: none;
+    align-self: flex-start;
+    padding-bottom: 0;
+  }
+
+  .personDetailNav .personDetailTabs {
+    justify-content: center;
   }
 
   /* Stacked mobile: unlock page scroll so cards aren't height-clamped. */
@@ -8568,6 +8674,7 @@ html[data-theme="dark"] .dealMetaPill {
   border: 1px solid var(--shell-border);
   border-radius: 12px;
   overflow: hidden;
+  box-shadow: var(--shell-card-shadow);
 }
 
 .personMessagingPanelHeader {

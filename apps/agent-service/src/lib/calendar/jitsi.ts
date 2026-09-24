@@ -8,9 +8,7 @@ function sanitizeRoomSegment(value: string): string {
     .slice(0, 48);
 }
 
-/**
- * Unique room name for a scheduled meeting (JaaS or legacy Meet).
- */
+/** Unique room name for a scheduled public Jitsi meeting. */
 export function createMeetingRoomName(seed?: string | null): string {
   const random = randomBytes(4).toString("hex");
   const seedPart = seed ? sanitizeRoomSegment(seed) : "";
@@ -19,27 +17,24 @@ export function createMeetingRoomName(seed?: string | null): string {
     : `reos-${random}${randomBytes(2).toString("hex")}`;
 }
 
+/** Public Meet always works; optional JITSI_BASE_URL overrides meet.jit.si. */
 export function isVideoConferencingConfigured(): boolean {
-  return Boolean(
-    process.env.JAAS_APP_ID?.trim() &&
-      process.env.JAAS_API_KEY_ID?.trim() &&
-      process.env.JAAS_PRIVATE_KEY?.trim(),
-  );
+  return true;
 }
 
-/** @deprecated Use createMeetingRoomName + JaaS join redirects. */
+export function getJitsiBaseUrl(): string {
+  return (process.env.JITSI_BASE_URL?.trim() || "https://meet.jit.si").replace(/\/+$/, "");
+}
+
+export function buildJitsiMeetingUrl(room: string): string {
+  const safeRoom = room.replace(/^\/+|\/+$/g, "");
+  return `${getJitsiBaseUrl()}/${encodeURIComponent(safeRoom)}`;
+}
+
 export function createJitsiMeetingUrl(seed?: string | null): {
   room: string;
   url: string;
 } {
   const room = createMeetingRoomName(seed);
-  const base = (process.env.JITSI_BASE_URL?.trim() || "https://meet.jit.si").replace(
-    /\/+$/,
-    "",
-  );
-  return { room, url: `${base}/${room}` };
-}
-
-export function getJitsiBaseUrl(): string {
-  return (process.env.JITSI_BASE_URL?.trim() || "https://meet.jit.si").replace(/\/+$/, "");
+  return { room, url: buildJitsiMeetingUrl(room) };
 }

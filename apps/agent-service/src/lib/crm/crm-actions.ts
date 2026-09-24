@@ -36,10 +36,8 @@ import {
   sendAppointmentInvites,
 } from "@/lib/calendar/appointment-invites";
 import {
-  createMeetingRoomName,
-  isVideoConferencingConfigured,
+  createJitsiMeetingUrl,
 } from "@/lib/calendar/jitsi";
-import { buildMeetingJoinUrl } from "@/lib/calendar/meeting-join";
 import {
   CONSULT_MINUTES,
   DEFAULT_TIME_ZONE,
@@ -1691,17 +1689,14 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
     }
 
     if (addVideo) {
-      if (!isVideoConferencingConfigured()) {
-        return {
-          ok: false,
-          error:
-            "Video conferencing is not configured. Add JAAS_APP_ID, JAAS_API_KEY_ID, and JAAS_PRIVATE_KEY.",
-        };
-      }
-      const room = createMeetingRoomName(title);
-      metadata.conference_provider = "jaas";
+      const { room, url } = createJitsiMeetingUrl(title);
+      metadata.conference_provider = "jitsi";
       metadata.conference_room = room;
-      // Join URLs are filled after insert (need activity id for signed redirects).
+      metadata.conference_url = url;
+      metadata.conference_host_url = url;
+      if (!locationRaw) {
+        metadata.location = url;
+      }
     }
 
     if (metadata.location || addVideo) {
@@ -1777,42 +1772,13 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
       location?: string;
       conference_room?: string;
       conference_provider?: string;
+      conference_url?: string;
+      conference_host_url?: string;
       add_video?: boolean;
     };
     const meetingEnd = endDate ?? defaultAppointmentEnd(startDate);
-    let guestConferenceUrl: string | null = null;
-    let hostConferenceUrl: string | null = null;
-
-    if (addVideo && meta.conference_room) {
-      guestConferenceUrl = buildMeetingJoinUrl({
-        activityId: activity.id,
-        tenantId: tenant.tenantId,
-        role: "guest",
-        endsAt: meetingEnd,
-      });
-      hostConferenceUrl = buildMeetingJoinUrl({
-        activityId: activity.id,
-        tenantId: tenant.tenantId,
-        role: "host",
-        endsAt: meetingEnd,
-      });
-
-      const updatedMeta = {
-        ...meta,
-        conference_url: guestConferenceUrl,
-        conference_host_url: hostConferenceUrl,
-        ...(locationRaw ? {} : { location: guestConferenceUrl }),
-      };
-      payload.metadata = updatedMeta;
-      const { error: metaUpdateError } = await supabase
-        .from("contact_activities")
-        .update({ metadata: updatedMeta })
-        .eq("id", activity.id)
-        .eq("tenant_id", tenant.tenantId);
-      if (metaUpdateError && !/metadata|schema cache|column/i.test(metaUpdateError.message)) {
-        console.warn("Could not store conference join URLs:", metaUpdateError.message);
-      }
-    }
+    const guestConferenceUrl = meta.conference_url?.trim() || null;
+    const hostConferenceUrl = meta.conference_host_url?.trim() || guestConferenceUrl;
 
     const inviteLocation = locationRaw || guestConferenceUrl || null;
 

@@ -37,11 +37,16 @@ export function ShellHeader({
       className={`${styles.appHeader} ${showGlobalSearch ? styles.appHeaderWithSearch : ""}`}
       data-reos-header=""
     >
-      <Link href={logoHref} className={styles.headerBrand}>
+      <Link href={logoHref} className={styles.headerBrand} aria-label="RealtorOS">
         <img
           src="/realtoros-logo.png"
-          alt="RealtorOS"
-          className={styles.headerLogo}
+          alt=""
+          className={`${styles.headerLogo} ${styles.headerLogoOnDark}`}
+        />
+        <img
+          src="/realtoros-logo-light.png"
+          alt=""
+          className={`${styles.headerLogo} ${styles.headerLogoOnLight}`}
         />
         {logoSub && <span className={styles.logoSub}>{logoSub}</span>}
       </Link>

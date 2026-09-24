@@ -366,12 +366,19 @@ export async function loadPersonDetail(
 
   // Gmail remains an optional history sync. It is not required to send from REOS.
   if (gmailConnected && contact.email?.trim()) {
-    await syncContactGmailMessages({
-      tenantId,
-      contactId: contact.id,
-      contactEmail: contact.email.trim(),
-      opportunityId: opportunityRows[0]?.id ?? null,
-    });
+    try {
+      await syncContactGmailMessages({
+        tenantId,
+        contactId: contact.id,
+        contactEmail: contact.email.trim(),
+        opportunityId: opportunityRows[0]?.id ?? null,
+      });
+    } catch (error) {
+      console.warn(
+        "Gmail sync skipped:",
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 
   const emailsRes = await supabase

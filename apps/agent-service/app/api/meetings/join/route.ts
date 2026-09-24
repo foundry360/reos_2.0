@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { buildJaasJoinUrl, isJaasConfigured } from "@/lib/calendar/jaas";
+import { buildJitsiMeetingUrl } from "@/lib/calendar/jitsi";
 import { verifyMeetingJoinToken } from "@/lib/calendar/meeting-join";
 
 export const runtime = "nodejs";
 
 /**
- * Public join redirect: validates signed token, mints a fresh JaaS JWT, redirects to 8x8.vc.
- * Host tokens get moderator=true; guest tokens get moderator=false — no Jitsi login required.
+ * Public join redirect for older signed meeting links.
+ * Prefer JaaS when configured; otherwise send guests to public Meet (meet.jit.si).
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -21,13 +22,6 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { error: "This join link is invalid or has expired." },
       { status: 403 },
-    );
-  }
-
-  if (!isJaasConfigured()) {
-    return NextResponse.json(
-      { error: "Video conferencing is not configured." },
-      { status: 503 },
     );
   }
 
@@ -54,35 +48,52 @@ export async function GET(request: Request) {
   const room =
     (typeof metadata.conference_room === "string" && metadata.conference_room.trim()) ||
     null;
-  if (!room) {
+  const storedUrl =
+    (typeof metadata.conference_url === "string" && metadata.conference_url.trim()) ||
+    (typeof metadata.conference_host_url === "string" &&
+      metadata.conference_host_url.trim()) ||
+    null;
+
+  if (!room && !storedUrl) {
     return NextResponse.json(
       { error: "This meeting has no video room." },
       { status: 404 },
     );
   }
 
-  const isHost = payload.role === "host";
-  const displayName = isHost
-    ? "Host"
-    : typeof activity.title === "string" && activity.title.trim()
-      ? "Guest"
-      : "Guest";
-
-  try {
-    const joinUrl = await buildJaasJoinUrl({
-      room,
-      participant: {
-        id: `${payload.role}-${payload.activityId}`,
-        name: displayName,
-        moderator: isHost,
-      },
-    });
-    return NextResponse.redirect(joinUrl, 302);
-  } catch (err) {
-    console.error("meeting join redirect failed:", err);
-    return NextResponse.json(
-      { error: "Could not start the video meeting." },
-      { status: 500 },
-    );
+  // Prefer a stored public Meet URL when present and not a REOS redirect.
+  if (
+    storedUrl &&
+    !storedUrl.includes("/api/meetings/join") &&
+    !isJaasConfigured()
+  ) {
+    return NextResponse.redirect(storedUrl, 302);
   }
+
+  if (room && isJaasConfigured()) {
+    const isHost = payload.role === "host";
+    try {
+      const joinUrl = await buildJaasJoinUrl({
+        room,
+        participant: {
+          id: `${payload.role}-${payload.activityId}`,
+          name: isHost ? "Host" : "Guest",
+          moderator: isHost,
+        },
+      });
+      return NextResponse.redirect(joinUrl, 302);
+    } catch (err) {
+      console.error("meeting join redirect failed:", err);
+      return NextResponse.json(
+        { error: "Could not start the video meeting." },
+        { status: 500 },
+      );
+    }
+  }
+
+  if (room) {
+    return NextResponse.redirect(buildJitsiMeetingUrl(room), 302);
+  }
+
+  return NextResponse.redirect(storedUrl!, 302);
 }

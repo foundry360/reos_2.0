@@ -318,8 +318,7 @@ export function NewMeetingModal({
                     </button>
                     {addVideo ? (
                       <p className={styles.fieldHint}>
-                        Guests get a join link; you get a host link that starts the room (no
-                        Jitsi login). Requires JaaS to be configured.
+                        Adds a public Jitsi Meet link everyone can open — no account required.
                       </p>
                     ) : null}
                   </div>

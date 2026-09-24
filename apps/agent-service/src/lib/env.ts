@@ -27,13 +27,13 @@ const envSchema = z.object({
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   /** Alias for GOOGLE_PLACES_API_KEY when using a shared Maps Platform key. */
   GOOGLE_MAPS_API_KEY: z.string().optional(),
-  /** Jitsi Meet base URL (legacy fallback; video meetings use JaaS when configured). */
+  /** Public Jitsi Meet base URL (default https://meet.jit.si). */
   JITSI_BASE_URL: z.string().url().optional(),
-  /** 8x8 Jitsi as a Service — App ID (vpaas-magic-cookie-…). */
+  /** Optional 8x8 JaaS App ID — only used for legacy signed join redirects. */
   JAAS_APP_ID: z.string().optional(),
-  /** JaaS API key id (kid header when signing JWTs). */
+  /** Optional JaaS API key id (kid). */
   JAAS_API_KEY_ID: z.string().optional(),
-  /** JaaS RSA private key PEM (use \n for newlines in env). */
+  /** Optional JaaS RSA private key PEM (use \n for newlines in env). */
   JAAS_PRIVATE_KEY: z.string().optional(),
   /** Optional HMAC secret for /api/meetings/join links. */
   MEETING_JOIN_SECRET: z.string().optional(),

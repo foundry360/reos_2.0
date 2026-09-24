@@ -23,7 +23,7 @@ export interface SendAppointmentInvitesParams {
   start: Date;
   end: Date;
   location?: string | null;
-  /** Guest / shared video join URL (REOS redirect → JaaS). */
+  /** Shared video join URL (public Jitsi Meet). */
   conferenceUrl?: string | null;
   /** Host/moderator join URL for the agent invite. */
   hostConferenceUrl?: string | null;
@@ -193,12 +193,8 @@ function inviteBodyHtml(params: {
   const locationIsConference = Boolean(
     conference && location && location === conference,
   );
-  const joinLabel = params.forAgent ? "Join as host (start the meeting)" : "Join video";
   const joinLine = conference
-    ? `<p><strong>${joinLabel}:</strong> <a href="${escapeHtml(conference)}">${escapeHtml(conference)}</a></p>`
-    : "";
-  const hostNote = params.forAgent && conference
-    ? `<p>Open your host link first so guests are not stuck waiting for a moderator. No separate Jitsi login is required.</p>`
+    ? `<p><strong>Join video:</strong> <a href="${escapeHtml(conference)}">${escapeHtml(conference)}</a></p>`
     : "";
   const locationLine =
     location && !locationIsConference
@@ -210,7 +206,6 @@ function inviteBodyHtml(params: {
     `<p><strong>${escapeHtml(params.summary)}</strong><br/>${escapeHtml(params.label)}</p>`,
     locationLine,
     joinLine,
-    hostNote,
     `<p>A calendar invite is attached — add it to your calendar to keep the time.</p>`,
     `<p>Reply to this email if you need to reschedule.</p>`,
   ]

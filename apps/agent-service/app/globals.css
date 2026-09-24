@@ -13,8 +13,8 @@ html[data-theme="light"] {
   --brand-light: #5f82a0;
   --brand-accent: #487095;
   --brand-tint: #d6e2eb;
-  --shell-bg: #f9fbfc;
-  --shell-content-bg: #f9fbfc;
+  --shell-bg: #fcfdfe;
+  --shell-content-bg: #fcfdfe;
   --shell-surface: #ffffff;
   --shell-surface-muted: #edf3f7;
   --shell-hover: #d6e2eb;
@@ -30,14 +30,21 @@ html[data-theme="light"] {
   --shell-readonly-bg: #edf3f7;
   --nav-active-bg: #d6e2eb;
   --nav-active-text: #022342;
-  --shell-sidebar-bg: var(--shell-surface);
-  --shell-header-bg: #022342;
-  --shell-header-text: #ffffff;
-  --shell-header-muted: rgba(255, 255, 255, 0.78);
-  --shell-header-border: #0b3557;
-  --shell-header-control-bg: rgba(255, 255, 255, 0.1);
-  --shell-header-control-border: rgba(255, 255, 255, 0.24);
-  --shell-header-control-hover: rgba(255, 255, 255, 0.16);
+  --shell-sidebar-bg: #121c2d;
+  --shell-sidebar-text: #ffffff;
+  --shell-sidebar-text-secondary: rgba(255, 255, 255, 0.78);
+  --shell-sidebar-muted: rgba(255, 255, 255, 0.55);
+  --shell-sidebar-border: rgba(255, 255, 255, 0.12);
+  --shell-sidebar-hover: rgba(255, 255, 255, 0.08);
+  --shell-sidebar-nav-active-bg: rgba(255, 255, 255, 0.14);
+  --shell-sidebar-nav-active-text: #ffffff;
+  --shell-header-bg: #eceef1;
+  --shell-header-text: #022342;
+  --shell-header-muted: #647586;
+  --shell-header-border: #e0e3e8;
+  --shell-header-control-bg: #ffffff;
+  --shell-header-control-border: #d6e2eb;
+  --shell-header-control-hover: #edf3f7;
   --dropdown-shadow: 0 12px 32px rgba(2, 35, 66, 0.1);
   --dropdown-shadow-strong: 0 18px 44px rgba(2, 35, 66, 0.14);
   --btn-secondary-border: #487095;
@@ -65,7 +72,8 @@ html[data-theme="light"] {
   --dash-signal-icon-cyan: var(--palette-cyan-alt);
   --dash-signal-icon-violet: var(--palette-purple);
   --dash-live-label: #487095;
-  --shell-card-shadow: 0 2px 8px rgba(2, 35, 66, 0.06), 0 8px 24px rgba(2, 35, 66, 0.08);
+  --shell-card-shadow: 0 1px 2px rgba(2, 35, 66, 0.05), 0 4px 12px rgba(2, 35, 66, 0.07),
+    0 12px 28px rgba(2, 35, 66, 0.08);
   /* Semantic icon tones — navy / slate family */
   --palette-purple: #487095;
   --palette-purple-soft: #d6e2eb;
@@ -151,7 +159,8 @@ html[data-theme="dark"] {
   --dash-signal-icon-cyan: var(--brand-light);
   --dash-signal-icon-violet: var(--brand-light);
   --dash-live-label: #7bbde5;
-  --shell-card-shadow: 0 2px 8px rgba(0, 0, 0, 0.22), 0 10px 28px rgba(0, 0, 0, 0.28);
+  --shell-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.28), 0 6px 16px rgba(0, 0, 0, 0.32),
+    0 14px 32px rgba(0, 0, 0, 0.28);
   /* Semantic icon tones — blue / gray family (aligned with light theme) */
   --palette-purple: #5f82a0;
   --palette-purple-soft: rgba(85, 169, 219, 0.18);

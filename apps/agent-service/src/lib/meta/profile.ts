@@ -1,4 +1,5 @@
 const META_GRAPH_VERSION = "v21.0";
+const META_FETCH_TIMEOUT_MS = 4_000;
 
 export interface MetaSenderProfile {
   firstName: string | null;
@@ -11,6 +12,20 @@ function splitDisplayName(name: string): { firstName: string | null; lastName: s
   if (parts.length === 0) return { firstName: null, lastName: null };
   if (parts.length === 1) return { firstName: parts[0], lastName: null };
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+async function metaFetch(url: string): Promise<Response | null> {
+  try {
+    return await fetch(url, {
+      signal: AbortSignal.timeout(META_FETCH_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.warn(
+      "Meta Graph request failed:",
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
 }
 
 /** Messenger / IG sender profile via Page token (PSID / IGSID). */
@@ -31,23 +46,25 @@ export async function fetchMetaSenderProfile(
     access_token: pageAccessToken,
   });
 
-  const response = await fetch(
+  const response = await metaFetch(
     `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(senderId)}?${params.toString()}`,
   );
+  if (!response) return null;
 
   if (!response.ok) {
-    const body = await response.text();
+    const body = await response.text().catch(() => "");
     console.warn("Meta sender profile failed:", response.status, body);
     return null;
   }
 
-  const data = (await response.json()) as {
+  const data = (await response.json().catch(() => null)) as {
     first_name?: string;
     last_name?: string;
     name?: string;
     username?: string;
     profile_pic?: string;
-  };
+  } | null;
+  if (!data) return null;
 
   let firstName = data.first_name?.trim() || null;
   let lastName = data.last_name?.trim() || null;
@@ -81,10 +98,10 @@ async function fetchMetaSenderPictureUrl(
     access_token: pageAccessToken,
   });
 
-  const response = await fetch(
+  const response = await metaFetch(
     `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(senderId)}/picture?${params.toString()}`,
   );
-  if (!response.ok) return null;
+  if (!response?.ok) return null;
 
   const data = (await response.json().catch(() => null)) as {
     data?: { url?: string };
@@ -104,10 +121,10 @@ export async function fetchMetaChannelAvatar(input: {
       fields: "profile_picture_url",
       access_token: input.pageAccessToken,
     });
-    const response = await fetch(
+    const response = await metaFetch(
       `https://graph.facebook.com/${META_GRAPH_VERSION}/${encodeURIComponent(input.instagramBusinessAccountId)}?${params.toString()}`,
     );
-    if (response.ok) {
+    if (response?.ok) {
       const data = (await response.json().catch(() => null)) as {
         profile_picture_url?: string;
       } | null;

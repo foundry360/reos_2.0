@@ -485,6 +485,23 @@ export function PersonDetailView({
           <IconBack />
           {plural.charAt(0).toUpperCase() + plural.slice(1)}
         </Link>
+        <div className={styles.personDetailTabs} role="tablist" aria-label={`${singular} sections`}>
+          {DETAIL_TABS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              className={`${styles.personDetailTab} ${
+                tab === item.id ? styles.personDetailTabActive : ""
+              }`}
+              onClick={() => setTab(item.id)}
+            >
+              <span className={styles.personDetailTabIcon}>{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div
@@ -602,24 +619,6 @@ export function PersonDetailView({
             tab === "messaging" ? styles.personDetailCenterMessaging : ""
           }`}
         >
-          <div className={styles.personDetailTabs} role="tablist" aria-label={`${singular} sections`}>
-            {DETAIL_TABS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === item.id}
-                className={`${styles.personDetailTab} ${
-                  tab === item.id ? styles.personDetailTabActive : ""
-                }`}
-                onClick={() => setTab(item.id)}
-              >
-                <span className={styles.personDetailTabIcon}>{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </div>
-
           {tab === "overview" ? (
             <div className={styles.personDetailCenterStack} role="tabpanel">
               <section className={styles.personCenterCard}>
@@ -741,8 +740,25 @@ export function PersonDetailView({
           ) : null}
 
           {tab === "notes" ? (
-            <div className={styles.personDetailCenterStack} role="tabpanel">
-              <section className={styles.personCenterCard}>
+            <div
+              className={`${styles.personDetailCenterStack} ${
+                person.activities.some(
+                  (item) => item.source === "activity" && item.type === "note",
+                )
+                  ? ""
+                  : styles.personDetailCenterStackFill
+              }`}
+              role="tabpanel"
+            >
+              <section
+                className={`${styles.personCenterCard} ${
+                  person.activities.some(
+                    (item) => item.source === "activity" && item.type === "note",
+                  )
+                    ? ""
+                    : styles.personCenterCardFill
+                }`}
+              >
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Notes</h2>
                   {person.activities.some(
@@ -773,8 +789,17 @@ export function PersonDetailView({
           ) : null}
 
           {tab === "tasks" ? (
-            <div className={styles.personDetailCenterStack} role="tabpanel">
-              <section className={styles.personCenterCard}>
+            <div
+              className={`${styles.personDetailCenterStack} ${
+                person.tasks.length > 0 ? "" : styles.personDetailCenterStackFill
+              }`}
+              role="tabpanel"
+            >
+              <section
+                className={`${styles.personCenterCard} ${
+                  person.tasks.length > 0 ? "" : styles.personCenterCardFill
+                }`}
+              >
                 <div className={styles.personCenterCardHeader}>
                   <h2 className={styles.personCenterCardTitle}>Tasks</h2>
                   {person.tasks.length > 0 ? addTask : null}
