@@ -5,16 +5,22 @@ import { useRouter } from "next/navigation";
 import { IntegrationAccordionCard } from "./integration-accordion-card";
 import { IntegrationSourceBadge } from "./integration-source-badge";
 import {
-  clearTwilioStoredSecretsAction,
-  saveTwilioCredentialsAction,
+  clearTelnyxStoredSecretsAction,
+  saveTelnyxCredentialsAction,
 } from "@/lib/admin/platform-secrets-actions";
 import type { IntegrationsOverview } from "@/lib/admin/platform-secrets";
 import styles from "@/components/shell/shell.module.css";
 
-export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOverview }) {
+export function TelnyxIntegrationCard({
+  overview,
+  webhookUrl,
+}: {
+  overview: IntegrationsOverview;
+  webhookUrl: string;
+}) {
   const router = useRouter();
-  const [accountSid, setAccountSid] = useState("");
-  const [authToken, setAuthToken] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [publicKey, setPublicKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -26,13 +32,13 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
 
     const formData = new FormData(e.currentTarget);
     startTransition(async () => {
-      const result = await saveTwilioCredentialsAction(formData);
+      const result = await saveTelnyxCredentialsAction(formData);
       if (!result.ok) {
-        setError(result.error ?? "Could not save Twilio credentials.");
+        setError(result.error ?? "Could not save Telnyx credentials.");
         return;
       }
-      setAccountSid("");
-      setAuthToken("");
+      setApiKey("");
+      setPublicKey("");
       setSuccess(true);
       router.refresh();
     });
@@ -42,7 +48,7 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
     setError(null);
     setSuccess(false);
     startTransition(async () => {
-      const result = await clearTwilioStoredSecretsAction();
+      const result = await clearTelnyxStoredSecretsAction();
       if (!result.ok) {
         setError(result.error ?? "Could not remove stored credentials.");
         return;
@@ -53,8 +59,8 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
 
   return (
     <IntegrationAccordionCard
-      title="Twilio"
-      subtitle="Platform Account SID and Auth Token for SMS"
+      title="Telnyx"
+      subtitle="Platform API key for SMS and public key for webhook verification"
       icon={
         <span className={`${styles.dashStatIcon} ${styles.billingStatIconAmber}`} aria-hidden="true">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -69,12 +75,14 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
       }
       meta={
         <>
-          <IntegrationSourceBadge source={overview.twilio.source} />
-          {overview.twilio.accountSid.hint && (
-            <span className={styles.integrationHint}>SID: {overview.twilio.accountSid.hint}</span>
+          <IntegrationSourceBadge source={overview.telnyx.source} />
+          {overview.telnyx.apiKey.hint && (
+            <span className={styles.integrationHint}>API key: {overview.telnyx.apiKey.hint}</span>
           )}
-          {overview.twilio.authToken.hint && (
-            <span className={styles.integrationHint}>Token: {overview.twilio.authToken.hint}</span>
+          {overview.telnyx.publicKey.hint && (
+            <span className={styles.integrationHint}>
+              Public key: {overview.telnyx.publicKey.hint}
+            </span>
           )}
         </>
       }
@@ -85,33 +93,37 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
         </p>
       )}
 
+      <p className={styles.integrationNotice}>
+        Point your Telnyx messaging profile&apos;s inbound webhook to <code>{webhookUrl}</code>.
+      </p>
+
       <form className={styles.integrationForm} onSubmit={handleSubmit}>
-        <label className={styles.label} htmlFor="twilio-account-sid">
-          Account SID
+        <label className={styles.label} htmlFor="telnyx-api-key">
+          API key
         </label>
         <input
-          id="twilio-account-sid"
-          name="accountSid"
+          id="telnyx-api-key"
+          name="apiKey"
           type="password"
           className={styles.input}
-          placeholder="AC…"
-          value={accountSid}
-          onChange={(e) => setAccountSid(e.target.value)}
+          placeholder="KEY…"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
           autoComplete="off"
           disabled={!overview.encryptionEnabled || pending}
         />
 
-        <label className={styles.label} htmlFor="twilio-auth-token">
-          Auth token
+        <label className={styles.label} htmlFor="telnyx-public-key">
+          Webhook public key
         </label>
         <input
-          id="twilio-auth-token"
-          name="authToken"
+          id="telnyx-public-key"
+          name="publicKey"
           type="password"
           className={styles.input}
-          placeholder="Auth token"
-          value={authToken}
-          onChange={(e) => setAuthToken(e.target.value)}
+          placeholder="Base64 public key"
+          value={publicKey}
+          onChange={(e) => setPublicKey(e.target.value)}
           autoComplete="off"
           disabled={!overview.encryptionEnabled || pending}
         />
@@ -123,13 +135,12 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
             disabled={
               !overview.encryptionEnabled ||
               pending ||
-              accountSid.trim().length === 0 ||
-              authToken.trim().length === 0
+              (apiKey.trim().length === 0 && publicKey.trim().length === 0)
             }
           >
             {pending ? "Saving…" : "Save Credentials"}
           </button>
-          {overview.twilio.source === "database" && (
+          {overview.telnyx.source === "database" && (
             <button
               type="button"
               className={styles.btnSecondary}
@@ -143,7 +154,7 @@ export function TwilioIntegrationCard({ overview }: { overview: IntegrationsOver
       </form>
 
       {error && <p className={styles.error}>{error}</p>}
-      {success && <p className={styles.success}>Twilio credentials saved.</p>}
+      {success && <p className={styles.success}>Telnyx credentials saved.</p>}
     </IntegrationAccordionCard>
   );
 }

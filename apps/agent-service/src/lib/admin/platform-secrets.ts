@@ -9,8 +9,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export const PLATFORM_SECRET_KEYS = [
   "openai_api_key",
-  "twilio_account_sid",
-  "twilio_auth_token",
+  "telnyx_api_key",
+  "telnyx_public_key",
   "stripe_secret_key",
   "stripe_webhook_secret",
   "resend_api_key",
@@ -31,9 +31,9 @@ export interface PlatformSecretStatus {
 export interface IntegrationsOverview {
   encryptionEnabled: boolean;
   openai: PlatformSecretStatus;
-  twilio: {
-    accountSid: PlatformSecretStatus;
-    authToken: PlatformSecretStatus;
+  telnyx: {
+    apiKey: PlatformSecretStatus;
+    publicKey: PlatformSecretStatus;
     configured: boolean;
     source: IntegrationSource;
   };
@@ -120,10 +120,10 @@ function envFallback(key: PlatformSecretKey): string | null {
   switch (key) {
     case "openai_api_key":
       return env.OPENAI_API_KEY?.trim() || null;
-    case "twilio_account_sid":
-      return env.TWILIO_ACCOUNT_SID?.trim() || null;
-    case "twilio_auth_token":
-      return env.TWILIO_AUTH_TOKEN?.trim() || null;
+    case "telnyx_api_key":
+      return env.TELNYX_API_KEY?.trim() || null;
+    case "telnyx_public_key":
+      return env.TELNYX_PUBLIC_KEY?.trim() || null;
     case "stripe_secret_key":
       return env.STRIPE_SECRET_KEY?.trim() || null;
     case "stripe_webhook_secret":
@@ -165,21 +165,21 @@ async function buildSecretStatus(key: PlatformSecretKey): Promise<PlatformSecret
 
 
 export async function fetchIntegrationsOverview(): Promise<IntegrationsOverview> {
-  const [openai, accountSid, authToken, stripeSecretKey, stripeWebhookSecret, resend] =
+  const [openai, telnyxApiKey, telnyxPublicKey, stripeSecretKey, stripeWebhookSecret, resend] =
     await Promise.all([
       buildSecretStatus("openai_api_key"),
-      buildSecretStatus("twilio_account_sid"),
-      buildSecretStatus("twilio_auth_token"),
+      buildSecretStatus("telnyx_api_key"),
+      buildSecretStatus("telnyx_public_key"),
       buildSecretStatus("stripe_secret_key"),
       buildSecretStatus("stripe_webhook_secret"),
       buildSecretStatus("resend_api_key"),
     ]);
 
-  const twilioConfigured = accountSid.configured && authToken.configured;
-  const twilioSource =
-    accountSid.source === "database" || authToken.source === "database"
+  const telnyxConfigured = telnyxApiKey.configured;
+  const telnyxSource =
+    telnyxApiKey.source === "database" || telnyxPublicKey.source === "database"
       ? "database"
-      : twilioConfigured
+      : telnyxConfigured
         ? "environment"
         : "none";
 
@@ -194,11 +194,11 @@ export async function fetchIntegrationsOverview(): Promise<IntegrationsOverview>
   return {
     encryptionEnabled: canEncryptPlatformSecrets(),
     openai,
-    twilio: {
-      accountSid,
-      authToken,
-      configured: twilioConfigured,
-      source: twilioSource,
+    telnyx: {
+      apiKey: telnyxApiKey,
+      publicKey: telnyxPublicKey,
+      configured: telnyxConfigured,
+      source: telnyxSource,
     },
     stripe: {
       secretKey: stripeSecretKey,

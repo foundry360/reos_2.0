@@ -17,7 +17,7 @@ Platform console for Foundry ops. Analogous to GHL **agency**; tenant app is the
 1. GHL setup payment received (manual or Stripe webhook notify).
 2. Admin → **New account**: name, slug, timezone, owner email.
 3. Complete the **Account setup** checklist on the account detail page:
-   - Assign Twilio number (Highlights)
+   - Assign Telnyx number (Highlights)
    - Invite owner (Users)
    - Configure agents (Connections)
    - Link Stripe customer ID (Billing)
@@ -34,7 +34,7 @@ All provisioning happens in admin:
 - Users: invite, roles (owner / agent / viewer)
 - Agents: enable/disable Concierge, Scheduler, Follow-Up, Intake, Researcher, Scout (Connections)
 - Compliance: strict mode, quiet hours
-- Channels: Twilio status, Meta connect/disconnect (Messenger, Instagram) — **admin completes OAuth**
+- Channels: Telnyx status, Meta connect/disconnect (Messenger, Instagram) — **admin completes OAuth**
 - Billing: GHL/Stripe customer id, internal contractor notes
 
 ## Impersonation

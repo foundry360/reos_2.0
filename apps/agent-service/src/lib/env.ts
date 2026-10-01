@@ -3,10 +3,12 @@ import { z } from "zod";
 const envSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4o-mini"),
-  TWILIO_ACCOUNT_SID: z.string().optional(),
-  TWILIO_AUTH_TOKEN: z.string().optional(),
-  TWILIO_PHONE_NUMBER: z.string().optional(),
-  TWILIO_SKIP_SIGNATURE_VERIFY: z
+  TELNYX_API_KEY: z.string().optional(),
+  /** Base64 Ed25519 public key from Mission Control → Keys & Credentials → Public Key. */
+  TELNYX_PUBLIC_KEY: z.string().optional(),
+  /** Optional; only needed when the sending number is not tied to a messaging profile. */
+  TELNYX_MESSAGING_PROFILE_ID: z.string().optional(),
+  TELNYX_SKIP_SIGNATURE_VERIFY: z
     .string()
     .optional()
     .transform((v) => v === "true"),

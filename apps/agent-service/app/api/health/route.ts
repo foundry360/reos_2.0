@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import {
   isOpenAIConfiguredAsync,
-  isTwilioConfiguredAsync,
+  isTelnyxConfiguredAsync,
 } from "@/lib/admin/platform-credentials";
 import { isResendConfigured } from "@/lib/admin/resend";
 import { isStripeConfiguredAsync } from "@/lib/admin/stripe";
 import { isSupabaseConfigured, getEnv } from "@/lib/env";
 
 export async function GET() {
-  const [openai, twilio, stripe, resend] = await Promise.all([
+  const [openai, telnyx, stripe, resend] = await Promise.all([
     isOpenAIConfiguredAsync(),
-    isTwilioConfiguredAsync(),
+    isTelnyxConfiguredAsync(),
     isStripeConfiguredAsync(),
     isResendConfigured(),
   ]);
@@ -20,7 +20,7 @@ export async function GET() {
     status: "ok",
     openai,
     supabase: isSupabaseConfigured(getEnv()),
-    twilio,
+    telnyx,
     stripe,
     resend,
   });

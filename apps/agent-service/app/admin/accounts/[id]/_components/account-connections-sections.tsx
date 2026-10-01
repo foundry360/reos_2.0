@@ -242,7 +242,7 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
   const [metaPickerAutoOpened, setMetaPickerAutoOpened] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const twilioConnected = Boolean(tenant.primaryPhone);
+  const telnyxConnected = Boolean(tenant.primaryPhone);
   const stripeLinked = Boolean(tenant.stripeCustomerId);
   const stripeConnected = tenant.stripeBillingReady;
 
@@ -358,13 +358,13 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
     window.location.href = `/api/oauth/meta/start?tenantId=${encodeURIComponent(tenant.id)}&channel=${channel}`;
   }
 
-  function connectTwilio() {
+  function connectTelnyx() {
     document.querySelector(`.${styles.highlightsPanel}`)?.scrollIntoView({ behavior: "smooth" });
-    window.alert("Add a phone number in Highlights to connect Twilio SMS.");
+    window.alert("Add a phone number in Highlights to connect Telnyx SMS.");
   }
 
-  function disconnectTwilio() {
-    if (!window.confirm("Remove the Twilio SMS number from this account?")) return;
+  function disconnectTelnyx() {
+    if (!window.confirm("Remove the Telnyx SMS number from this account?")) return;
 
     const formData = new FormData();
     formData.set("tenantId", tenant.id);
@@ -407,23 +407,23 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
       <ul className={styles.connectionsList}>
         <li className={styles.connectionRow}>
           <ConnectionBrandIcon
-            src="/integrations/twilio.png"
-            label="Twilio SMS"
+            src="/integrations/telnyx.png"
+            label="Telnyx SMS"
           />
           <div className={styles.connectionMeta}>
-            <span className={styles.connectionName}>Twilio SMS</span>
+            <span className={styles.connectionName}>Telnyx SMS</span>
             <span className={styles.connectionDesc}>
-              {twilioConnected
+              {telnyxConnected
                 ? formatPhoneDisplay(tenant.primaryPhone)
                 : "Assign a phone number in Highlights"}
             </span>
           </div>
           <ConnectionButton
-            connected={twilioConnected}
-            name="Twilio SMS"
+            connected={telnyxConnected}
+            name="Telnyx SMS"
             pending={pending}
-            onConnect={connectTwilio}
-            onDisconnect={disconnectTwilio}
+            onConnect={connectTelnyx}
+            onDisconnect={disconnectTelnyx}
           />
         </li>
 

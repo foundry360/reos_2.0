@@ -60,7 +60,7 @@ export function BillingTenantContent({ stats }: { stats: TenantBillingStats }) {
             }
           />
           <div className={styles.dashCardBody}>
-            <p className={styles.dashCardSubtitle}>Twilio, AI, and other costs</p>
+            <p className={styles.dashCardSubtitle}>SMS, AI, and other costs</p>
             <BillingCategoryBreakdown items={stats.categoryTotals} />
             {stats.totalUsageCents === 0 && (
               <p className={styles.billingEmptyHint}>

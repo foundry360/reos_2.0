@@ -12,7 +12,7 @@ export const CANNED_REPORTS: CannedReport[] = [
   {
     slug: "usage-by-tenant",
     title: "Usage by tenant",
-    description: "Cycle usage totals and Twilio, AI, and other costs grouped by account.",
+    description: "Cycle usage totals and SMS, AI, and other costs grouped by account.",
     category: "Usage",
     iconTone: "blue",
   },

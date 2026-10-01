@@ -10,24 +10,24 @@ export async function isOpenAIConfiguredAsync(): Promise<boolean> {
   return Boolean(await getOpenAIApiKey());
 }
 
-export async function getTwilioCredentials(): Promise<{
-  accountSid: string | undefined;
-  authToken: string | undefined;
+export async function getTelnyxCredentials(): Promise<{
+  apiKey: string | undefined;
+  publicKey: string | undefined;
 }> {
-  const [accountSid, authToken] = await Promise.all([
-    resolvePlatformSecret("twilio_account_sid"),
-    resolvePlatformSecret("twilio_auth_token"),
+  const [apiKey, publicKey] = await Promise.all([
+    resolvePlatformSecret("telnyx_api_key"),
+    resolvePlatformSecret("telnyx_public_key"),
   ]);
 
   return {
-    accountSid: accountSid ?? undefined,
-    authToken: authToken ?? undefined,
+    apiKey: apiKey ?? undefined,
+    publicKey: publicKey ?? undefined,
   };
 }
 
-export async function isTwilioConfiguredAsync(): Promise<boolean> {
-  const { accountSid, authToken } = await getTwilioCredentials();
-  return Boolean(accountSid && authToken);
+export async function isTelnyxConfiguredAsync(): Promise<boolean> {
+  const { apiKey } = await getTelnyxCredentials();
+  return Boolean(apiKey);
 }
 
 export function getOpenAIModel(): string {

@@ -31,12 +31,12 @@ GHL payments → Stripe (no integration with this repo)
 ```bash
 cd apps/agent-service
 cp .env.example .env.local
-# Fill OPENAI_API_KEY, Twilio, Supabase keys — see docs/SETUP.md
+# Fill OPENAI_API_KEY, Telnyx, Supabase keys — see docs/SETUP.md
 npm install
 npm run dev
 ```
 
-3. **Seed a tenant** (SQL in [`docs/SETUP.md`](docs/SETUP.md)) and point Twilio at `POST /api/webhooks/twilio`.
+3. **Seed a tenant** (SQL in [`docs/SETUP.md`](docs/SETUP.md)) and point Telnyx at `POST /api/webhooks/telnyx`.
 
 Health: `http://localhost:3000/api/health`
 
@@ -50,10 +50,10 @@ Add environment variables from `.env.example`. Redeploy after Supabase is wired.
 
 - [x] Supabase schema (tenants, contacts, messages, agent config)
 - [x] Supabase project wired (`dfdimmmturnaxkysozkz`)
-- [x] Twilio webhook → Coordinator → Concierge → Supabase writes
+- [x] Telnyx webhook → Coordinator → Concierge → Supabase writes
 - [x] Inline Compliance (STOP keywords)
 - [x] Demo tenant seeded (`demo-realty`)
-- [ ] Assign real Twilio number to tenant (deferred)
+- [ ] Assign real Telnyx number to tenant (deferred)
 - [ ] End-to-end live SMS test (after number)
 
 ## Milestone 2 — Portals

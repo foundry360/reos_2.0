@@ -283,7 +283,7 @@ export default async function AdminDashboardPage() {
               </span>
               <span className={styles.dashSignalCopy}>
                 <strong>Missing phone</strong>
-                <small>No primary Twilio number</small>
+                <small>No primary SMS number</small>
               </span>
               <span className={styles.dashSignalValue}>{stats.missingPhoneCount}</span>
             </div>

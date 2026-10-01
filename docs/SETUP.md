@@ -18,7 +18,7 @@ cd apps/agent-service
 cp .env.example .env.local
 ```
 
-Fill OpenAI, Twilio, and Supabase vars. Restart `npm run dev`.
+Fill OpenAI, Telnyx, and Supabase vars. Restart `npm run dev`.
 
 ## 3. Seed a test tenant (SQL)
 
@@ -36,7 +36,7 @@ values ('<tenant-uuid>', '+15551234567', true);
 insert into tenant_agents (tenant_id) values ('<tenant-uuid>');
 ```
 
-Point your Twilio number’s webhook at `POST /api/webhooks/twilio`. The `To` number must match `tenant_phone_numbers.phone_e164`.
+Point your Telnyx messaging profile’s inbound webhook at `POST /api/webhooks/telnyx`. The receiving number must match `tenant_phone_numbers.phone_e164`.
 
 ## 4. Vercel
 
@@ -53,7 +53,7 @@ npm run dev
 ```
 
 - Health: http://localhost:3000/api/health
-- Twilio webhook: POST http://localhost:3000/api/webhooks/twilio (use ngrok for real SMS)
+- Telnyx webhook: POST http://localhost:3000/api/webhooks/telnyx (use ngrok for real SMS)
 
 Without Supabase configured, the webhook returns dev stubs (no CRM writes).
 

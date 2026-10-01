@@ -100,7 +100,7 @@ export function buildSetupChecklist(
       id: "connectedAccounts",
       label: "Connected Accounts",
       shortLabel: "Connected Accounts",
-      description: "Assign the Twilio SMS number and connect email, calendar, and social channels.",
+      description: "Assign the Telnyx SMS number and connect email, calendar, and social channels.",
       complete: isStepComplete(3),
     },
     {

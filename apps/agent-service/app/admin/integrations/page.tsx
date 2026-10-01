@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { OpenAIIntegrationCard } from "./_components/openai-integration-card";
 import { ResendIntegrationCard } from "./_components/resend-integration-card";
 import { StripeIntegrationCard } from "./_components/stripe-integration-card";
-import { TwilioIntegrationCard } from "./_components/twilio-integration-card";
+import { TelnyxIntegrationCard } from "./_components/telnyx-integration-card";
 import { fetchIntegrationsOverview } from "@/lib/admin/platform-secrets";
 import { getStripeWebhookUrl } from "@/lib/admin/stripe";
 import { PageHeading } from "@/components/shell/page-heading";
@@ -16,6 +16,7 @@ export default async function AdminIntegrationsPage() {
   const proto = headerStore.get("x-forwarded-proto") ?? "https";
   const origin = host ? `${proto}://${host}` : "https://your-app.vercel.app";
   const webhookUrl = getStripeWebhookUrl(origin);
+  const telnyxWebhookUrl = `${origin.replace(/\/$/, "")}/api/webhooks/telnyx`;
 
   return (
     <>
@@ -23,14 +24,14 @@ export default async function AdminIntegrationsPage() {
         <PageHeading
           icon={<IconIntegrations />}
           title="Integrations"
-          subtitle="Platform credentials for OpenAI, Twilio, Resend, and Stripe. Stored keys override environment variables and are never shown after save."
+          subtitle="Platform credentials for OpenAI, Telnyx, Resend, and Stripe. Stored keys override environment variables and are never shown after save."
           tone="accent"
         />
       </div>
 
       <div className={styles.integrationsStack}>
         <OpenAIIntegrationCard overview={overview} />
-        <TwilioIntegrationCard overview={overview} />
+        <TelnyxIntegrationCard overview={overview} webhookUrl={telnyxWebhookUrl} />
         <ResendIntegrationCard overview={overview} />
         <StripeIntegrationCard overview={overview} webhookUrl={webhookUrl} />
       </div>

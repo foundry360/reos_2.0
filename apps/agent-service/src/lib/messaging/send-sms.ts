@@ -1,48 +1,48 @@
-import { getTwilioCredentials } from "@/lib/admin/platform-credentials";
+import { getTelnyxCredentials } from "@/lib/admin/platform-credentials";
+import { getEnv } from "@/lib/env";
 
 export async function sendSmsMessage(input: {
   fromE164: string;
   toE164: string;
   body: string;
-}): Promise<{ ok: true; sid: string | null } | { ok: false; error: string }> {
-  const { accountSid, authToken } = await getTwilioCredentials();
-  if (!accountSid || !authToken) {
-    return { ok: false, error: "Twilio is not configured." };
+}): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
+  const { apiKey } = await getTelnyxCredentials();
+  if (!apiKey) {
+    return { ok: false, error: "Telnyx is not configured." };
   }
 
-  const params = new URLSearchParams({
-    From: input.fromE164,
-    To: input.toE164,
-    Body: input.body,
+  const messagingProfileId = getEnv().TELNYX_MESSAGING_PROFILE_ID?.trim();
+
+  const response = await fetch("https://api.telnyx.com/v2/messages", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      from: input.fromE164,
+      to: input.toE164,
+      text: input.body,
+      ...(messagingProfileId ? { messaging_profile_id: messagingProfileId } : {}),
+    }),
   });
 
-  const response = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
-    },
-  );
-
   const payload = (await response.json().catch(() => null)) as {
-    sid?: string;
-    message?: string;
-    error_message?: string;
+    data?: { id?: string };
+    errors?: Array<{ title?: string; detail?: string }>;
   } | null;
 
   if (!response.ok) {
+    const firstError = payload?.errors?.[0];
     return {
       ok: false,
       error:
-        payload?.error_message?.trim() ||
-        payload?.message?.trim() ||
+        firstError?.detail?.trim() ||
+        firstError?.title?.trim() ||
         "Failed to send SMS.",
     };
   }
 
-  return { ok: true, sid: payload?.sid?.trim() || null };
+  return { ok: true, id: payload?.data?.id?.trim() || null };
 }

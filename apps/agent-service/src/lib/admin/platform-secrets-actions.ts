@@ -24,16 +24,24 @@ export async function saveOpenAIKeyAction(formData: FormData): Promise<ActionRes
   return { ok: true };
 }
 
-export async function saveTwilioCredentialsAction(formData: FormData): Promise<ActionResult> {
+export async function saveTelnyxCredentialsAction(formData: FormData): Promise<ActionResult> {
   const admin = await requirePlatformAdmin();
-  const accountSid = String(formData.get("accountSid") ?? "");
-  const authToken = String(formData.get("authToken") ?? "");
+  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  const publicKey = String(formData.get("publicKey") ?? "").trim();
 
-  const sidResult = await savePlatformSecret("twilio_account_sid", accountSid, admin.id);
-  if (!sidResult.ok) return sidResult;
+  if (!apiKey && !publicKey) {
+    return { ok: false, error: "Enter an API key and/or webhook public key." };
+  }
 
-  const tokenResult = await savePlatformSecret("twilio_auth_token", authToken, admin.id);
-  if (!tokenResult.ok) return tokenResult;
+  if (apiKey) {
+    const keyResult = await savePlatformSecret("telnyx_api_key", apiKey, admin.id);
+    if (!keyResult.ok) return keyResult;
+  }
+
+  if (publicKey) {
+    const publicKeyResult = await savePlatformSecret("telnyx_public_key", publicKey, admin.id);
+    if (!publicKeyResult.ok) return publicKeyResult;
+  }
 
   revalidateIntegrations();
   return { ok: true };
@@ -53,10 +61,10 @@ export async function clearOpenAIStoredKeyAction(): Promise<ActionResult> {
   return clearStoredSecretAction("openai_api_key");
 }
 
-export async function clearTwilioStoredSecretsAction(): Promise<ActionResult> {
-  const tokenResult = await clearStoredSecretAction("twilio_auth_token");
-  if (!tokenResult.ok) return tokenResult;
-  return clearStoredSecretAction("twilio_account_sid");
+export async function clearTelnyxStoredSecretsAction(): Promise<ActionResult> {
+  const publicKeyResult = await clearStoredSecretAction("telnyx_public_key");
+  if (!publicKeyResult.ok) return publicKeyResult;
+  return clearStoredSecretAction("telnyx_api_key");
 }
 
 export async function saveStripeCredentialsAction(formData: FormData): Promise<ActionResult> {

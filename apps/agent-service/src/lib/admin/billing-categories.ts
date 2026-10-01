@@ -8,7 +8,7 @@ export const USAGE_CATEGORIES = [
 export type UsageCategory = (typeof USAGE_CATEGORIES)[number];
 
 export const USAGE_CATEGORY_LABELS: Record<UsageCategory, string> = {
-  twilio_sms: "Twilio SMS",
+  twilio_sms: "SMS",
   twilio_number: "Phone numbers",
   ai_tokens: "AI usage",
   other: "Other",

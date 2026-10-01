@@ -82,7 +82,7 @@ export async function sendPersonMessageAction(input: {
 
     const fromE164 = phoneRow?.phone_e164?.trim();
     if (!fromE164) {
-      return { ok: false, error: "No primary Twilio number is configured for this account." };
+      return { ok: false, error: "No primary SMS number is configured for this account." };
     }
 
     const sent = await sendSmsMessage({

@@ -12,7 +12,7 @@ Legacy Salesforce scaffold lives in [`legacy/salesforce/`](../legacy/salesforce/
 | **Auth + data** | Supabase | Postgres, Auth, RLS, Storage |
 | **Conversational AI** | Agent service (same Vercel app) | Concierge, Scheduler, Follow-Up |
 | **Automation agents** | Vercel Cron / job queue (later) | Intake, Researcher, Compliance, Scout |
-| **Channels** | Twilio (+ Meta later) | SMS inbound/outbound |
+| **Channels** | Telnyx (+ Meta later) | SMS inbound/outbound |
 | **Payments** | GHL + Stripe Connect | Setup fee; manual tenant creation in admin |
 
 Tenants are **brokerage accounts** in Supabase, created manually in the admin portal after payment.
@@ -29,7 +29,7 @@ See [`docs/ADMIN.md`](ADMIN.md) for the GHL subaccount model.
 ## Request flow — inbound SMS
 
 ```text
-POST /api/webhooks/twilio
+POST /api/webhooks/telnyx
   → resolve tenant (To number → tenant_phone_numbers)
   → resolve or create contact (Intake: phone → contact_identities)
   → runInboundAgent (compliance → coordinator → OpenAI → CRM tools)
