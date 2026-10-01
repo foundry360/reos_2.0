@@ -97,6 +97,12 @@ function phoneLookupKey(value: string): string {
   return digits.slice(-10);
 }
 
+/** CRM forms store SMS identities as full E.164 digits (1XXXXXXXXXX); intake stores the last 10. */
+function smsIdentityVariants(value: string): string[] {
+  const key = phoneLookupKey(value);
+  return [key, `1${key}`];
+}
+
 function stubContext(from: string, tenantId?: string): ContactContext {
   return {
     phone: from,
@@ -200,26 +206,25 @@ async function findIdentityContact(
   const db = getSupabaseAdmin();
   if (!db) return null;
 
-  const lookupId =
-    channel === "sms" ? phoneLookupKey(externalId) : externalId;
+  const lookupIds =
+    channel === "sms" ? smsIdentityVariants(externalId) : [externalId];
 
-  const { data: identity, error } = await db
+  const { data: identities, error } = await db
     .from("contact_identities")
     .select(`contact_id, contacts!inner(${CONTACT_SELECT})`)
     .eq("channel", channel)
-    .eq("external_id", lookupId)
-    .maybeSingle();
+    .in("external_id", lookupIds)
+    .eq("contacts.tenant_id", tenantId)
+    .limit(1);
 
-  if (error || !identity) return null;
+  if (error || !identities?.length) return null;
 
   type Row = {
     contact_id: string;
     contacts: ContactRow;
   };
 
-  const row = identity as unknown as Row;
-  if (row.contacts.tenant_id !== tenantId) return null;
-
+  const row = identities[0] as unknown as Row;
   return toContactContext(row.contacts, externalId);
 }
 
@@ -549,12 +554,13 @@ export async function upsertContactSmsIdentity(
   const lookupId = phoneLookupKey(phoneRaw);
   if (lookupId.length < 10) return false;
 
-  const { data: existing } = await db
+  const { data: matches } = await db
     .from("contact_identities")
     .select("id, contact_id")
     .eq("channel", "sms")
-    .eq("external_id", lookupId)
-    .maybeSingle();
+    .in("external_id", smsIdentityVariants(phoneRaw))
+    .limit(1);
+  const existing = matches?.[0] ?? null;
 
   if (existing) {
     if (existing.contact_id === contactId) return true;

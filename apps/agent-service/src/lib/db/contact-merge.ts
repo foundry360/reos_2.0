@@ -133,12 +133,14 @@ export async function findContactBySmsPhone(
   const lookupId = phoneLookupKey(phoneRaw);
   if (lookupId.length < 10) return null;
 
-  const { data: identity, error } = await db
+  const { data: matches, error } = await db
     .from("contact_identities")
-    .select("contact_id")
+    .select("contact_id, contacts!inner(tenant_id)")
     .eq("channel", "sms")
-    .eq("external_id", lookupId)
-    .maybeSingle();
+    .in("external_id", [lookupId, `1${lookupId}`])
+    .eq("contacts.tenant_id", tenantId)
+    .limit(1);
+  const identity = matches?.[0] ?? null;
 
   if (error || !identity?.contact_id) {
     if (error) console.error("findContactBySmsPhone identity lookup:", error);

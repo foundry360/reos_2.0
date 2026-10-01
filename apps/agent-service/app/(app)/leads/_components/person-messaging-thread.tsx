@@ -15,7 +15,7 @@ import type {
 import { PersonEmailPanel } from "./person-email-panel";
 import styles from "@/components/shell/shell.module.css";
 
-type ChannelFilter = "all" | "messenger" | "instagram" | "email";
+type ChannelFilter = "all" | "sms" | "messenger" | "instagram" | "email";
 
 function channelLabel(channel: string): string {
   switch (channel) {
@@ -51,7 +51,7 @@ function pickSendChannel(
   const available = channels.filter((entry) => entry.available);
   if (available.length === 0) return null;
 
-  if (filter === "messenger" || filter === "instagram") {
+  if (filter === "sms" || filter === "messenger" || filter === "instagram") {
     return available.find((entry) => entry.channel === filter)?.channel ?? null;
   }
 
@@ -405,6 +405,7 @@ export function PersonMessagingPanel({
     };
   }, [contactId]);
 
+  const sms = channels.find((entry) => entry.channel === "sms");
   const messenger = channels.find((entry) => entry.channel === "messenger");
   const instagram = channels.find((entry) => entry.channel === "instagram");
 
@@ -554,6 +555,16 @@ export function PersonMessagingPanel({
                 onClick={() => selectFilter("all")}
               >
                 All
+              </button>
+              <button
+                type="button"
+                className={`${styles.personMessagingChannelOption} ${
+                  filter === "sms" ? styles.personMessagingChannelOptionActive : ""
+                }`}
+                disabled={!sms?.connected}
+                onClick={() => selectFilter("sms")}
+              >
+                SMS
               </button>
               <button
                 type="button"
