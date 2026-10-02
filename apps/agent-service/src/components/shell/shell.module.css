@@ -715,6 +715,13 @@
   color: var(--shell-muted);
 }
 
+.navSubsection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 .navDivider {
   margin: 0.65rem 0.75rem;
   border: none;
@@ -9057,6 +9064,18 @@ html[data-theme="dark"] .personMessageBubbleOutbound .personMessageBody {
 }
 
 html[data-theme="dark"] .personMessageBubbleOutbound .personMessageMeta {
+  color: var(--shell-muted);
+}
+
+.personMessageCommentLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0 0 0.3rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--shell-muted);
 }
 

@@ -6,6 +6,7 @@ import {
   IconData,
   IconHome,
   IconLeads,
+  IconJourney,
   IconOpportunities,
   IconReports,
   IconSettings,
@@ -25,6 +26,13 @@ const TENANT_NAV = [
   { href: "/reports", label: "Reports", icon: <IconReports /> },
 ];
 
+const TENANT_NAV_SECTIONS = [
+  {
+    label: "Marketing",
+    items: [{ href: "/marketing/journeys", label: "Journey Builder", icon: <IconJourney /> }],
+  },
+];
+
 export function TenantSidebarNav() {
   const [importOpen, setImportOpen] = useState(false);
 
@@ -33,6 +41,7 @@ export function TenantSidebarNav() {
       <SidebarNav
         sectionLabel="Workspace"
         items={TENANT_NAV}
+        sections={TENANT_NAV_SECTIONS}
         secondaryItems={[
           {
             id: "data-import",

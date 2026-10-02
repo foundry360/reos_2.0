@@ -21,9 +21,15 @@ export interface NavActionItem {
 
 export type NavItem = NavLinkItem | NavActionItem;
 
+export interface NavSection {
+  label: string;
+  items: NavLinkItem[];
+}
+
 interface SidebarNavProps {
   sectionLabel: string;
   items: NavLinkItem[];
+  sections?: NavSection[];
   secondaryItems?: NavItem[];
 }
 
@@ -71,13 +77,19 @@ function NavLinks({ items, pathname }: { items: NavItem[]; pathname: string }) {
   );
 }
 
-export function SidebarNav({ sectionLabel, items, secondaryItems }: SidebarNavProps) {
+export function SidebarNav({ sectionLabel, items, sections, secondaryItems }: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
     <nav className={styles.navSection} aria-label={sectionLabel}>
       <p className={styles.navLabel}>{sectionLabel}</p>
       <NavLinks items={items} pathname={pathname} />
+      {sections?.map((section) => (
+        <div key={section.label} className={styles.navSubsection} role="group" aria-label={section.label}>
+          <p className={styles.navLabel}>{section.label}</p>
+          <NavLinks items={section.items} pathname={pathname} />
+        </div>
+      ))}
       {secondaryItems && secondaryItems.length > 0 ? (
         <>
           <hr className={styles.navDivider} />
@@ -268,6 +280,17 @@ export function IconCalendar() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="3" y="5" width="18" height="16" rx="2" />
       <path d="M16 3v4M8 3v4M3 11h18" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconJourney() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="3" width="6" height="6" rx="1.5" />
+      <rect x="15" y="15" width="6" height="6" rx="1.5" />
+      <path d="M9 6h4a3 3 0 013 3v6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.5 12.5 16 15l2.5-2.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

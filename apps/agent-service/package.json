@@ -14,6 +14,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.112.4",
+    "@xyflow/react": "^12.12.0",
     "jose": "^5.10.0",
     "next": "^15.2.0",
     "openai": "^4.86.0",
