@@ -1,23 +1,16 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   disconnectTenantBillingAction,
-  disconnectTenantChannelAction,
   disconnectTenantPrimaryPhoneAction,
   linkTenantStripeCustomerAction,
 } from "@/lib/admin/tenant-config-actions";
-import {
-  completeMetaPageConnectionAction,
-  ensureMetaPageWebhooksAction,
-  listMetaPagesForTenantAction,
-} from "@/lib/meta/meta-actions";
-import type { MetaPageOption } from "@/lib/meta/pages";
+import { ensureMetaPageWebhooksAction } from "@/lib/meta/meta-actions";
 import { formatPhoneDisplay } from "@/lib/phone-display";
 import type { TenantChannelStatus, TenantConfig } from "@/lib/admin/tenant-config";
 import { ConnectStripeModal } from "./connect-stripe-modal";
-import { SelectMetaPageModal } from "./select-meta-page-modal";
 import styles from "@/components/shell/shell.module.css";
 
 interface AccountConnectionsSectionsProps {
@@ -215,9 +208,7 @@ function getSectionCount(sectionId: ConnectionSection, tenant: TenantConfig): nu
 
 function socialChannelMeta(channel: TenantChannelStatus): string {
   if (channel.awaitingPageSelection) {
-    return channel.channel === "instagram"
-      ? "Select a Page with Instagram to finish"
-      : "Select a Facebook Page to finish";
+    return "Waiting for the workspace owner to select a Page";
   }
   if (channel.status === "connected") {
     const label = channel.accountLabel?.trim();
@@ -230,44 +221,14 @@ function socialChannelMeta(channel: TenantChannelStatus): string {
 
 export function AccountConnectionsSections({ tenant }: AccountConnectionsSectionsProps) {
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [openSections, setOpenSections] = useState<Set<ConnectionSection>>(() => new Set());
   const [stripeModalOpen, setStripeModalOpen] = useState(false);
   const [stripeLinkError, setStripeLinkError] = useState<string | null>(null);
-  const [metaPageChannel, setMetaPageChannel] = useState<SocialChannel | null>(null);
-  const [metaPages, setMetaPages] = useState<MetaPageOption[]>([]);
-  const [metaPagesLoading, setMetaPagesLoading] = useState(false);
-  const [metaPageError, setMetaPageError] = useState<string | null>(null);
-  const [metaPickerAutoOpened, setMetaPickerAutoOpened] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const telnyxConnected = Boolean(tenant.primaryPhone);
   const stripeLinked = Boolean(tenant.stripeCustomerId);
   const stripeConnected = tenant.stripeBillingReady;
-
-  useEffect(() => {
-    if (metaPickerAutoOpened) return;
-
-    const select = searchParams.get("meta_select_page");
-    if (select === "messenger" || select === "instagram") {
-      setMetaPickerAutoOpened(true);
-      void openMetaPagePicker(select);
-      const next = new URLSearchParams(searchParams.toString());
-      next.delete("meta_select_page");
-      const query = next.toString();
-      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-      return;
-    }
-
-    const awaiting = SOCIAL_CHANNELS.find(
-      (channel) => getChannelStatus(tenant, channel).awaitingPageSelection,
-    );
-    if (awaiting) {
-      setMetaPickerAutoOpened(true);
-      void openMetaPagePicker(awaiting);
-    }
-  }, [searchParams, tenant, metaPickerAutoOpened, router, pathname]);
 
   useEffect(() => {
     for (const channel of SOCIAL_CHANNELS) {
@@ -277,52 +238,6 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
       }
     }
   }, [tenant]);
-
-  async function openMetaPagePicker(channel: SocialChannel) {
-    setMetaPageChannel(channel);
-    setMetaPageError(null);
-    setMetaPages([]);
-    setMetaPagesLoading(true);
-    setOpenSections((current) => new Set(current).add("social"));
-
-    const result = await listMetaPagesForTenantAction(tenant.id, channel);
-    setMetaPagesLoading(false);
-
-    if (!result.ok) {
-      setMetaPageError(result.error);
-      return;
-    }
-
-    setMetaPages(result.pages);
-  }
-
-  function closeMetaPagePicker() {
-    setMetaPageChannel(null);
-    setMetaPages([]);
-    setMetaPageError(null);
-    setMetaPagesLoading(false);
-  }
-
-  function confirmMetaPage(pageId: string) {
-    if (!metaPageChannel) return;
-    const channel = metaPageChannel;
-
-    const formData = new FormData();
-    formData.set("tenantId", tenant.id);
-    formData.set("channel", channel);
-    formData.set("pageId", pageId);
-
-    startTransition(async () => {
-      const result = await completeMetaPageConnectionAction(formData);
-      if (!result.ok) {
-        setMetaPageError(result.error ?? "Could not connect Facebook Page.");
-        return;
-      }
-      closeMetaPagePicker();
-      router.replace(`/admin/accounts/${tenant.id}`);
-      router.refresh();
-    });
-  }
 
   function toggleSection(id: ConnectionSection) {
     setOpenSections((current) => {
@@ -345,17 +260,6 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
       }
       router.refresh();
     });
-  }
-
-  function disconnectChannel(channel: SocialChannel) {
-    const formData = new FormData();
-    formData.set("tenantId", tenant.id);
-    formData.set("channel", channel);
-    runAction(() => disconnectTenantChannelAction(formData));
-  }
-
-  function connectSocialChannel(channel: SocialChannel) {
-    window.location.href = `/api/oauth/meta/start?tenantId=${encodeURIComponent(tenant.id)}&channel=${channel}`;
   }
 
   function connectTelnyx() {
@@ -461,64 +365,37 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
 
   function renderSocialChannels() {
     return (
-      <ul className={styles.connectionsList}>
-        {SOCIAL_CHANNELS.map((channel) => {
-          const status = getChannelStatus(tenant, channel);
-          const awaiting = status.awaitingPageSelection;
-          const fullyConnected = status.status === "connected" && !awaiting;
-          const label = channel === "messenger" ? "Facebook Messenger" : "Instagram";
-          const icon = SOCIAL_CHANNEL_ICONS[channel];
+      <>
+        <ul className={styles.connectionsList}>
+          {SOCIAL_CHANNELS.map((channel) => {
+            const status = getChannelStatus(tenant, channel);
+            const fullyConnected = status.status === "connected" && !status.awaitingPageSelection;
+            const label = channel === "messenger" ? "Facebook Messenger" : "Instagram";
 
-          return (
-            <li key={channel} className={styles.connectionRow}>
-              <ConnectionBrandIcon src={icon} label={label} />
-              <div className={styles.connectionMeta}>
-                <span className={styles.connectionName}>{label}</span>
-                <span className={styles.connectionDesc}>
-                  {fullyConnected ? (
-                    <span className={styles.connectionDescRow}>
-                      <span>{socialChannelMeta(status)}</span>
-                      <ConnectionReadyCheck />
-                    </span>
-                  ) : (
-                    socialChannelMeta(status)
-                  )}
-                </span>
-              </div>
-              {awaiting ? (
-                <div className={styles.connectionDescRow}>
-                  <button
-                    type="button"
-                    className={`${styles.connectionTextBtn} ${styles.connectionTextBtnConnect}`}
-                    aria-label={`Select page for ${label}`}
-                    disabled={pending}
-                    onClick={() => void openMetaPagePicker(channel)}
-                  >
-                    Select page
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.connectionTextBtn} ${styles.connectionTextBtnDisconnect}`}
-                    aria-label={`Disconnect ${label}`}
-                    disabled={pending}
-                    onClick={() => disconnectChannel(channel)}
-                  >
-                    Disconnect
-                  </button>
+            return (
+              <li key={channel} className={styles.connectionRow}>
+                <ConnectionBrandIcon src={SOCIAL_CHANNEL_ICONS[channel]} label={label} />
+                <div className={styles.connectionMeta}>
+                  <span className={styles.connectionName}>{label}</span>
+                  <span className={styles.connectionDesc}>
+                    {fullyConnected ? (
+                      <span className={styles.connectionDescRow}>
+                        <span>{socialChannelMeta(status)}</span>
+                        <ConnectionReadyCheck />
+                      </span>
+                    ) : (
+                      socialChannelMeta(status)
+                    )}
+                  </span>
                 </div>
-              ) : (
-                <ConnectionButton
-                  connected={fullyConnected}
-                  name={label}
-                  pending={pending}
-                  onConnect={() => connectSocialChannel(channel)}
-                  onDisconnect={() => disconnectChannel(channel)}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ul>
+              </li>
+            );
+          })}
+        </ul>
+        <p className={styles.connectionsFootnote}>
+          Workspace owners connect social channels in Settings → Channels.
+        </p>
+      </>
     );
   }
 
@@ -539,20 +416,6 @@ export function AccountConnectionsSections({ tenant }: AccountConnectionsSection
           setStripeLinkError(null);
         }}
         onConfirm={confirmLinkBilling}
-      />
-
-      <SelectMetaPageModal
-        open={metaPageChannel !== null}
-        channel={metaPageChannel ?? "messenger"}
-        pages={metaPages}
-        loading={metaPagesLoading}
-        pending={pending}
-        error={metaPageError}
-        onClose={() => {
-          if (pending) return;
-          closeMetaPagePicker();
-        }}
-        onConfirm={confirmMetaPage}
       />
 
       {SECTIONS.map((section) => {

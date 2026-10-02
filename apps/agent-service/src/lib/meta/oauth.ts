@@ -4,9 +4,20 @@ export type MetaChannel = "messenger" | "instagram";
 
 const META_OAUTH_VERSION = "v21.0";
 
+/** Where the connect flow started, so the callback can return there. */
+export type MetaOAuthReturnTo = "settings" | "admin";
+
 export interface MetaOAuthState {
   tenantId: string;
   channel: MetaChannel;
+  returnTo?: MetaOAuthReturnTo;
+}
+
+/** Page that owns the connect flow for a tenant. */
+export function metaConnectReturnPath(state: Pick<MetaOAuthState, "tenantId" | "returnTo">): string {
+  return state.returnTo === "settings"
+    ? "/settings/channels"
+    : `/admin/accounts/${state.tenantId}`;
 }
 
 export function isMetaOAuthConfigured(): boolean {
@@ -25,7 +36,11 @@ export function decodeMetaOAuthState(raw: string): MetaOAuthState | null {
       parsed?.tenantId &&
       (parsed.channel === "messenger" || parsed.channel === "instagram")
     ) {
-      return parsed;
+      return {
+        tenantId: parsed.tenantId,
+        channel: parsed.channel,
+        returnTo: parsed.returnTo === "settings" ? "settings" : "admin",
+      };
     }
     return null;
   } catch {

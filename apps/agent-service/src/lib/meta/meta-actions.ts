@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requirePlatformAdmin } from "@/lib/admin/auth";
 import { createClient } from "@/lib/supabase/server";
 import {
   buildCompletedMetaChannelRow,
@@ -9,16 +8,20 @@ import {
 } from "@/lib/meta/channel-account";
 import type { MetaChannel } from "@/lib/meta/oauth";
 import { fetchMetaPages, filterMetaPagesForChannel, type MetaPageOption } from "@/lib/meta/pages";
-import { subscribeMetaPageToAppWebhooks } from "@/lib/meta/subscribe";
+import { META_PAGE_WEBHOOK_FIELDS, subscribeMetaPageToAppWebhooks } from "@/lib/meta/subscribe";
+import { authorizeChannelManager } from "@/lib/tenant/workspace-access";
 
 export interface ActionResult {
   ok: boolean;
   error?: string;
 }
 
+const NOT_ALLOWED = "Only workspace owners can manage channels.";
+
 function revalidateTenant(tenantId: string) {
   revalidatePath("/admin");
   revalidatePath(`/admin/accounts/${tenantId}`);
+  revalidatePath("/settings/channels");
 }
 
 function parseChannel(value: string): MetaChannel | null {
@@ -59,10 +62,9 @@ export async function listMetaPagesForTenantAction(
   tenantId: string,
   channel: MetaChannel,
 ): Promise<{ ok: true; pages: MetaPageOption[] } | { ok: false; error: string }> {
-  await requirePlatformAdmin();
-
   const id = tenantId.trim();
   if (!id) return { ok: false, error: "Missing account id." };
+  if (!(await authorizeChannelManager(id))) return { ok: false, error: NOT_ALLOWED };
 
   const loaded = await loadChannelUserToken(id, channel);
   if (!loaded) {
@@ -84,8 +86,6 @@ export async function listMetaPagesForTenantAction(
 export async function completeMetaPageConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
-  const admin = await requirePlatformAdmin();
-
   const tenantId = String(formData.get("tenantId") ?? "").trim();
   const channel = parseChannel(String(formData.get("channel") ?? "").trim());
   const pageId = String(formData.get("pageId") ?? "").trim();
@@ -93,6 +93,9 @@ export async function completeMetaPageConnectionAction(
   if (!tenantId) return { ok: false, error: "Missing account id." };
   if (!channel) return { ok: false, error: "Invalid channel." };
   if (!pageId) return { ok: false, error: "Select a Facebook Page." };
+
+  const manager = await authorizeChannelManager(tenantId);
+  if (!manager) return { ok: false, error: NOT_ALLOWED };
 
   const loaded = await loadChannelUserToken(tenantId, channel);
   if (!loaded) {
@@ -118,7 +121,7 @@ export async function completeMetaPageConnectionAction(
       page,
       userAccessToken: loaded.token,
       expiresIn: loaded.expiresIn,
-      connectedBy: admin.id,
+      connectedBy: manager.userId,
       existingMetadata: loaded.metadata,
     });
 
@@ -131,10 +134,17 @@ export async function completeMetaPageConnectionAction(
 
     try {
       await subscribeMetaPageToAppWebhooks(page.id, page.accessToken);
-      row.metadata.webhooks_subscribed_at = new Date().toISOString();
-      const { error: metaError } = await supabase.from("channel_accounts").upsert(row, {
-        onConflict: "tenant_id,channel",
-      });
+      const { error: metaError } = await supabase.from("channel_accounts").upsert(
+        {
+          ...row,
+          metadata: {
+            ...row.metadata,
+            webhooks_subscribed_at: new Date().toISOString(),
+            webhooks_subscribed_fields: META_PAGE_WEBHOOK_FIELDS,
+          },
+        },
+        { onConflict: "tenant_id,channel" },
+      );
       if (metaError) {
         console.error("Meta webhook flag save failed:", metaError);
       }
@@ -143,12 +153,14 @@ export async function completeMetaPageConnectionAction(
       // Connection is still saved; webhooks can be re-subscribed later.
     }
 
-    const { error: auditError } = await supabase
-      .from("tenants")
-      .update({ last_modified_by_id: admin.id })
-      .eq("id", tenantId);
-
-    if (auditError) return { ok: false, error: auditError.message };
+    // Tenant rows are writable by platform admins only; owners skip the audit stamp.
+    if (manager.platformAdmin) {
+      const { error: auditError } = await supabase
+        .from("tenants")
+        .update({ last_modified_by_id: manager.userId })
+        .eq("id", tenantId);
+      if (auditError) return { ok: false, error: auditError.message };
+    }
 
     revalidateTenant(tenantId);
     return { ok: true };
@@ -158,14 +170,40 @@ export async function completeMetaPageConnectionAction(
   }
 }
 
+export async function disconnectMetaChannelAction(
+  tenantId: string,
+  channel: MetaChannel,
+): Promise<ActionResult> {
+  const id = tenantId.trim();
+  if (!id) return { ok: false, error: "Missing account id." };
+  if (!parseChannel(channel)) return { ok: false, error: "Invalid channel." };
+  if (!(await authorizeChannelManager(id))) return { ok: false, error: NOT_ALLOWED };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("channel_accounts").upsert(
+    {
+      tenant_id: id,
+      channel,
+      status: "disconnected",
+      external_page_id: null,
+      external_account_id: null,
+      metadata: {},
+    },
+    { onConflict: "tenant_id,channel" },
+  );
+  if (error) return { ok: false, error: error.message };
+
+  revalidateTenant(id);
+  return { ok: true };
+}
+
 export async function ensureMetaPageWebhooksAction(
   tenantId: string,
   channel: MetaChannel,
 ): Promise<ActionResult> {
-  await requirePlatformAdmin();
-
   const id = tenantId.trim();
   if (!id) return { ok: false, error: "Missing account id." };
+  if (!(await authorizeChannelManager(id))) return { ok: false, error: NOT_ALLOWED };
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -182,7 +220,7 @@ export async function ensureMetaPageWebhooksAction(
   }
 
   const metadata = (data.metadata ?? {}) as MetaChannelMetadata;
-  if (metadata.webhooks_subscribed_at) return { ok: true };
+  if (metadata.webhooks_subscribed_fields === META_PAGE_WEBHOOK_FIELDS) return { ok: true };
 
   const pageToken = metadata.access_token?.trim();
   if (!pageToken) {
@@ -205,6 +243,7 @@ export async function ensureMetaPageWebhooksAction(
       metadata: {
         ...metadata,
         webhooks_subscribed_at: new Date().toISOString(),
+        webhooks_subscribed_fields: META_PAGE_WEBHOOK_FIELDS,
       },
     })
     .eq("tenant_id", id)

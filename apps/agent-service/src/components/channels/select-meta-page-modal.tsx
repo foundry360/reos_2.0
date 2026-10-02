@@ -64,8 +64,8 @@ export function SelectMetaPageModal({
   const title = channel === "instagram" ? "Select Instagram Page" : "Select Facebook Page";
   const subtitle =
     channel === "instagram"
-      ? "Choose the Facebook Page linked to the Instagram account for this tenant."
-      : "Choose which Facebook Page Messenger should use for this tenant.";
+      ? "Choose the Facebook Page linked to the Instagram account for this workspace."
+      : "Choose which Facebook Page Messenger and post comments should use for this workspace.";
 
   return (
     <div className={styles.modalOverlay} onClick={() => !pending && onClose()}>

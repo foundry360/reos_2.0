@@ -11,6 +11,7 @@ export interface MetaChannelMetadata {
   connected_by?: string;
   awaiting_page_selection?: boolean;
   webhooks_subscribed_at?: string;
+  webhooks_subscribed_fields?: string;
   instagram_business_account_id?: string | null;
   instagram_username?: string | null;
   /** Cached Page / IG profile picture for outbound message avatars. */

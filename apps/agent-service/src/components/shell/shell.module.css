@@ -4257,6 +4257,18 @@ html[data-theme="dark"] .menuError {
   margin-top: 1rem;
 }
 
+.settingsTabs {
+  display: flex;
+  gap: 0.15rem;
+  margin-top: 0.25rem;
+  border-bottom: 1px solid var(--shell-border);
+  overflow-x: auto;
+}
+
+.settingsTabs a {
+  text-decoration: none;
+}
+
 .setupChevronCard {
   background: var(--shell-surface);
   border: 1px solid var(--shell-border);
@@ -5101,6 +5113,14 @@ html[data-theme="dark"] .accordionIconSocial {
 
 .connectionRow:last-child {
   border-bottom: none;
+}
+
+.connectionsFootnote {
+  margin: 0;
+  padding: 0.75rem 1.15rem;
+  border-top: 1px solid var(--shell-border);
+  font-size: 0.8125rem;
+  color: var(--shell-muted);
 }
 
 .connectionBrandIcon {
