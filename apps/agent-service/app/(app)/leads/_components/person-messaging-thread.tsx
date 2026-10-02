@@ -15,7 +15,7 @@ import type {
 import { PersonEmailPanel } from "./person-email-panel";
 import styles from "@/components/shell/shell.module.css";
 
-type ChannelFilter = "all" | "sms" | "messenger" | "instagram" | "email";
+type ChannelFilter = "all" | "sms" | "messenger" | "instagram" | "comments" | "email";
 
 function channelLabel(channel: string): string {
   switch (channel) {
@@ -25,11 +25,27 @@ function channelLabel(channel: string): string {
       return "Messenger";
     case "instagram":
       return "Instagram";
+    case "comments":
+      return "Comments";
+    case "facebook_comment":
+      return "Facebook comment";
+    case "instagram_comment":
+      return "Instagram comment";
     case "email":
       return "Email";
     default:
       return channel;
   }
+}
+
+function isCommentChannel(channel: string): boolean {
+  return channel === "facebook_comment" || channel === "instagram_comment";
+}
+
+function commentLabel(channel: string): string {
+  return channel === "instagram_comment"
+    ? "Commented on your Instagram post"
+    : "Commented on your Facebook post";
 }
 
 function formatMessageTime(iso: string): string {
@@ -154,6 +170,18 @@ function IconMessengerBadge() {
   );
 }
 
+function IconFacebookBadge() {
+  return (
+    <svg viewBox="0 0 24 24" width="100%" height="100%" aria-hidden="true">
+      <circle cx="12" cy="12" r="12" fill="#0866FF" />
+      <path
+        d="M13.3 19v-6.1h2.05l.31-2.38H13.3V9c0-.69.19-1.16 1.18-1.16h1.26V5.71A16.9 16.9 0 0 0 13.9 5.6c-1.82 0-3.06 1.11-3.06 3.15v1.76H8.78v2.38h2.06V19z"
+        fill="#fff"
+      />
+    </svg>
+  );
+}
+
 function PlatformBadge({ channel }: { channel: string }) {
   if (channel === "messenger") {
     return (
@@ -162,9 +190,19 @@ function PlatformBadge({ channel }: { channel: string }) {
       </span>
     );
   }
-  if (channel === "instagram") {
+  if (channel === "facebook_comment") {
     return (
-      <span className={styles.personMessagePlatformBadge} title="Instagram">
+      <span className={styles.personMessagePlatformBadge} title="Facebook comment">
+        <IconFacebookBadge />
+      </span>
+    );
+  }
+  if (channel === "instagram" || channel === "instagram_comment") {
+    return (
+      <span
+        className={styles.personMessagePlatformBadge}
+        title={channel === "instagram" ? "Instagram" : "Instagram comment"}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/integrations/instagram.png" alt="" />
       </span>
@@ -416,6 +454,9 @@ export function PersonMessagingPanel({
 
   const visibleMessages = useMemo(() => {
     if (filter === "all") return messages;
+    if (filter === "comments") {
+      return messages.filter((message) => isCommentChannel(message.channel));
+    }
     return messages.filter((message) => message.channel === filter);
   }, [filter, messages]);
 
@@ -589,6 +630,15 @@ export function PersonMessagingPanel({
               <button
                 type="button"
                 className={`${styles.personMessagingChannelOption} ${
+                  filter === "comments" ? styles.personMessagingChannelOptionActive : ""
+                }`}
+                onClick={() => selectFilter("comments")}
+              >
+                Comments
+              </button>
+              <button
+                type="button"
+                className={`${styles.personMessagingChannelOption} ${
                   filter === "email" ? styles.personMessagingChannelOptionActive : ""
                 }`}
                 onClick={() => selectFilter("email")}
@@ -636,7 +686,9 @@ export function PersonMessagingPanel({
                     channel={message.channel}
                     tone="contact"
                     imageUrl={
-                      message.channel === "messenger" || message.channel === "instagram"
+                      message.channel === "messenger" ||
+                      message.channel === "instagram" ||
+                      isCommentChannel(message.channel)
                         ? avatarUrl
                         : null
                     }
@@ -649,6 +701,11 @@ export function PersonMessagingPanel({
                       : styles.personMessageBubbleOutbound
                   }`}
                 >
+                  {isCommentChannel(message.channel) ? (
+                    <p className={styles.personMessageCommentLabel}>
+                      {commentLabel(message.channel)}
+                    </p>
+                  ) : null}
                   <p className={styles.personMessageBody}>{message.body}</p>
                   <div className={styles.personMessageMeta}>
                     <span>{formatMessageTime(message.createdAt)}</span>
@@ -679,7 +736,9 @@ export function PersonMessagingPanel({
             <p className={styles.emptyStateDescription}>
               {filter === "all"
                 ? "Send a message below. Messenger and Instagram threads show up here."
-                : `No ${channelLabel(filter)} messages yet.`}
+                : filter === "comments"
+                  ? "No Facebook or Instagram post comments from this client yet."
+                  : `No ${channelLabel(filter)} messages yet.`}
             </p>
           </div>
         )}
@@ -689,7 +748,9 @@ export function PersonMessagingPanel({
         {error ? <p className={styles.personMessagingError}>{error}</p> : null}
         {!sendChannel ? (
           <p className={styles.personMessagingHint}>
-            {filter !== "all" && !channels.find((entry) => entry.channel === filter)?.connected
+            {filter === "comments"
+              ? "Comments can't be answered here. Reply once this client has a Messenger or Instagram thread."
+              : filter !== "all" && !channels.find((entry) => entry.channel === filter)?.connected
               ? `${channelLabel(filter)} is not connected for this account.`
               : filter !== "all"
                 ? `This client has no ${channelLabel(filter)} thread yet.`

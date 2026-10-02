@@ -103,13 +103,14 @@ async function isPlaybookEnabled(
 function buildContextBlock(
   ctx: ContactContext,
   channel: AgentChannel,
-  options?: { hasSmsIdentity?: boolean; priorAssistantTurns?: number },
+  options?: { hasSmsIdentity?: boolean; priorAssistantTurns?: number; note?: string },
 ): string {
   const hasSmsIdentity = options?.hasSmsIdentity ?? channel === "sms";
   const needEmail = !ctx.email?.trim();
   const needPhone = channel !== "sms" && !hasSmsIdentity;
   const lines = [
     `Channel: ${channel}`,
+    options?.note ?? null,
     `External id: ${ctx.phone}`,
     ctx.firstName ? `First name: ${ctx.firstName}` : null,
     ctx.lastName ? `Last name: ${ctx.lastName}` : null,
@@ -214,7 +215,7 @@ async function persistInbound(params: {
   tenantId: string;
   threadKey: string;
   contactId?: string;
-  channel: AgentChannel;
+  channel: string;
   userBody: string;
 }): Promise<void> {
   const { tenantId, threadKey, contactId, channel, userBody } = params;
@@ -263,8 +264,13 @@ export async function runInboundAgent(params: {
   ctx: ContactContext;
   body: string;
   channel: AgentChannel;
+  /** Channel the inbound is stored under when it differs from the reply channel (e.g. a post comment). */
+  inboundChannel?: string;
+  /** Extra line for the model's context block. */
+  contextNote?: string;
 }): Promise<InboundAgentResult> {
   const { ctx, body, channel } = params;
+  const inboundChannel = params.inboundChannel ?? channel;
   const tenantId = ctx.accountId ?? "default-tenant";
   const threadKey = ctx.phone;
 
@@ -274,7 +280,7 @@ export async function runInboundAgent(params: {
       tenantId,
       threadKey,
       contactId: ctx.contactId,
-      channel,
+      channel: inboundChannel,
       userBody: body,
     });
     await persistOutbound({
@@ -360,7 +366,7 @@ export async function runInboundAgent(params: {
     tenantId,
     threadKey,
     contactId: ctx.contactId,
-    channel,
+    channel: inboundChannel,
     userBody: body,
   });
 
@@ -416,6 +422,7 @@ export async function runInboundAgent(params: {
       buildContextBlock(ctx, channel, {
         hasSmsIdentity,
         priorAssistantTurns,
+        note: params.contextNote,
       }),
       {
         tenantId,

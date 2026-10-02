@@ -1,7 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { handleInboundMetaMessage } from "@/lib/handle-inbound-meta";
-import { parseMetaWebhookPayload, verifyMetaWebhookSignature } from "@/lib/meta/webhook";
+import { handleMetaComment } from "@/lib/handle-meta-comment";
+import {
+  parseMetaCommentEvents,
+  parseMetaWebhookPayload,
+  verifyMetaWebhookSignature,
+} from "@/lib/meta/webhook";
 
 function cleanParam(value: string | null): string {
   return (value ?? "").trim().replace(/^["']|["']$/g, "");
@@ -25,7 +30,7 @@ export async function GET(request: NextRequest) {
   return new NextResponse("Forbidden", { status: 403 });
 }
 
-/** Inbound Messenger / Instagram messaging events. */
+/** Inbound Messenger / Instagram messaging events and post comments. */
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
@@ -62,6 +67,24 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       console.error("Meta inbound error:", error);
     }
+  }
+
+  const comments = parseMetaCommentEvents(payload);
+  if (comments.length > 0) {
+    after(async () => {
+      for (const comment of comments) {
+        try {
+          const result = await handleMetaComment(comment);
+          if (!result.ok) {
+            console.warn("Meta comment skipped:", result.skipped, comment.platform, comment.accountId);
+          } else if (result.agent) {
+            console.info("Meta comment:", comment.platform, result.agent, result.detail ?? "", result.contactId);
+          }
+        } catch (error) {
+          console.error("Meta comment error:", error);
+        }
+      }
+    });
   }
 
   // Always 200 quickly so Meta does not disable the webhook.

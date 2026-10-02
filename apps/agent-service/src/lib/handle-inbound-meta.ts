@@ -21,7 +21,7 @@ export interface HandleMetaInboundResult {
   sent?: boolean;
 }
 
-async function loadPageAccessToken(
+export async function loadPageAccessToken(
   tenantId: string,
   channel: MetaWebhookMessage["channel"],
   pageOrAccountId: string,

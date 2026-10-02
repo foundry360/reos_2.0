@@ -49,6 +49,8 @@ export function buildMetaOAuthUrl(state: MetaOAuthState, redirectUri: string): s
           "pages_manage_metadata",
           "pages_messaging",
           "instagram_manage_messages",
+          "instagram_basic",
+          "instagram_manage_comments",
           "business_management",
         ]
       : [

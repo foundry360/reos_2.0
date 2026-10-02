@@ -6,7 +6,7 @@ import type {
 } from "@/lib/coordinator";
 import { computeQualificationScore } from "@/lib/crm/qualification-score";
 import { notifyTenantNewLead } from "@/lib/notifications/create-notification";
-import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
+import { mergeContacts, reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
 import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
 import {
   ensureAppointmentSetOpportunity,
@@ -18,6 +18,15 @@ export interface InboundChannel {
   channel: "sms" | "messenger" | "instagram";
   from: string;
   to?: string;
+}
+
+export type CommentIdentityChannel = "facebook_comment" | "instagram_comment";
+type IdentityChannel = InboundChannel["channel"] | CommentIdentityChannel;
+
+function notificationChannel(channel: IdentityChannel): InboundChannel["channel"] {
+  if (channel === "facebook_comment") return "messenger";
+  if (channel === "instagram_comment") return "instagram";
+  return channel;
 }
 
 const CONTACT_SELECT =
@@ -200,7 +209,7 @@ export async function resolveInboundTenantId(
 
 async function findIdentityContact(
   tenantId: string,
-  channel: InboundChannel["channel"],
+  channel: IdentityChannel,
   externalId: string,
 ): Promise<ContactContext | null> {
   const db = getSupabaseAdmin();
@@ -230,7 +239,7 @@ async function findIdentityContact(
 
 async function intakeContact(
   tenantId: string,
-  channel: InboundChannel["channel"],
+  channel: IdentityChannel,
   externalId: string,
   profile?: {
     firstName?: string | null;
@@ -300,7 +309,7 @@ async function intakeContact(
     contactId: contact.id,
     firstName: contact.first_name ?? firstName,
     lastName,
-    channel,
+    channel: notificationChannel(channel),
   });
 
   await logSystemContactActivity({
@@ -308,7 +317,7 @@ async function intakeContact(
     contactId: contact.id,
     activityType: "contact",
     title: "New lead",
-    body: [firstName, lastName].filter(Boolean).join(" ") || channel,
+    body: [firstName, lastName].filter(Boolean).join(" ") || notificationChannel(channel),
     relatedEntityType: "lead",
     relatedEntityId: contact.id,
   });
@@ -353,6 +362,91 @@ export async function resolveInboundContact(
   if (created) return created;
 
   return stubContext(inbound.from, tenantId);
+}
+
+async function insertIdentity(
+  contactId: string,
+  channel: IdentityChannel,
+  externalId: string,
+): Promise<void> {
+  const db = getSupabaseAdmin();
+  if (!db) return;
+  const { error } = await db.from("contact_identities").insert({
+    contact_id: contactId,
+    channel,
+    external_id: externalId,
+  });
+  if (error && error.code !== "23505") {
+    console.error("Insert identity error:", error);
+  }
+}
+
+/**
+ * Find or create the contact behind a post comment. Checks the comment identity first,
+ * then a DM identity with the same id (Instagram commonly reuses the IGSID).
+ */
+export async function resolveCommentContact(input: {
+  tenantId: string;
+  identityChannel: CommentIdentityChannel;
+  dmChannel: "messenger" | "instagram";
+  commenterId: string;
+  profile?: { firstName?: string | null; lastName?: string | null };
+}): Promise<{ ctx: ContactContext; created: boolean } | null> {
+  const byComment = await findIdentityContact(
+    input.tenantId,
+    input.identityChannel,
+    input.commenterId,
+  );
+  if (byComment) return { ctx: byComment, created: false };
+
+  const byDm = await findIdentityContact(input.tenantId, input.dmChannel, input.commenterId);
+  if (byDm?.contactId) {
+    await insertIdentity(byDm.contactId, input.identityChannel, input.commenterId);
+    return { ctx: byDm, created: false };
+  }
+
+  const created = await intakeContact(
+    input.tenantId,
+    input.identityChannel,
+    input.commenterId,
+    input.profile,
+  );
+  return created ? { ctx: created, created: true } : null;
+}
+
+/**
+ * Attach a DM identity (PSID / IGSID) to a contact. When it already belongs to another
+ * contact in the same tenant, the two records are merged. Returns the surviving id.
+ */
+export async function linkContactDmIdentity(input: {
+  tenantId: string;
+  contactId: string;
+  channel: "messenger" | "instagram";
+  externalId: string;
+}): Promise<string> {
+  const db = getSupabaseAdmin();
+  if (!db) return input.contactId;
+
+  const { data: existing } = await db
+    .from("contact_identities")
+    .select("contact_id, contacts!inner(tenant_id)")
+    .eq("channel", input.channel)
+    .eq("external_id", input.externalId)
+    .maybeSingle();
+
+  if (!existing) {
+    await insertIdentity(input.contactId, input.channel, input.externalId);
+    return input.contactId;
+  }
+
+  if (existing.contact_id === input.contactId) return input.contactId;
+
+  const owner = existing.contacts as unknown as { tenant_id: string } | { tenant_id: string }[];
+  const ownerTenantId = Array.isArray(owner) ? owner[0]?.tenant_id : owner?.tenant_id;
+  if (ownerTenantId !== input.tenantId) return input.contactId;
+
+  // The DM thread's contact wins so the existing conversation stays intact.
+  return (await mergeContacts(existing.contact_id, input.contactId)) ?? input.contactId;
 }
 
 export async function updateContactFields(

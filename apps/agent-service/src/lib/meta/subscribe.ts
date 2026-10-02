@@ -1,12 +1,12 @@
 const META_GRAPH_VERSION = "v21.0";
 
-/** Subscribe a Page to this app's webhook fields so Messenger events are delivered. */
+/** Subscribe a Page to this app's webhook fields so Messenger and post-comment events are delivered. */
 export async function subscribeMetaPageToAppWebhooks(
   pageId: string,
   pageAccessToken: string,
 ): Promise<void> {
   const params = new URLSearchParams({
-    subscribed_fields: "messages,messaging_postbacks,message_echoes",
+    subscribed_fields: "messages,messaging_postbacks,message_echoes,feed",
     access_token: pageAccessToken,
   });
 
