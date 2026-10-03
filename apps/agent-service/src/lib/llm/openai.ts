@@ -16,6 +16,7 @@ import { applyToolCalls } from "@/lib/apply-tools";
 import {
   bookReosConsultSlot,
   getAvailableReosConsultSlots,
+  resolveBookableStart,
   type SlotPreference,
 } from "@/lib/calendar/consult-appointments";
 
@@ -121,7 +122,7 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_available_slots",
       description:
-        "Fetch 2-3 real open consult times from the REOS calendar. Call after you know mornings vs afternoons (or any). Pass day when the lead names a weekday. Never invent times.",
+        "Fetch 2-3 real open times (consults or showings) from the REOS calendar. Call as soon as the lead gives any timing; use preference any when only a day or deadline is known. Pass day when the lead names a weekday or date. Never invent times.",
       parameters: {
         type: "object",
         properties: {
@@ -139,6 +140,11 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
             type: "number",
             description: "How many slots to return (1-5, default 3)",
           },
+          kind: {
+            type: "string",
+            enum: ["consult", "showing"],
+            description: "showing = private tour of a specific property (may use days off if the team allows); consult otherwise",
+          },
         },
         additionalProperties: false,
       },
@@ -149,13 +155,19 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Book a consult on the REOS calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked. Never invent start times.",
+        "Book a consult or property showing on the REOS calendar for a slot previously returned by get_available_slots. On success the CRM is marked appt_booked. Never invent start times.",
       parameters: {
         type: "object",
         properties: {
           start: {
             type: "string",
-            description: "Exact ISO start time from get_available_slots",
+            description:
+              "Start of the slot the lead picked: the exact ISO start from get_available_slots, or if that is not in view, the offered label (e.g. \"Mon, Oct 5, 2026, 9:00 AM EDT\") or \"YYYY-MM-DD HH:MM\" in the workspace time zone. The server checks it against open times.",
+          },
+          kind: {
+            type: "string",
+            enum: ["consult", "showing"],
+            description: "Same kind used when fetching slots",
           },
           end: {
             type: "string",
@@ -164,6 +176,10 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
           attendee_email: {
             type: "string",
             description: "Lead email to store on the booking when available",
+          },
+          title: {
+            type: "string",
+            description: 'Calendar title. Use "Showing - <address>" for a property showing; omit for a consult.',
           },
         },
         required: ["start"],
@@ -212,6 +228,8 @@ function systemPromptFor(playbook: AgentPlaybook): string {
 export interface AgentTurnResult {
   reply: string;
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  /** True only when a book_appointment call returned ok. */
+  bookingSucceeded?: boolean;
 }
 
 export interface AgentTurnOptions {
@@ -267,6 +285,7 @@ async function executeOneTool(
       preference,
       day,
       limit,
+      allowWeekends: args.kind === "showing",
     });
   }
 
@@ -274,12 +293,29 @@ async function executeOneTool(
     if (!options.tenantId) {
       return { ok: false, error: "Missing tenant for calendar booking." };
     }
-    const start = typeof args.start === "string" ? args.start : "";
-    const end = typeof args.end === "string" ? args.end : undefined;
+    const requested = typeof args.start === "string" ? args.start : "";
+    const isShowing =
+      args.kind === "showing" || (typeof args.title === "string" && /^showing\b/i.test(args.title.trim()));
+    const resolved = await resolveBookableStart({
+      tenantId: options.tenantId,
+      start: requested,
+      allowWeekends: isShowing,
+    });
+    if (!resolved.ok) {
+      console.warn("book_appointment rejected:", requested, resolved.error);
+      return {
+        ok: false,
+        error: resolved.error,
+        openTimes: resolved.openTimes.map((slot) => ({ label: slot.label, start: slot.start })),
+      };
+    }
+    const start = resolved.start.toISOString();
+    const end = resolved.end.toISOString();
     const attendeeEmail =
       (typeof args.attendee_email === "string" && args.attendee_email) ||
       options.email ||
       null;
+    const title = typeof args.title === "string" ? args.title.trim() : "";
     const booked = await bookReosConsultSlot({
       tenantId: options.tenantId,
       contactId: options.contactId,
@@ -287,6 +323,9 @@ async function executeOneTool(
       end,
       attendeeEmail,
       leadName: options.leadName,
+      summary: title
+        ? `${title}${options.leadName && !title.includes(options.leadName) ? ` - ${options.leadName}` : ""}`
+        : null,
     });
     if (!booked.ok) return booked;
     options.contactId = booked.contactId;
@@ -335,6 +374,7 @@ export async function runAgentTurn(
 
   const allToolCalls: AgentTurnResult["toolCalls"] = [];
   let reply = "";
+  let bookingSucceeded = false;
 
   for (let round = 0; round < 4; round++) {
     const completion = await client.chat.completions.create({
@@ -378,6 +418,12 @@ export async function runAgentTurn(
           error: error instanceof Error ? error.message : "Tool failed",
         };
       }
+      if (
+        tc.function.name === "book_appointment" &&
+        (result as { ok?: unknown } | null)?.ok === true
+      ) {
+        bookingSucceeded = true;
+      }
       messages.push({
         role: "tool",
         tool_call_id: tc.id,
@@ -414,5 +460,5 @@ export async function runAgentTurn(
         : "Happy to help. What are you looking to do: buy, sell, or invest?";
   }
 
-  return { reply: stripChatMarkdown(reply), toolCalls: allToolCalls };
+  return { reply: stripChatMarkdown(reply), toolCalls: allToolCalls, bookingSucceeded };
 }

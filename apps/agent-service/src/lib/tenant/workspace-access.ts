@@ -12,6 +12,8 @@ export interface WorkspaceAccess {
   platformAdmin: boolean;
   /** Owners and platform admins manage workspace-wide connections. */
   canManageChannels: boolean;
+  /** Owners and platform admins edit workspace settings (e.g. calendar working hours). */
+  canManageWorkspace: boolean;
 }
 
 function parseRole(value: unknown): WorkspaceRole | null {
@@ -51,6 +53,7 @@ export const getWorkspaceAccess = cache(async (): Promise<WorkspaceAccess | null
     role,
     platformAdmin,
     canManageChannels: platformAdmin || role === "owner",
+    canManageWorkspace: platformAdmin || role === "owner",
   };
 });
 

@@ -106,6 +106,148 @@
   line-height: 1;
 }
 
+.settingsBtn {
+  color: var(--shell-text-secondary);
+}
+
+.settingsBtn:hover {
+  color: var(--shell-text);
+}
+
+.settingsSectionTitle {
+  margin: 0.25rem 0 0.6rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--shell-text-secondary);
+}
+
+.dayCircles {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.dayCircle {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--shell-border);
+  border-radius: 50%;
+  background: var(--shell-surface);
+  color: var(--shell-text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dayCircle:hover:not(:disabled) {
+  border-color: var(--shell-blue);
+}
+
+.dayCircleActive {
+  background: var(--brand-tint);
+  border-color: var(--shell-blue);
+  color: var(--shell-blue);
+}
+
+.dayCircle:disabled {
+  cursor: default;
+}
+
+.hoursList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.hoursRow {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  align-items: start;
+  gap: 0.75rem;
+}
+
+.hoursDay {
+  padding-top: 0.55rem;
+  font-size: 0.875rem;
+  color: var(--shell-text);
+}
+
+.hoursRanges {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.rangeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.rangeRow .timeSelect {
+  width: 9.5rem;
+  flex: 0 0 auto;
+}
+
+.rangeSep {
+  flex: 0 0 auto;
+  padding: 0 0.15rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--shell-text);
+}
+
+.rangeIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--shell-text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.rangeIconBtn:hover {
+  background: var(--shell-hover);
+  color: var(--shell-text);
+}
+
+.rangeActions {
+  display: flex;
+  gap: 1rem;
+}
+
+.linkBtn {
+  padding: 0.15rem 0;
+  border: none;
+  background: none;
+  color: var(--shell-blue);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.linkBtn:disabled {
+  color: var(--shell-muted);
+  cursor: default;
+}
+
 .calendarBody {
   flex: 1;
   display: flex;

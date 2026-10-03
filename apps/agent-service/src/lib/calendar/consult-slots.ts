@@ -119,6 +119,26 @@ function isWeekend(weekday: string): boolean {
   return weekday === "Sat" || weekday === "Sun";
 }
 
+const NOON_MINUTE = 12 * 60;
+
+const DEFAULT_DAY_WINDOWS = [morningWindow(), afternoonWindow()].map((win) => ({
+  startMinute: win.startHour * 60,
+  endMinute: win.endHour * 60,
+}));
+
+/** Morning = before noon, afternoon = noon onward. */
+function clipToPreference(
+  win: { startMinute: number; endMinute: number },
+  preference: SlotPreference,
+): Array<{ startMinute: number; endMinute: number }> {
+  if (preference === "any") return [win];
+  const clipped =
+    preference === "morning"
+      ? { startMinute: win.startMinute, endMinute: Math.min(win.endMinute, NOON_MINUTE) }
+      : { startMinute: Math.max(win.startMinute, NOON_MINUTE), endMinute: win.endMinute };
+  return clipped.endMinute > clipped.startMinute ? [clipped] : [];
+}
+
 export function overlapsBusy(
   startMs: number,
   endMs: number,
@@ -198,6 +218,10 @@ export function generateConsultSlots(params: {
   timeZone: string;
   busy: BusyInterval[];
   now?: Date;
+  /** Showings happen on weekends; consults stay Monday–Friday. Ignored when windowsFor is set. */
+  allowWeekends?: boolean;
+  /** Workspace working hours: bookable minute-of-day windows for a weekday ("Mon"). */
+  windowsFor?: (weekday: string) => Array<{ startMinute: number; endMinute: number }>;
 }):
   | { ok: true; slots: CalendarSlot[]; timeZone: string }
   | { ok: false; error: string } {
@@ -223,58 +247,44 @@ export function generateConsultSlots(params: {
     const parts = zonedParts(probe, timeZone);
     const key = dayKey(parts);
     if (preferredDay && key !== preferredDay) continue;
-    if (isWeekend(parts.weekday)) continue;
 
-    const windows: Array<{ startHour: number; endHour: number }> = [];
-    if (preference === "morning" || preference === "any") {
-      windows.push(morningWindow());
-    }
-    if (preference === "afternoon" || preference === "any") {
-      windows.push(afternoonWindow());
-    }
+    const dayWindows = params.windowsFor
+      ? params.windowsFor(parts.weekday)
+      : isWeekend(parts.weekday) && !params.allowWeekends
+        ? []
+        : DEFAULT_DAY_WINDOWS;
+    const windows = dayWindows.flatMap((win) => clipToPreference(win, preference));
 
     for (const win of windows) {
-      for (let hour = win.startHour; hour < win.endHour; hour++) {
-        for (let minute = 0; minute < 60; minute += SLOT_STEP_MINUTES) {
-          if ((takenByDay.get(key) ?? 0) >= perDayCap) break;
-          if (slots.length >= limit) break;
+      for (
+        let minuteOfDay = win.startMinute;
+        minuteOfDay + CONSULT_MINUTES <= win.endMinute;
+        minuteOfDay += SLOT_STEP_MINUTES
+      ) {
+        if ((takenByDay.get(key) ?? 0) >= perDayCap || slots.length >= limit) break;
 
-          const start = dateInTimeZone(
-            parts.year,
-            parts.month,
-            parts.day,
-            hour,
-            minute,
-            timeZone,
-          );
-          const end = new Date(start.getTime() + CONSULT_MINUTES * 60 * 1000);
-          const endParts = zonedParts(end, timeZone);
-          if (
-            endParts.day !== parts.day ||
-            endParts.hour > win.endHour ||
-            (endParts.hour === win.endHour && endParts.minute > 0)
-          ) {
-            continue;
-          }
-          if (start.getTime() < earliest) continue;
-          if (overlapsBusy(start.getTime(), end.getTime(), busy)) continue;
-          if (parts.year < zonedParts(now, timeZone).year) continue;
+        const start = dateInTimeZone(
+          parts.year,
+          parts.month,
+          parts.day,
+          Math.floor(minuteOfDay / 60),
+          minuteOfDay % 60,
+          timeZone,
+        );
+        const end = new Date(start.getTime() + CONSULT_MINUTES * 60 * 1000);
+        if (start.getTime() < earliest) continue;
+        if (overlapsBusy(start.getTime(), end.getTime(), busy)) continue;
+        if (parts.year < zonedParts(now, timeZone).year) continue;
 
-          const startIso = start.toISOString();
-          slots.push({
-            start: startIso,
-            end: end.toISOString(),
-            label: formatSlotLabel(startIso, timeZone),
-          });
-          takenByDay.set(key, (takenByDay.get(key) ?? 0) + 1);
-        }
-        if ((takenByDay.get(key) ?? 0) >= perDayCap || slots.length >= limit) {
-          break;
-        }
+        const startIso = start.toISOString();
+        slots.push({
+          start: startIso,
+          end: end.toISOString(),
+          label: formatSlotLabel(startIso, timeZone),
+        });
+        takenByDay.set(key, (takenByDay.get(key) ?? 0) + 1);
       }
-      if ((takenByDay.get(key) ?? 0) >= perDayCap || slots.length >= limit) {
-        break;
-      }
+      if ((takenByDay.get(key) ?? 0) >= perDayCap || slots.length >= limit) break;
     }
   }
 

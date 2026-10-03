@@ -200,6 +200,7 @@ export async function handleMetaComment(
       channel: platform.dmChannel,
       inboundChannel: platform.identityChannel,
       inboundContextLabel: contextLabel,
+      includesPostContext: Boolean(post),
       contextNote: [
         `Source: they wrote this in a public comment on the business's ${platform.label} post. Your reply is delivered to them as a private ${platform.dmLabel} message; respond to what they asked or expressed interest in first, and keep it short.`,
         post ? describePostForAgent(post) : null,

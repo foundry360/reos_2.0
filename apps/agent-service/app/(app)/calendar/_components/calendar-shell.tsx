@@ -1,6 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
+import type { WorkingHours } from "@/lib/calendar/working-hours";
 import { DropdownSelect } from "@/components/shell/dropdown-select";
 import { IconCalendar } from "@/components/shell/sidebar-nav";
 import shellStyles from "@/components/shell/shell.module.css";
@@ -22,6 +24,7 @@ import { CalendarFilterDropdown } from "./calendar-filter-dropdown";
 import { CalendarAgendaView } from "./calendar-agenda-view";
 import { CalendarDayView } from "./calendar-day-view";
 import { CalendarMonthView } from "./calendar-month-view";
+import { CalendarSettingsModal } from "./calendar-settings-modal";
 import { CalendarWeekView } from "./calendar-week-view";
 import styles from "./calendar.module.css";
 
@@ -35,6 +38,11 @@ const VIEW_LABELS: Record<CalendarView, string> = {
 interface CalendarShellProps {
   params: CalendarParams;
   events: CalendarEvent[];
+  settings: {
+    timeZone: string;
+    workingHours: WorkingHours;
+    canEdit: boolean;
+  };
 }
 
 function periodLabel(view: CalendarView, date: string): string {
@@ -75,8 +83,10 @@ function shiftDate(view: CalendarView, date: string, direction: -1 | 1): string 
   return toIsoDate(addMonths(anchor, direction));
 }
 
-export function CalendarShell({ params, events }: CalendarShellProps) {
+export function CalendarShell({ params, events, settings }: CalendarShellProps) {
   const router = useRouter();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
 
   function navigate(next: Partial<CalendarParams>) {
     router.push(`/calendar${buildCalendarQuery({ ...params, ...next })}`);
@@ -142,6 +152,15 @@ export function CalendarShell({ params, events }: CalendarShellProps) {
             />
           </div>
           <CalendarFilterDropdown filters={params.filters} onChange={setFilters} />
+          <button
+            type="button"
+            className={`${styles.navBtn} ${styles.settingsBtn}`}
+            aria-label="Calendar settings"
+            title="Calendar settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <IconSettings />
+          </button>
         </div>
       </div>
 
@@ -167,6 +186,35 @@ export function CalendarShell({ params, events }: CalendarShellProps) {
           <CalendarAgendaView anchorDate={params.date} events={events} />
         ) : null}
       </div>
+
+      <CalendarSettingsModal
+        open={settingsOpen}
+        onClose={closeSettings}
+        timeZone={settings.timeZone}
+        workingHours={settings.workingHours}
+        canEdit={settings.canEdit}
+      />
     </div>
+  );
+}
+
+function IconSettings() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

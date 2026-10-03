@@ -29,6 +29,9 @@ import { applyToolCalls } from "@/lib/apply-tools";
 import { extractQualificationFromInbound } from "@/lib/extract-qualification";
 import { isSupabaseConfigured } from "@/lib/env";
 import { runAgentTurn } from "@/lib/llm/openai";
+import { loadTenantSchedule } from "@/lib/calendar/consult-appointments";
+import { describeWorkingHours, normalizeWorkingHours } from "@/lib/calendar/working-hours";
+import { describePostForAgent, getContactPropertyInterest } from "@/lib/meta/post-context";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 export type AgentChannel = "sms" | "messenger" | "instagram";
@@ -272,6 +275,8 @@ export async function runInboundAgent(params: {
   contextNote?: string;
   /** Label stored with the inbound message, e.g. the property a comment was on. */
   inboundContextLabel?: string | null;
+  /** contextNote already describes the post, so skip the stored property-of-interest lookup. */
+  includesPostContext?: boolean;
 }): Promise<InboundAgentResult> {
   const { ctx, body, channel } = params;
   const inboundChannel = params.inboundChannel ?? channel;
@@ -419,6 +424,23 @@ export async function runInboundAgent(params: {
 
   let reply = "";
   let toolCalls: Awaited<ReturnType<typeof runAgentTurn>>["toolCalls"] = [];
+  let bookingSucceeded = false;
+
+  const propertyInterest = params.includesPostContext
+    ? null
+    : await getContactPropertyInterest(ctx.contactId);
+  const note = [
+    await todayLine(tenantId),
+    params.contextNote,
+    propertyInterest
+      ? describePostForAgent(propertyInterest).replace(
+          "POST THEY COMMENTED ON",
+          "PROPERTY OF INTEREST (from their earlier comment)",
+        )
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
     const turn = await runAgentTurn(
@@ -428,7 +450,7 @@ export async function runInboundAgent(params: {
       buildContextBlock(ctx, channel, {
         hasSmsIdentity,
         priorAssistantTurns,
-        note: params.contextNote,
+        note,
       }),
       {
         tenantId,
@@ -439,6 +461,7 @@ export async function runInboundAgent(params: {
     );
     reply = turn.reply;
     toolCalls = turn.toolCalls;
+    bookingSucceeded = turn.bookingSucceeded === true;
   } catch (error) {
     console.error("Inbound agent turn failed:", error);
     reply =
@@ -507,21 +530,38 @@ export async function runInboundAgent(params: {
   }
 
   // Scheduling path: keep ready_to_book while actively booking — never after a book.
-  const bookedThisTurn = toolCalls.some((tc) => tc.name === "book_appointment");
-  const replyLooksBooked =
-    /\b(booked|you'?re all set|invite (was )?sent|confirmed for|on the calendar)\b/i.test(
+  // Only a book_appointment that returned ok counts — a failed attempt or a reply that
+  // merely sounds booked must not flip appt_booked (that drops the lead out of scheduling).
+  const bookedThisTurn = bookingSucceeded;
+  const bookingAttemptFailed =
+    !bookingSucceeded && toolCalls.some((tc) => tc.name === "book_appointment");
+  const claimsBooked =
+    /\b(you'?re (all set|booked)|(is|are|i'?ve|have) (now )?booked|invite (was |has been )?sent|confirmed for|i'?ll (confirm|book|lock) (it|that|this)|one moment)\b/i.test(
       reply,
     );
-  if (bookedThisTurn || replyLooksBooked || ctx.apptBooked) {
+  if (!bookedThisTurn) {
+    for (const tc of toolCalls) {
+      if (tc.name === "update_contact" && tc.args.appt_booked === true) {
+        delete tc.args.appt_booked;
+      }
+    }
+    if (claimsBooked && !ctx.apptBooked) {
+      reply = bookingAttemptFailed
+        ? "Sorry, that time didn't go through on my end. Want me to pull the open times for that day so you can pick one?"
+        : "Let me check the calendar. Which day works best, and do you prefer morning or afternoon?";
+    }
+  }
+  const replyLooksBooked = bookedThisTurn;
+  if (bookedThisTurn || ctx.apptBooked) {
     let sawUpdate = false;
     for (const tc of toolCalls) {
       if (tc.name !== "update_contact") continue;
       sawUpdate = true;
       tc.args.ready_to_book = false;
-      if (bookedThisTurn || replyLooksBooked) tc.args.appt_booked = true;
+      if (bookedThisTurn) tc.args.appt_booked = true;
       if (tc.args.handoff === true) tc.args.handoff = false;
     }
-    if (!sawUpdate && (bookedThisTurn || replyLooksBooked) && ctx.contactId) {
+    if (!sawUpdate && bookedThisTurn && ctx.contactId) {
       toolCalls.push({
         name: "update_contact",
         args: { ready_to_book: false, appt_booked: true },
@@ -656,6 +696,24 @@ export async function runInboundAgent(params: {
     contactId: ctx.contactId,
     optedOut: false,
   };
+}
+
+async function todayLine(tenantId: string): Promise<string> {
+  const { timeZone, workingHours } =
+    tenantId === "default-tenant"
+      ? { timeZone: "America/New_York", workingHours: normalizeWorkingHours(null) }
+      : await loadTenantSchedule(tenantId);
+  const today = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date());
+  const showings = workingHours.showingsOnDaysOff
+    ? " Showings can also be booked on days off."
+    : "";
+  return `Today: ${today} (${timeZone})\nTeam working hours: ${describeWorkingHours(workingHours)}.${showings}`;
 }
 
 function extractEmailAddress(text: string): string | null {

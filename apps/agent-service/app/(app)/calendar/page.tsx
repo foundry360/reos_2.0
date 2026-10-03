@@ -2,6 +2,8 @@ import { CalendarShell } from "./_components/calendar-shell";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconCalendar } from "@/components/shell/sidebar-nav";
 import { fetchCalendarEvents } from "@/lib/calendar/calendar-events";
+import { loadTenantSchedule } from "@/lib/calendar/consult-appointments";
+import { getWorkspaceAccess } from "@/lib/tenant/workspace-access";
 import { getVisibleRange } from "@/lib/calendar/calendar-date";
 import {
   anchorDate,
@@ -32,12 +34,21 @@ export default async function CalendarPage({ searchParams }: PageProps) {
 
   const anchor = anchorDate(params);
   const { start, end } = getVisibleRange(params.view, anchor);
-  const events = await fetchCalendarEvents(tenantId, start, end, params.filters);
+  const [events, schedule, access] = await Promise.all([
+    fetchCalendarEvents(tenantId, start, end, params.filters),
+    loadTenantSchedule(tenantId),
+    getWorkspaceAccess(),
+  ]);
 
   return (
     <CalendarShell
       params={params}
       events={events}
+      settings={{
+        timeZone: schedule.timeZone,
+        workingHours: schedule.workingHours,
+        canEdit: Boolean(access?.canManageWorkspace),
+      }}
     />
   );
 }

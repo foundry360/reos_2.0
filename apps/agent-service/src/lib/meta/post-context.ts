@@ -210,6 +210,47 @@ export async function getPostContext(params: {
   return context;
 }
 
+const PROPERTY_INTEREST_DAYS = 60;
+
+/**
+ * The property a contact most recently commented about, so later Messenger / Instagram / SMS
+ * turns (including scheduling) still know which home they mean.
+ */
+export async function getContactPropertyInterest(
+  contactId: string | undefined,
+): Promise<PostContext | null> {
+  const db = getSupabaseAdmin();
+  if (!db || !contactId) return null;
+
+  const since = new Date(Date.now() - PROPERTY_INTEREST_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const { data: event } = await db
+    .from("meta_comment_events")
+    .select("platform, post_id")
+    .eq("contact_id", contactId)
+    .not("property_summary", "is", null)
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!event?.post_id) return null;
+
+  const { data: post } = await db
+    .from("meta_posts")
+    .select("caption, permalink, is_listing, property, property_summary")
+    .eq("platform", event.platform)
+    .eq("post_id", event.post_id)
+    .maybeSingle();
+  if (!post?.is_listing) return null;
+
+  return {
+    caption: post.caption,
+    permalink: post.permalink,
+    isListing: true,
+    property: (post.property as PostProperty | null) ?? null,
+    propertySummary: post.property_summary,
+  };
+}
+
 /** Context block for the conversation agent describing the post they commented on. */
 export function describePostForAgent(context: PostContext): string {
   const lines: string[] = [];
@@ -233,7 +274,7 @@ export function describePostForAgent(context: PostContext): string {
 
   lines.push(
     context.isListing
-      ? "PROPERTY RULES: Assume questions like \"is this still available?\", \"how much?\" or \"can I see it?\" refer to this property, and name it in your reply. Use only facts listed above; if they ask something not listed (HOA, taxes, schools, exact availability), say the agent will confirm instead of guessing. Offer a showing or the open house when it fits."
+      ? "PROPERTY RULES: Assume questions like \"is this still available?\", \"how much?\" or \"can I see it?\" refer to this property, and name it in your reply. Use only facts listed above; if they ask something not listed (HOA, taxes, schools, exact availability), say the agent will confirm instead of guessing. Offer a showing or the open house when it fits. If they want to see it, treat the meeting as a private showing of this property, not a generic consult."
       : "If they ask about \"this\" property and the post does not identify one, ask which home or area they mean.",
   );
   return lines.join("\n");

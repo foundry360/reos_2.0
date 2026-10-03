@@ -4,10 +4,13 @@ import {
   CONSULT_MINUTES,
   DEFAULT_TIME_ZONE,
   LOOKAHEAD_DAYS,
+  SLOT_STEP_MINUTES,
+  dateInTimeZone,
   formatSlotLabel,
   generateConsultSlots,
   isBookableStart,
   overlapsBusy,
+  zonedParts,
   type BusyInterval,
   type CalendarSlot,
   type SlotPreference,
@@ -17,12 +20,17 @@ import {
   sendAppointmentInvites,
 } from "@/lib/calendar/appointment-invites";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
+import {
+  bookingWindowsFor,
+  normalizeWorkingHours,
+  type WorkingHours,
+} from "@/lib/calendar/working-hours";
 
 export type { CalendarSlot, SlotPreference };
 
 const APPOINTMENT_DEFAULT_MINUTES = CONSULT_MINUTES;
 
-async function loadTenantTimezone(tenantId: string): Promise<string> {
+export async function loadTenantTimezone(tenantId: string): Promise<string> {
   const db = getSupabaseAdmin();
   if (!db) return DEFAULT_TIME_ZONE;
   const { data } = await db
@@ -32,6 +40,26 @@ async function loadTenantTimezone(tenantId: string): Promise<string> {
     .maybeSingle();
   const tz = data?.timezone?.trim();
   return tz || DEFAULT_TIME_ZONE;
+}
+
+export async function loadTenantSchedule(
+  tenantId: string,
+): Promise<{ timeZone: string; workingHours: WorkingHours }> {
+  const db = getSupabaseAdmin();
+  if (!db) return { timeZone: DEFAULT_TIME_ZONE, workingHours: normalizeWorkingHours(null) };
+  const { data, error } = await db
+    .from("tenants")
+    .select("timezone, working_hours")
+    .eq("id", tenantId)
+    .maybeSingle();
+  if (error) {
+    // working_hours column not migrated yet
+    return { timeZone: await loadTenantTimezone(tenantId), workingHours: normalizeWorkingHours(null) };
+  }
+  return {
+    timeZone: data?.timezone?.trim() || DEFAULT_TIME_ZONE,
+    workingHours: normalizeWorkingHours(data?.working_hours),
+  };
 }
 
 /**
@@ -135,14 +163,16 @@ export async function getAvailableReosConsultSlots(params: {
   preference?: SlotPreference;
   day?: string;
   limit?: number;
+  allowWeekends?: boolean;
 }): Promise<
   | { ok: true; slots: CalendarSlot[]; timeZone: string }
   | { ok: false; error: string }
 > {
-  const timeZone = await loadTenantTimezone(params.tenantId);
+  const { timeZone, workingHours } = await loadTenantSchedule(params.tenantId);
   const now = new Date();
   const rangeEnd = new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
   const busy = await loadReosBusyIntervals(params.tenantId, now, rangeEnd);
+  const kind = params.allowWeekends ? "showing" : "consult";
 
   return generateConsultSlots({
     preference: params.preference ?? "any",
@@ -151,7 +181,135 @@ export async function getAvailableReosConsultSlots(params: {
     timeZone,
     busy,
     now,
+    windowsFor: (weekday) => bookingWindowsFor(workingHours, weekday, kind),
   });
+}
+
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/**
+ * Turn whatever the model passes as a start ("2026-10-05T13:00:00.000Z", "2026-10-05 09:00",
+ * or a label like "Mon, Oct 5, 2026, 9:00 AM EDT") into an instant in the workspace time zone.
+ * Slot ISO values from an earlier turn are not in the chat history, so labels must work.
+ */
+function parseRequestedStart(input: string, timeZone: string, now: Date): Date | null {
+  const raw = input.trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const local = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}):(\d{2})/);
+  if (local) {
+    return dateInTimeZone(+local[1], +local[2], +local[3], +local[4], +local[5], timeZone);
+  }
+
+  const label = raw
+    .toLowerCase()
+    .match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?[,\s]+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (label) {
+    const month = MONTHS[label[1]];
+    const day = +label[2];
+    let hour = +label[4] % 12;
+    if (label[6] === "pm") hour += 12;
+    const minute = label[5] ? +label[5] : 0;
+    const currentYear = zonedParts(now, timeZone).year;
+    let year = label[3] ? +label[3] : currentYear;
+    let date = dateInTimeZone(year, month, day, hour, minute, timeZone);
+    if (!label[3] && date.getTime() < now.getTime() - 24 * 60 * 60 * 1000) {
+      year += 1;
+      date = dateInTimeZone(year, month, day, hour, minute, timeZone);
+    }
+    return date;
+  }
+
+  return null;
+}
+
+function withinBookingHours(
+  start: Date,
+  timeZone: string,
+  workingHours: WorkingHours,
+  kind: "consult" | "showing",
+): boolean {
+  const parts = zonedParts(start, timeZone);
+  const startMinutes = parts.hour * 60 + parts.minute;
+  const endMinutes = startMinutes + CONSULT_MINUTES;
+  return bookingWindowsFor(workingHours, parts.weekday, kind).some(
+    (win) =>
+      startMinutes >= win.startMinute &&
+      endMinutes <= win.endMinute &&
+      (startMinutes - win.startMinute) % SLOT_STEP_MINUTES === 0,
+  );
+}
+
+export type ResolveStartResult =
+  | { ok: true; start: Date; end: Date }
+  | { ok: false; error: string; openTimes: CalendarSlot[] };
+
+/** Validate a requested start against real open slots; on failure, return open times that day. */
+export async function resolveBookableStart(params: {
+  tenantId: string;
+  start: string;
+  allowWeekends?: boolean;
+}): Promise<ResolveStartResult> {
+  const { timeZone, workingHours } = await loadTenantSchedule(params.tenantId);
+  const now = new Date();
+  const allowWeekends = params.allowWeekends ?? false;
+  const kind = allowWeekends ? "showing" : "consult";
+  const start = parseRequestedStart(params.start, timeZone, now);
+
+  const openTimesFor = async (day?: string) => {
+    const result = await getAvailableReosConsultSlots({
+      tenantId: params.tenantId,
+      preference: "any",
+      day,
+      limit: 4,
+      allowWeekends,
+    });
+    return result.ok ? result.slots : [];
+  };
+
+  if (!start) {
+    return {
+      ok: false,
+      error: "Could not read that time. Offer one of openTimes using its label, then book with its start.",
+      openTimes: await openTimesFor(),
+    };
+  }
+
+  const parts = zonedParts(start, timeZone);
+  const dayKey = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  const end = new Date(start.getTime() + CONSULT_MINUTES * 60 * 1000);
+
+  const invalid =
+    isBookableStart(start, timeZone, now) ??
+    (start.getTime() < now.getTime() + 60 * 60 * 1000 ? "That time is too soon." : null) ??
+    (!withinBookingHours(start, timeZone, workingHours, kind)
+      ? bookingWindowsFor(workingHours, parts.weekday, kind).length === 0
+        ? `The team does not take ${kind === "showing" ? "showings" : "consults"} on ${parts.weekday}.`
+        : `${formatSlotLabel(start.toISOString(), timeZone)} is outside working hours.`
+      : null);
+
+  if (!invalid) {
+    const busy = await loadReosBusyIntervals(
+      params.tenantId,
+      now,
+      new Date(now.getTime() + LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000),
+    );
+    if (!overlapsBusy(start.getTime(), end.getTime(), busy)) {
+      return { ok: true, start, end };
+    }
+  }
+
+  const openTimes = await openTimesFor(dayKey);
+  return {
+    ok: false,
+    error: `${invalid ?? `${formatSlotLabel(start.toISOString(), timeZone)} is already taken.`} Offer the open times listed (same day) instead.`,
+    openTimes: openTimes.length > 0 ? openTimes : await openTimesFor(),
+  };
 }
 
 export type BookReosConsultResult =
