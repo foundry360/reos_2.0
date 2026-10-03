@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import { LEAD_AGENT_SYSTEM } from "@/agents/lead-agent";
 import {
   getOpenAIApiKey,
@@ -8,8 +8,9 @@ import {
 } from "@/lib/admin/platform-credentials";
 import { formatSlotLabel } from "@/lib/calendar/consult-slots";
 import { describeWorkingHours } from "@/lib/calendar/working-hours";
-import { wantsToSchedule, type ContactContext } from "@/lib/coordinator";
+import { looksLikeSchedulingMessage, wantsToSchedule, type ContactContext } from "@/lib/coordinator";
 import { meterUsage } from "@/lib/llm/usage-meter";
+import { describePostForAgent } from "@/lib/meta/post-context";
 import { stripChatMarkdown } from "@/lib/llm/openai";
 import type { AgentBackend, ToolEvent, UpcomingAppointment } from "@/lib/agent/backend";
 import { applyCompliance } from "@/lib/agent/compliance";
@@ -17,7 +18,13 @@ import { buildLeadContext, readConversationState } from "@/lib/agent/context";
 import { buildChatHistory } from "@/lib/agent/history";
 import { LEAD_TOOLS, runLeadTool, type LeadTurnState } from "@/lib/agent/lead-tools";
 import { liveBackend } from "@/lib/agent/live-backend";
-import { extractClockTimes, isAmbiguousPick, replyViolations } from "@/lib/agent/reply-checks";
+import {
+  extractClockTimes,
+  isAmbiguousPick,
+  mightBeScheduling,
+  pointsAtTime,
+  replyViolations,
+} from "@/lib/agent/reply-checks";
 
 type Channel = "sms" | "messenger" | "instagram";
 
@@ -54,6 +61,7 @@ function allowedTimesFor(params: {
   upcoming: UpcomingAppointment[];
   userTexts: string[];
   hoursText: string;
+  propertyText: string;
   timeZone: string;
 }): Set<number> {
   const texts = [
@@ -62,8 +70,23 @@ function allowedTimesFor(params: {
     ...params.upcoming.map((a) => formatSlotLabel(a.start, params.timeZone)),
     ...params.userTexts,
     params.hoursText,
+    params.propertyText,
   ];
   return new Set(texts.flatMap((t) => extractClockTimes(t)));
+}
+
+/**
+ * Reasoning-era models (gpt-5+, o-series) reject temperature/max_tokens and count thinking toward the limit.
+ * GPT-6 Luna only accepts function tools on Chat Completions with reasoning off; Sol/Astra need the Responses API.
+ */
+function samplingParams(model: string, maxTokens: number) {
+  if (/^gpt-6-luna/.test(model)) {
+    return { max_completion_tokens: maxTokens, reasoning_effort: "none" as unknown as "low" };
+  }
+  if (/^(gpt-5|o\d)/.test(model)) {
+    return { max_completion_tokens: maxTokens * 6, reasoning_effort: "low" as const };
+  }
+  return { temperature: 0.2, max_tokens: maxTokens };
 }
 
 async function completeTurn(params: {
@@ -71,17 +94,17 @@ async function completeTurn(params: {
   model: string;
   messages: ChatCompletionMessageParam[];
   state: LeadTurnState;
+  tools: ChatCompletionTool[];
 }): Promise<string> {
-  const { client, model, messages, state } = params;
+  const { client, model, messages, state, tools } = params;
   let reply = "";
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const completion = await client.chat.completions.create({
       model,
       messages,
-      tools: LEAD_TOOLS,
+      tools,
       tool_choice: "auto",
-      temperature: 0.2,
-      max_tokens: 600,
+      ...samplingParams(model, 600),
     });
     meterUsage(model, completion.usage);
     const msg = completion.choices[0]?.message;
@@ -107,10 +130,9 @@ async function completeTurn(params: {
     const final = await client.chat.completions.create({
       model,
       messages,
-      tools: LEAD_TOOLS,
+      tools,
       tool_choice: "none",
-      temperature: 0.2,
-      max_tokens: 400,
+      ...samplingParams(model, 400),
     });
     meterUsage(model, final.usage);
     reply = final.choices[0]?.message?.content?.trim() || "";
@@ -218,6 +240,13 @@ export async function runLeadAgent(params: {
   const userMessage = typeof lastUser?.content === "string" ? lastUser.content : body;
 
   const { offered, held } = readConversationState(turns);
+  const firstReply = !messages.some((m) => m.role === "assistant");
+  // An opening "I'm interested" gets a greeting and a question, not a list of appointment times.
+  const calendarAllowed =
+    !firstReply || wantsToSchedule(body) || looksLikeSchedulingMessage(body) || mightBeScheduling(body);
+  const tools = calendarAllowed
+    ? LEAD_TOOLS
+    : LEAD_TOOLS.filter((t) => t.type === "function" && t.function.name === "update_contact");
   const context = buildLeadContext({
     ctx,
     channel,
@@ -228,6 +257,7 @@ export async function runLeadAgent(params: {
     offered,
     held,
     property,
+    firstReply,
     note: params.contextNote,
   });
 
@@ -245,6 +275,7 @@ export async function runLeadAgent(params: {
       userMessage,
       [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "",
     ),
+    leadPickedTime: Boolean(held) || pointsAtTime(userMessage),
   };
   const chat: ChatCompletionMessageParam[] = [
     { role: "system", content: `${LEAD_AGENT_SYSTEM}\n\n---\nCONTEXT\n${context}` },
@@ -260,16 +291,18 @@ export async function runLeadAgent(params: {
       upcoming,
       userTexts,
       hoursText: describeWorkingHours(schedule.workingHours),
+      propertyText: property ? describePostForAgent(property) : "",
       timeZone: schedule.timeZone,
     }),
     bookedThisTurn: Boolean(state.booked),
     hasAppointment: upcoming.length > 0,
     contactInfoOnFile: Boolean(state.email) && state.phoneOnFile,
+    firstReply,
   });
 
   let reply = "";
   try {
-    reply = await completeTurn({ client, model, messages: chat, state });
+    reply = await completeTurn({ client, model, messages: chat, state, tools });
     const problems = replyViolations({ reply, ...guardInput() });
     if (problems.length > 0) {
       console.warn("lead agent guard retry:", JSON.stringify({ reply, problems }));
@@ -278,7 +311,7 @@ export async function runLeadAgent(params: {
         role: "system",
         content: `Internal check, not from the lead. Your last draft was not sent because:\n- ${problems.join("\n- ")}\nUse tools if needed, then write the reply to send.`,
       });
-      reply = await completeTurn({ client, model, messages: chat, state });
+      reply = await completeTurn({ client, model, messages: chat, state, tools });
       const remaining = replyViolations({ reply, ...guardInput() });
       if (remaining.length > 0) console.warn("lead agent guard still failing:", JSON.stringify({ reply, remaining }));
     }

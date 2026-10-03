@@ -21,6 +21,50 @@
       ]
     },
     {
+      "id": "interested-open-house-opening",
+      "about": "First message 'I am interested' on an open-house post: greet, ask how to help, no appointment times",
+      "contact": { "leadStatus": "New", "intent": null, "targetLocation": null, "propertyType": null },
+      "property": "openhouse",
+      "turns": [
+        {
+          "user": "I am interested in this property",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": ["\\b(hi|hello|hey)\\b", "thank", "\\?"],
+            "replyNotMatches": ["10:00|10:30|11:00", "availability"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "interested-then-see-it",
+      "about": "Opening, then they want to see it and name a day: times come with the day",
+      "contact": { "leadStatus": "New", "intent": null, "targetLocation": null, "propertyType": null },
+      "property": "oak",
+      "turns": [
+        {
+          "user": "I am interested in this property",
+          "expect": { "noBooking": true, "replyNotMatches": "\\d{1,2}:\\d{2}\\s*(am|pm)" }
+        },
+        {
+          "user": "I'd like to see it Saturday morning",
+          "expect": { "checksCalendar": true, "noBooking": true, "replyMatches": "sat|oct 3" }
+        }
+      ]
+    },
+    {
+      "id": "first-message-asks-to-tour",
+      "about": "First message already asks to tour this weekend: look up times right away",
+      "contact": { "leadStatus": "New", "intent": null, "targetLocation": null, "propertyType": null },
+      "property": "oak",
+      "turns": [
+        {
+          "user": "Can I tour it this weekend?",
+          "expect": { "checksCalendar": true, "noBooking": true, "replyMatches": ["sat|sun", "\\b(hi|hello|hey)\\b"] }
+        }
+      ]
+    },
+    {
       "id": "price-question",
       "about": "Simple listing question",
       "contact": {

@@ -98,6 +98,8 @@ export interface LeadTurnState {
   booked: { label: string; start: string } | null;
   /** The lead said "yes" to several offered times without picking one. */
   ambiguousPick?: boolean;
+  /** The lead's message names or points at a specific time, or a time is held for their contact info. */
+  leadPickedTime?: boolean;
 }
 
 /** "YYYY-MM-DD HH:MM" in the workspace zone. The model only ever sees local starts, never UTC ISO. */
@@ -166,6 +168,13 @@ async function bookAppointment(state: LeadTurnState, args: Record<string, unknow
       ok: false,
       error:
         "NOT BOOKED. You offered several times and the lead only said yes without picking one. Ask which time they want; don't book until they choose.",
+    };
+  }
+  if (state.leadPickedTime === false) {
+    return {
+      ok: false,
+      error:
+        "NOT BOOKED. The lead gave a day or range, not a specific time. Call find_open_times and offer 2-4 times with the day named; book once they pick one.",
     };
   }
   const schedule = await backend.schedule();

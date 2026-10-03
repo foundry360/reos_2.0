@@ -84,6 +84,23 @@
         "highlights": "renovated kitchen, fenced yard, walk to train"
       },
       "propertySummary": "12 Oak St, Montclair · $650K · 3 bd / 2 ba"
+    },
+    "openhouse": {
+      "caption": "Open house this Sunday! 3041 Oatland Court, Orange Park. 4 bed / 3 bath, $625,000.",
+      "permalink": null,
+      "isListing": true,
+      "property": {
+        "address": "3041 Oatland Court",
+        "city": "Orange Park",
+        "price": "$625,000",
+        "beds": "4",
+        "baths": "3",
+        "sqft": null,
+        "status": "Open house",
+        "openHouse": "Sunday, October 4, 1:00 PM - 3:00 PM",
+        "highlights": null
+      },
+      "propertySummary": "3041 Oatland Court, Orange Park · $625,000 · 4 bd / 3 ba · Open house"
     }
   }
 }

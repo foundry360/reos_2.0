@@ -68,6 +68,9 @@ const PRICES_PER_MTOK: Record<string, { input: number; output: number }> = {
   "gpt-4.1-mini": { input: 0.4, output: 1.6 },
   "gpt-4.1": { input: 2, output: 8 },
   "gpt-4.1-nano": { input: 0.1, output: 0.4 },
+  "gpt-5-mini": { input: 0.25, output: 2 },
+  "gpt-6-luna": { input: 0.1, output: 0.5 },
+  "gpt-6.1-sol": { input: 2, output: 10 },
 };
 
 function arg(name: string): string | undefined {
@@ -167,6 +170,8 @@ async function runScenario(
 
   const knownTimes = new Set<number>(workingBoundaries(schedule));
   for (const appt of upcoming) knownTimes.add(localMinutes(new Date(appt.start), timeZone));
+  const openHouse = scenario.property ? shared.properties[scenario.property]?.property?.openHouse : null;
+  for (const t of extractClockTimes(openHouse ?? "")) knownTimes.add(t);
   for (const [role, content] of scenario.history ?? []) {
     backend.seedMessage(role === "assistant" ? "assistant" : "user", content);
     for (const t of extractClockTimes(content)) knownTimes.add(t);

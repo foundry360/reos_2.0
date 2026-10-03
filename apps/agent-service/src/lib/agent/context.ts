@@ -99,6 +99,7 @@ export function buildLeadContext(input: {
   offered: OfferedTimes | null;
   held: HeldTime | null;
   property: PostContext | null;
+  firstReply?: boolean;
   note?: string;
 }): string {
   const { ctx, schedule, now, upcoming, offered, held } = input;
@@ -131,6 +132,7 @@ export function buildLeadContext(input: {
     `DATES: ${nextDays(now, timeZone)}`,
     `TEAM HOURS: ${describeWorkingHours(workingHours)}.${workingHours.showingsOnDaysOff ? " Showings can also be booked on days off." : ""}`,
     `CHANNEL: ${input.channel}`,
+    input.firstReply ? "CONVERSATION: First reply to this lead. Follow OPENING." : null,
     "",
     `LEAD: ${[ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || "(name unknown)"}`,
     `Email: ${ctx.email?.trim() || "unknown"}`,
