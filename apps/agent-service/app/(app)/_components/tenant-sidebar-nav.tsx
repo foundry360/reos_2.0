@@ -10,6 +10,7 @@ import {
   IconOpportunities,
   IconReports,
   IconSettings,
+  IconSocialPlanner,
   IconTasks,
   IconUsers,
   SidebarNav,
@@ -29,7 +30,10 @@ const TENANT_NAV = [
 const TENANT_NAV_SECTIONS = [
   {
     label: "Marketing",
-    items: [{ href: "/marketing/journeys", label: "Journey Builder", icon: <IconJourney /> }],
+    items: [
+      { href: "/marketing/journeys", label: "Journey Builder", icon: <IconJourney /> },
+      { href: "/marketing/social-planner", label: "Social Planner", icon: <IconSocialPlanner /> },
+    ],
   },
 ];
 
@@ -42,6 +46,7 @@ export function TenantSidebarNav() {
         sectionLabel="Workspace"
         items={TENANT_NAV}
         sections={TENANT_NAV_SECTIONS}
+        secondaryLabel="Tools"
         secondaryItems={[
           {
             id: "data-import",

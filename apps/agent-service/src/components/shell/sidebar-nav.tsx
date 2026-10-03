@@ -31,6 +31,7 @@ interface SidebarNavProps {
   items: NavLinkItem[];
   sections?: NavSection[];
   secondaryItems?: NavItem[];
+  secondaryLabel?: string;
 }
 
 function isNavAction(item: NavItem): item is NavActionItem {
@@ -77,7 +78,13 @@ function NavLinks({ items, pathname }: { items: NavItem[]; pathname: string }) {
   );
 }
 
-export function SidebarNav({ sectionLabel, items, sections, secondaryItems }: SidebarNavProps) {
+export function SidebarNav({
+  sectionLabel,
+  items,
+  sections,
+  secondaryItems,
+  secondaryLabel,
+}: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
@@ -91,10 +98,17 @@ export function SidebarNav({ sectionLabel, items, sections, secondaryItems }: Si
         </div>
       ))}
       {secondaryItems && secondaryItems.length > 0 ? (
-        <>
-          <hr className={styles.navDivider} />
-          <NavLinks items={secondaryItems} pathname={pathname} />
-        </>
+        secondaryLabel ? (
+          <div className={styles.navSubsection} role="group" aria-label={secondaryLabel}>
+            <p className={styles.navLabel}>{secondaryLabel}</p>
+            <NavLinks items={secondaryItems} pathname={pathname} />
+          </div>
+        ) : (
+          <>
+            <hr className={styles.navDivider} />
+            <NavLinks items={secondaryItems} pathname={pathname} />
+          </>
+        )
       ) : null}
     </nav>
   );
@@ -291,6 +305,16 @@ export function IconJourney() {
       <rect x="15" y="15" width="6" height="6" rx="1.5" />
       <path d="M9 6h4a3 3 0 013 3v6" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M13.5 12.5 16 15l2.5-2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconSocialPlanner() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4M8 3v4M3 10h18" strokeLinecap="round" />
+      <path d="M9 14.5h4.5a1.5 1.5 0 010 3H10l-1 1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
