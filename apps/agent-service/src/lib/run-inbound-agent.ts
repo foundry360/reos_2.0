@@ -460,6 +460,7 @@ export async function runInboundAgent(params: {
         tenantId,
         contactId: ctx.contactId,
         email: ctx.email,
+        phoneOnFile: hasSmsIdentity || Boolean(inboundPhone),
         leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,      },
     );
     reply = turn.reply;

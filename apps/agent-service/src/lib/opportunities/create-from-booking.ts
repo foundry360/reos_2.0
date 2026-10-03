@@ -455,7 +455,7 @@ export async function syncIntakeOpportunityStage(
           await logSystemContactActivity({
             tenantId: contact.tenant_id,
             contactId,
-            activityType: "appointment",
+            activityType: "opportunity",
             title: "Appointment booked",
             body: opportunityActivityBody(contactRow, amountCents),
             relatedEntityType: "opportunity",
@@ -573,7 +573,7 @@ export async function syncIntakeOpportunityStage(
       await logSystemContactActivity({
         tenantId: contact.tenant_id,
         contactId,
-        activityType: "appointment",
+        activityType: "opportunity",
         title: "Appointment booked",
         body: opportunityActivityBody(contactRow, amountCents),
         relatedEntityType: "opportunity",

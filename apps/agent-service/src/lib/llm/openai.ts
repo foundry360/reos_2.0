@@ -16,9 +16,11 @@ import { applyToolCalls } from "@/lib/apply-tools";
 import {
   bookReosConsultSlot,
   getAvailableReosConsultSlots,
+  loadTenantSchedule,
   resolveBookableStart,
   type SlotPreference,
 } from "@/lib/calendar/consult-appointments";
+import { formatSlotLabel } from "@/lib/calendar/consult-slots";
 
 const CRM_TOOLS: ChatCompletionTool[] = [
   {
@@ -241,6 +243,8 @@ export interface AgentTurnOptions {
   tenantId?: string;
   contactId?: string;
   email?: string;
+  /** False when we have no mobile for this lead; book_appointment then waits for one. */
+  phoneOnFile?: boolean;
   leadName?: string;
   /** Label of the first slot returned this turn; dates a bare "11am" booking. */
   lastOfferedLabel?: string;
@@ -274,6 +278,8 @@ async function executeOneTool(
   if (name === "update_contact") {
     const survivor = await applyToolCalls(options.contactId, [{ name, args }]);
     if (survivor) options.contactId = survivor;
+    if (typeof args.email === "string" && args.email.trim()) options.email = args.email.trim();
+    if (typeof args.phone === "string" && args.phone.trim()) options.phoneOnFile = true;
     return { ok: true, saved: true };
   }
 
@@ -330,9 +336,23 @@ async function executeOneTool(
     const start = resolved.start.toISOString();
     const end = resolved.end.toISOString();
     const attendeeEmail =
-      (typeof args.attendee_email === "string" && args.attendee_email) ||
+      (typeof args.attendee_email === "string" && args.attendee_email.trim()) ||
       options.email ||
       null;
+    const missing = [
+      attendeeEmail ? null : "email",
+      options.phoneOnFile === false ? "mobile" : null,
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      const timeZone = (await loadTenantSchedule(options.tenantId)).timeZone;
+      const label = formatSlotLabel(start, timeZone);
+      return {
+        ok: false,
+        needsContactInfo: missing,
+        requestedLabel: label,
+        error: `NOT BOOKED YET. ${label} is open, but we need their ${missing.join(" and ")} first so we can send the confirmation. Ask for it in one short message that names the time (e.g. "Great, ${label} is open. What's the best ${missing.join(" and ")} to send the confirmation to?"). Do not say it is booked. When they reply, call book_appointment for ${label}.`,
+      };
+    }
     const title = typeof args.title === "string" ? args.title.trim() : "";
     const booked = await bookReosConsultSlot({
       tenantId: options.tenantId,
