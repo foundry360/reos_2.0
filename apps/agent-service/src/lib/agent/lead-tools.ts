@@ -1,8 +1,9 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { checkRequestedStart, findOpenSlots, type AppointmentKind } from "@/lib/calendar/calendar-core";
 import { formatSlotLabel, zonedParts, type SlotPreference } from "@/lib/calendar/consult-slots";
-import type { AgentBackend, ToolEvent } from "@/lib/agent/backend";
+import type { AgentBackend, ToolEvent, UpcomingAppointment } from "@/lib/agent/backend";
 import { unsupportedFields } from "@/lib/agent/crm-evidence";
+import { isValidEmailAddress } from "@/lib/email/email-utils";
 
 const CONTACT_FIELDS = {
   first_name: { type: "string" },
@@ -81,8 +82,35 @@ export const LEAD_TOOLS: ChatCompletionTool[] = [
             description: 'Exact start from find_open_times / LAST TIMES YOU OFFERED / HELD TIME, or "YYYY-MM-DD HH:MM" local',
           },
           title: { type: "string", description: '"Showing - <address>" for a showing; omit for a consult' },
+          additional: {
+            type: "boolean",
+            description: "True only if they already have an appointment and clearly want another one, not a move",
+          },
         },
         required: ["kind", "start"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reschedule_appointment",
+      description:
+        "Move the lead's existing appointment to a new time. Updates the same calendar event and emails the updated invite; the old time is freed. Use this (not book_appointment) when someone with an appointment wants a different time.",
+      parameters: {
+        type: "object",
+        properties: {
+          start: {
+            type: "string",
+            description: 'New start from find_open_times / LAST TIMES YOU OFFERED, or "YYYY-MM-DD HH:MM" local',
+          },
+          current_start: {
+            type: "string",
+            description: "Start of the appointment to move, from UPCOMING APPOINTMENTS. Required if they have more than one.",
+          },
+        },
+        required: ["start"],
         additionalProperties: false,
       },
     },
@@ -97,6 +125,8 @@ export interface LeadTurnState {
   leadName?: string;
   events: ToolEvent[];
   booked: { label: string; start: string } | null;
+  /** The lead's appointments from now on; reschedule_appointment moves one of these. */
+  upcoming: UpcomingAppointment[];
   /** The lead said "yes" to several offered times without picking one. */
   ambiguousPick?: boolean;
   /** The lead's message names or points at a specific time, or a time is held for their contact info. */
@@ -161,27 +191,40 @@ async function findOpenTimes(state: LeadTurnState, args: Record<string, unknown>
   };
 }
 
-async function bookAppointment(state: LeadTurnState, args: Record<string, unknown>) {
-  const { backend } = state;
-  if (state.booked) {
-    return { ok: true, ...state.booked, note: "Already booked this turn. Do not book again." };
-  }
+function pickProblem(state: LeadTurnState, verb: "BOOKED" | "MOVED"): { ok: false; error: string } | null {
   if (state.ambiguousPick) {
     return {
       ok: false,
-      error:
-        "NOT BOOKED. You offered several times and the lead only said yes without picking one. Ask which time they want; don't book until they choose.",
+      error: `NOT ${verb}. You offered several times and the lead only said yes without picking one. Ask which time they want; don't act until they choose.`,
     };
   }
   if (state.leadPickedTime === false) {
     return {
       ok: false,
-      error:
-        "NOT BOOKED. The lead gave a day or range, not a specific time. Call find_open_times and offer 2-4 times with the day named; book once they pick one.",
+      error: `NOT ${verb}. The lead gave a day or range, not a specific time. Call find_open_times and offer 2-4 times with the day named; act once they pick one.`,
     };
   }
+  return null;
+}
+
+const kindOf = (title: string | null): AppointmentKind => (/showing/i.test(title ?? "") ? "showing" : "consult");
+
+async function bookAppointment(state: LeadTurnState, args: Record<string, unknown>) {
+  const { backend } = state;
+  if (state.booked) {
+    return { ok: true, ...state.booked, note: "Already booked this turn. Do not book again." };
+  }
+  const notPicked = pickProblem(state, "BOOKED");
+  if (notPicked) return notPicked;
   const schedule = await backend.schedule();
   const kind: AppointmentKind = args.kind === "showing" ? "showing" : "consult";
+  const sameKind = state.upcoming.find((a) => kindOf(a.title) === kind);
+  if (sameKind && args.additional !== true) {
+    return {
+      ok: false,
+      error: `NOT BOOKED. They already have ${formatSlotLabel(sameKind.start, schedule.timeZone)} (start ${localStart(sameKind.start, schedule.timeZone)}). If they want to change it, call reschedule_appointment. Only if they clearly want a second appointment, call book_appointment again with additional: true.`,
+    };
+  }
   const requested = typeof args.start === "string" ? args.start : "";
   const checked = checkRequestedStart({
     schedule,
@@ -196,16 +239,18 @@ async function bookAppointment(state: LeadTurnState, args: Record<string, unknow
 
   const start = localStart(checked.start.toISOString(), schedule.timeZone);
   const label = formatSlotLabel(checked.start.toISOString(), schedule.timeZone);
-  const missing = [state.email ? null : "email", state.phoneOnFile ? null : "mobile"].filter(
-    (v): v is string => Boolean(v),
-  );
+  const emailInvalid = Boolean(state.email) && !isValidEmailAddress(state.email!);
+  const missing = [
+    state.email && !emailInvalid ? null : "email",
+    state.phoneOnFile ? null : "mobile",
+  ].filter((v): v is string => Boolean(v));
   if (missing.length > 0) {
     return {
       ok: false,
       needsContactInfo: missing,
       requestedLabel: label,
       start,
-      error: `NOT BOOKED YET. ${label} is open and held. In one short message, name this time and ask for their ${missing.join(" and ")} to send the confirmation. When they reply, book this exact start.`,
+      error: `NOT BOOKED YET. ${label} is open and held. In one short message, name this time and ask for their ${missing.join(" and ")} to send the confirmation.${emailInvalid ? ` The email on file ("${state.email}") isn't a valid address, so ask them to confirm it.` : ""} When they reply, book this exact start.`,
     };
   }
 
@@ -238,9 +283,93 @@ async function bookAppointment(state: LeadTurnState, args: Record<string, unknow
     ok: true,
     label: booked.label,
     start: state.booked.start,
-    inviteSent: booked.inviteSent,
+    leadInviteSent: booked.leadInviteSent,
     attendeeEmail: booked.attendeeEmail,
-    confirmation: booked.confirmation,
+    ...(booked.leadInviteSent
+      ? { confirmation: `Booked ${booked.label}. A calendar invite was emailed to the lead at ${booked.attendeeEmail}.` }
+      : {
+          confirmation: `Booked ${booked.label}, but the lead did NOT receive a calendar invite.`,
+          note: "Confirm the time, don't say an invite was sent, and ask them to double-check their email address so we can send it.",
+        }),
+  };
+}
+
+async function rescheduleAppointment(state: LeadTurnState, args: Record<string, unknown>) {
+  const { backend } = state;
+  if (state.booked) {
+    return { ok: true, ...state.booked, note: "Already moved this turn. Do not move again." };
+  }
+  if (state.upcoming.length === 0) {
+    return { ok: false, error: "They have no upcoming appointment to move. Use book_appointment for a new one." };
+  }
+  const schedule = await backend.schedule();
+  const current = typeof args.current_start === "string" ? args.current_start.trim() : "";
+  const appt = current
+    ? state.upcoming.find((a) => localStart(a.start, schedule.timeZone) === current)
+    : state.upcoming.length === 1
+      ? state.upcoming[0]
+      : null;
+  if (!appt) {
+    return {
+      ok: false,
+      error: `Say which appointment to move with current_start, one of: ${state.upcoming
+        .map((a) => localStart(a.start, schedule.timeZone))
+        .join(", ")}.`,
+    };
+  }
+  const notPicked = pickProblem(state, "MOVED");
+  if (notPicked) return notPicked;
+
+  const oldStart = Date.parse(appt.start);
+  const oldEnd = Date.parse(appt.end);
+  const checked = checkRequestedStart({
+    schedule,
+    busy: (await backend.busy()).filter((b) => !(b.start === oldStart && b.end === oldEnd)),
+    now: backend.now(),
+    kind: kindOf(appt.title),
+    start: typeof args.start === "string" ? args.start : "",
+  });
+  if (!checked.ok) {
+    return { ok: false, error: checked.error, openTimes: checked.openTimes.map(slotViewer(schedule.timeZone)) };
+  }
+  if (checked.start.getTime() === oldStart) {
+    return { ok: false, error: "That is already their appointment time. Nothing to move." };
+  }
+
+  const moved = await backend.reschedule({
+    appointmentId: appt.id,
+    start: checked.start,
+    end: checked.end,
+    attendeeEmail: state.email && isValidEmailAddress(state.email) ? state.email : null,
+    leadName: state.leadName ?? null,
+  });
+  if (!moved.ok) {
+    console.error("lead agent reschedule_appointment failed:", moved.error);
+    return /no longer available/i.test(moved.error)
+      ? moved
+      : {
+          ok: false,
+          error: `${moved.error} This is a system problem, not availability. Apologize briefly and say the team will confirm the new time.`,
+        };
+  }
+  const previousLabel = formatSlotLabel(appt.start, schedule.timeZone);
+  appt.start = moved.start;
+  appt.end = moved.end;
+  state.booked = { label: moved.label, start: localStart(moved.start, schedule.timeZone) };
+  return {
+    ok: true,
+    label: moved.label,
+    start: state.booked.start,
+    previousLabel,
+    leadInviteSent: moved.leadInviteSent,
+    ...(moved.leadInviteSent
+      ? {
+          confirmation: `Moved from ${previousLabel} to ${moved.label}. The updated invite was emailed to ${moved.attendeeEmail}; their calendar event moves to the new time.`,
+        }
+      : {
+          confirmation: `Moved from ${previousLabel} to ${moved.label}, but the lead did NOT receive an updated invite.`,
+          note: "Confirm the new time, don't say an invite was sent, and ask them to double-check their email address.",
+        }),
   };
 }
 
@@ -250,6 +379,11 @@ async function updateContact(state: LeadTurnState, args: Record<string, unknown>
   if (clean.lead_status === "Converted") delete clean.lead_status;
   const notSaved = unsupportedFields(clean, state.leadText);
   for (const field of notSaved) delete clean[field];
+  let badEmail: string | null = null;
+  if (typeof clean.email === "string" && !isValidEmailAddress(clean.email)) {
+    badEmail = clean.email;
+    delete clean.email;
+  }
   if (Object.keys(clean).length > 0) {
     state.contactId =
       (await state.backend.applyToolCalls(state.contactId, [{ name: "update_contact", args: clean }])) ??
@@ -257,12 +391,19 @@ async function updateContact(state: LeadTurnState, args: Record<string, unknown>
   }
   if (typeof clean.email === "string" && clean.email.includes("@")) state.email = clean.email.trim().toLowerCase();
   if (typeof clean.phone === "string" && clean.phone.replace(/\D/g, "").length >= 10) state.phoneOnFile = true;
+  const notes: string[] = [];
+  if (badEmail) {
+    notes.push(
+      `Email not saved: "${badEmail}" isn't a valid address (spaces or typo). Don't guess the fix; ask them to confirm their email.`,
+    );
+  }
   if (notSaved.length > 0) {
-    return {
-      ok: true,
-      notSaved,
-      note: `Not saved: ${notSaved.join(", ")}. The lead hasn't said this. Only save what the lead told you; never assume, and never copy listing details (price, city, type) into their fields. Ask if it matters.`,
-    };
+    notes.push(
+      `Not saved: ${notSaved.join(", ")}. The lead hasn't said this. Only save what the lead told you; never assume, and never copy listing details (price, city, type) into their fields. Ask if it matters.`,
+    );
+  }
+  if (notes.length > 0) {
+    return { ok: true, notSaved: [...notSaved, ...(badEmail ? ["email"] : [])], note: notes.join(" ") };
   }
   return { ok: true };
 }
@@ -276,6 +417,7 @@ export async function runLeadTool(
   try {
     if (name === "find_open_times") result = await findOpenTimes(state, args);
     else if (name === "book_appointment") result = await bookAppointment(state, args);
+    else if (name === "reschedule_appointment") result = await rescheduleAppointment(state, args);
     else if (name === "update_contact") result = await updateContact(state, args);
     else result = { ok: false, error: `Unknown tool: ${name}` };
   } catch (error) {

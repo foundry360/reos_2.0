@@ -845,9 +845,6 @@ export function PersonDetailView({
                     description="AI will summarize this record once enough activity exists."
                   />
                 )}
-                <button type="button" className={styles.personAiAskBtn} disabled>
-                  Ask A Question
-                </button>
               </div>
             )}
           </section>

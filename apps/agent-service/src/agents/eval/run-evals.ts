@@ -208,6 +208,7 @@ async function runScenario(
       hadAppointment: backend.bookings.length > 0 || upcoming.length > 0,
       contactInfoOnFile: Boolean(backend.contact.email?.trim()) && backend.phoneOnFile,
       bookingCount: backend.bookings.length,
+      rescheduleCount: backend.reschedules.length,
     };
     backend.startTurn();
     const turnsBefore = backend.turns.length;
@@ -228,6 +229,8 @@ async function runScenario(
     }
     const newBookings = backend.bookings.slice(before.bookingCount);
     const bookedLocal = newBookings.map((b) => localKey(new Date(b.start), timeZone));
+    const newMoves = backend.reschedules.slice(before.rescheduleCount);
+    const rescheduledLocal = newMoves.map((m) => localKey(new Date(m.to), timeZone));
     // Times a tool returned this turn are calendar-backed even if the reply mentions them later.
     const toolEvents = backend.turns.slice(turnsBefore).flatMap((t) => t.toolEvents);
     const toolTimes = toolEvents.flatMap((e) => extractClockTimes(JSON.stringify(e.result)));
@@ -237,6 +240,7 @@ async function runScenario(
       calendarReads: backend.turnStats.calendarReads,
       bookingsMade: newBookings.length,
       bookedLocal,
+      rescheduledLocal,
       contactEmail: backend.contact.email,
       contactFields: { ...backend.contact } as Record<string, unknown>,
       optedOut: backend.contact.optedOut,
@@ -251,6 +255,7 @@ async function runScenario(
     for (const t of toolTimes) knownTimes.add(t);
     if (obs.calendarReads > 0) for (const t of extractClockTimes(reply)) knownTimes.add(t);
     for (const b of newBookings) knownTimes.add(localMinutes(new Date(b.start), timeZone));
+    for (const m of newMoves) knownTimes.add(localMinutes(new Date(m.to), timeZone));
     turns.push({
       user: turn.user,
       reply,

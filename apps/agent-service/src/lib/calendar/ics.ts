@@ -15,6 +15,8 @@ export interface BuildIcsInviteParams {
   organizer: IcsAttendee;
   attendees: IcsAttendee[];
   timeZone?: string | null;
+  /** Bump on each change so calendar apps update the existing event (same uid) instead of adding one. */
+  sequence?: number;
 }
 
 function pad(n: number): string {
@@ -88,6 +90,6 @@ export function buildIcsInvite(params: BuildIcsInviteParams): string {
   for (const attendee of params.attendees) {
     lines.push(attendeeLine("ATTENDEE", attendee));
   }
-  lines.push("STATUS:CONFIRMED", "SEQUENCE:0", "END:VEVENT", "END:VCALENDAR");
+  lines.push("STATUS:CONFIRMED", `SEQUENCE:${params.sequence ?? 0}`, "END:VEVENT", "END:VCALENDAR");
   return `${lines.map(foldLine).join("\r\n")}\r\n`;
 }

@@ -37,14 +37,26 @@ export function claimsBooked(text: string): boolean {
   return BOOKED_CLAIM.test(text);
 }
 
+const MOVED_CLAIM =
+  /\b(i['’]?ve|i have|we['’]?ve|it['’]?s|it is|that['’]?s|has been|have been|is now|all)\s+(been\s+)?(moved|rescheduled|switched)\b|\b(moved|rescheduled|switched) (you|your|it|that|the appointment)\b|\bnew time is (set|confirmed|locked)\b/i;
+
+/** Text says an appointment was moved ("I've moved you to Sunday at 2", "It's rescheduled"). */
+export function claimsMoved(text: string): boolean {
+  return MOVED_CLAIM.test(text);
+}
+
 /** Hard rules checked in code after each draft. Returns plain-language problems for the retry. */
 export function replyViolations(input: {
   reply: string;
   allowedTimes: Set<number>;
   bookedThisTurn: boolean;
+  /** reschedule_appointment succeeded this turn. */
+  movedThisTurn?: boolean;
   hasAppointment: boolean;
   contactInfoOnFile: boolean;
   firstReply?: boolean;
+  /** A booking succeeded this turn but the lead's calendar invite was not sent. */
+  leadInviteMissing?: boolean;
 }): string[] {
   const problems: string[] = [];
   if (!input.reply.trim()) problems.push("The reply is empty. Write a reply to the lead.");
@@ -63,6 +75,16 @@ export function replyViolations(input: {
   if (claimsBooked(input.reply) && !input.bookedThisTurn && !input.hasAppointment) {
     problems.push(
       "It says or implies the appointment is booked, but book_appointment did not succeed. Either call book_appointment now, or don't claim it is booked.",
+    );
+  }
+  if (input.hasAppointment && !input.movedThisTurn && claimsMoved(input.reply)) {
+    problems.push(
+      "It says the appointment was moved, but reschedule_appointment did not succeed. Call reschedule_appointment with the time they picked, or don't claim it moved.",
+    );
+  }
+  if (input.leadInviteMissing && /\b(invite|invitation)\b[^.?!]*\b(sent|emailed|on its way|inbox)\b|\bemailed (you|it)\b/i.test(input.reply)) {
+    problems.push(
+      "It says a calendar invite was sent, but the lead did NOT receive one. Confirm the time and ask them to double-check their email address.",
     );
   }
   if (input.contactInfoOnFile && asksContactInfo(input.reply)) {

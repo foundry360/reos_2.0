@@ -11,6 +11,8 @@ export type BookResult =
       end: string;
       label: string;
       inviteSent: boolean;
+      /** The lead (not just the agent) received the calendar invite. */
+      leadInviteSent: boolean;
       attendeeEmail: string | null;
       confirmation: string;
     }
@@ -25,6 +27,7 @@ export interface StoredMessage {
 }
 
 export interface UpcomingAppointment {
+  id: string;
   start: string;
   end: string;
   title: string | null;
@@ -54,6 +57,14 @@ export interface AgentBackend {
     start: Date;
     end: Date;
     title: string | null;
+    attendeeEmail: string | null;
+    leadName: string | null;
+  }): Promise<BookResult>;
+  /** Move an existing appointment to a new time in place and re-send its invite. */
+  reschedule(params: {
+    appointmentId: string;
+    start: Date;
+    end: Date;
     attendeeEmail: string | null;
     leadName: string | null;
   }): Promise<BookResult>;

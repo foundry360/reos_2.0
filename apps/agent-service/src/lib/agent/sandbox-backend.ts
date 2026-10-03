@@ -46,6 +46,7 @@ const FIELD_MAP: Record<string, keyof ContactContext> = {
 /** In-memory calendar + CRM for agent evals. Never touches the database. */
 export class SandboxBackend implements AgentBackend {
   readonly bookings: SandboxBooking[] = [];
+  readonly reschedules: Array<{ from: string; to: string }> = [];
   readonly messages: Array<StoredMessage & { direction: "inbound" | "outbound"; playbook?: string }> = [];
   readonly turns: Array<RecordedTurn & { createdAt: string }> = [];
   phoneOnFile: boolean;
@@ -60,13 +61,13 @@ export class SandboxBackend implements AgentBackend {
       now: Date;
       schedule: Schedule;
       busy?: BusyInterval[];
-      upcoming?: UpcomingAppointment[];
+      upcoming?: Array<Omit<UpcomingAppointment, "id">>;
       phoneOnFile?: boolean;
       property?: PostContext | null;
     },
   ) {
     this.busyTimes = [...(options.busy ?? [])];
-    this.upcoming = [...(options.upcoming ?? [])];
+    this.upcoming = (options.upcoming ?? []).map((a, i) => ({ ...a, id: `sandbox-existing-${i + 1}` }));
     this.phoneOnFile = options.phoneOnFile ?? false;
     this.clock = options.now;
     for (const appt of this.upcoming) {
@@ -128,7 +129,12 @@ export class SandboxBackend implements AgentBackend {
       attendeeEmail: params.attendeeEmail,
     };
     this.bookings.push(booking);
-    this.upcoming.push({ start: booking.start, end: booking.end, title: booking.title });
+    this.upcoming.push({
+      id: `sandbox-${this.bookings.length}`,
+      start: booking.start,
+      end: booking.end,
+      title: booking.title,
+    });
     this.contact.apptBooked = true;
     this.contact.readyToBook = false;
     this.contact.leadStatus = "Converted";
@@ -141,10 +147,46 @@ export class SandboxBackend implements AgentBackend {
       end: booking.end,
       label,
       inviteSent: Boolean(params.attendeeEmail),
+      leadInviteSent: Boolean(params.attendeeEmail && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(params.attendeeEmail)),
       attendeeEmail: params.attendeeEmail,
       confirmation: params.attendeeEmail
         ? `Booked ${label} on the REOS calendar. A calendar invite was emailed to the lead.`
         : `Booked ${label} on the REOS calendar.`,
+    };
+  }
+
+  async reschedule(params: Parameters<AgentBackend["reschedule"]>[0]) {
+    this.turnStats.bookAttempts += 1;
+    const appt = this.upcoming.find((a) => a.id === params.appointmentId);
+    if (!appt) return { ok: false as const, error: "Appointment was not found." };
+    const oldStart = Date.parse(appt.start);
+    const oldEnd = Date.parse(appt.end);
+    const start = params.start.getTime();
+    const end = params.end.getTime();
+    const others = this.busyTimes.filter((b) => !(b.start === oldStart && b.end === oldEnd));
+    if (others.some((b) => start < b.end && end > b.start)) {
+      return { ok: false as const, error: "That time is no longer available." };
+    }
+    const idx = this.busyTimes.findIndex((b) => b.start === oldStart && b.end === oldEnd);
+    if (idx >= 0) this.busyTimes.splice(idx, 1);
+    this.busyTimes.push({ start, end });
+    this.reschedules.push({ from: appt.start, to: params.start.toISOString() });
+    appt.start = params.start.toISOString();
+    appt.end = params.end.toISOString();
+    const label = formatSlotLabel(appt.start, this.options.schedule.timeZone);
+    const email = params.attendeeEmail ?? this.contact.email ?? null;
+    const leadInviteSent = Boolean(email && /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email));
+    return {
+      ok: true as const,
+      appointmentId: appt.id,
+      contactId: this.contact.contactId ?? "sandbox-contact",
+      start: appt.start,
+      end: appt.end,
+      label,
+      inviteSent: leadInviteSent,
+      leadInviteSent,
+      attendeeEmail: email,
+      confirmation: `Moved to ${label}.`,
     };
   }
 

@@ -2,6 +2,7 @@
 import {
   asksContactInfo,
   claimsBooked,
+  claimsMoved,
   extractClockTimes,
   formatMinutes,
 } from "@/lib/agent/reply-checks";
@@ -10,6 +11,8 @@ export { asksContactInfo, claimsBooked, extractClockTimes, formatMinutes };
 
 export interface TurnExpect {
   book?: string;
+  /** Existing appointment moved to this local "YYYY-MM-DD HH:MM" (in place, no new booking). */
+  reschedule?: string;
   noBooking?: boolean;
   checksCalendar?: boolean;
   asksContactInfo?: boolean;
@@ -30,6 +33,8 @@ export interface TurnObservation {
   bookingsMade: number;
   /** Local "YYYY-MM-DD HH:MM" of bookings made this turn. */
   bookedLocal: string[];
+  /** Local "YYYY-MM-DD HH:MM" an existing appointment was moved to this turn. */
+  rescheduledLocal: string[];
   contactEmail?: string;
   contactFields: Record<string, unknown>;
   optedOut: boolean;
@@ -60,6 +65,9 @@ export function invariantFailures(obs: TurnObservation, expect: TurnExpect): str
   if (claimsBooked(obs.reply) && obs.bookingsMade === 0 && !obs.hadAppointmentBefore) {
     failures.push("claims booked but nothing was booked");
   }
+  if (claimsMoved(obs.reply) && obs.hadAppointmentBefore && obs.rescheduledLocal.length === 0) {
+    failures.push("claims the appointment moved but nothing was rescheduled");
+  }
   if (obs.apptBookedFlag && obs.totalBookings === 0 && !obs.hadAppointmentBefore) {
     failures.push("appt_booked set without a booking");
   }
@@ -77,6 +85,16 @@ export function expectationFailures(obs: TurnObservation, expect: TurnExpect): s
         ? `booked ${obs.bookedLocal.join(", ")} instead of ${expect.book}`
         : `did not book ${expect.book}`,
     );
+  }
+  if (expect.reschedule) {
+    if (!obs.rescheduledLocal.includes(expect.reschedule)) {
+      failures.push(
+        obs.rescheduledLocal.length > 0
+          ? `moved to ${obs.rescheduledLocal.join(", ")} instead of ${expect.reschedule}`
+          : `did not move the appointment to ${expect.reschedule}`,
+      );
+    }
+    if (obs.bookingsMade > 0) failures.push(`booked a new appointment (${obs.bookedLocal.join(", ")}) instead of moving`);
   }
   if (expect.noBooking && obs.bookingsMade > 0) {
     failures.push(`booked ${obs.bookedLocal.join(", ")} but should not have`);

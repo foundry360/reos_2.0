@@ -43,7 +43,10 @@ export function leadAgentModel(): string {
 
 function extractEmail(text: string): string | null {
   const match = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i);
-  return match ? match[0].toLowerCase() : null;
+  if (!match || match.index == null) return null;
+  // "J gelsomino@x.com" is a split address; saving the tail would be a guess, so let the agent confirm it.
+  if (/(^|\s)[A-Z]\s$/i.test(text.slice(0, match.index))) return null;
+  return match[0].toLowerCase();
 }
 
 function extractPhone(text: string): string | null {
@@ -240,7 +243,7 @@ export async function runLeadAgent(params: {
   const userMessage = typeof lastUser?.content === "string" ? lastUser.content : body;
 
   const { offered, held } = readConversationState(turns);
-  const firstReply = !messages.some((m) => m.role === "assistant");
+  const firstReply = !messages.some((m) => m.role === "assistant") && upcoming.length === 0;
   // An opening "I'm interested" gets a greeting and a question, not a list of appointment times.
   const calendarAllowed =
     !firstReply || wantsToSchedule(body) || looksLikeSchedulingMessage(body) || mightBeScheduling(body);
@@ -271,6 +274,7 @@ export async function runLeadAgent(params: {
     leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,
     events: [],
     booked: null,
+    upcoming: upcoming.map((a) => ({ ...a })),
     ambiguousPick: isAmbiguousPick(
       userMessage,
       [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "",
@@ -296,9 +300,18 @@ export async function runLeadAgent(params: {
       timeZone: schedule.timeZone,
     }),
     bookedThisTurn: Boolean(state.booked),
+    movedThisTurn: state.events.some(
+      (e) => e.name === "reschedule_appointment" && (e.result as { ok?: boolean } | null)?.ok === true,
+    ),
     hasAppointment: upcoming.length > 0,
     contactInfoOnFile: Boolean(state.email) && state.phoneOnFile,
     firstReply,
+    leadInviteMissing: state.events.some(
+      (e) =>
+        (e.name === "book_appointment" || e.name === "reschedule_appointment") &&
+        (e.result as { ok?: boolean; leadInviteSent?: boolean } | null)?.ok === true &&
+        (e.result as { leadInviteSent?: boolean }).leadInviteSent === false,
+    ),
   });
 
   let reply = "";

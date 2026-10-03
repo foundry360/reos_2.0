@@ -19,6 +19,29 @@ test("a day or range is not a picked time; a time, position, or yes is", () => {
   assert.equal(pointsAtTime("Sunday afternoon"), false);
 });
 
+test("no 'moved' claim unless reschedule_appointment succeeded", () => {
+  const booked = { ...base, hasAppointment: true, allowedTimes: new Set([14 * 60]) };
+  const claim = "Done, I've moved you to Sunday, Oct 4 at 2:00 PM.";
+  assert.equal(replyViolations({ ...booked, reply: claim }).length, 1);
+  assert.deepEqual(replyViolations({ ...booked, movedThisTurn: true, bookedThisTurn: true, reply: claim }), []);
+  assert.deepEqual(
+    replyViolations({ ...booked, reply: "Sure, I can move it. I have Sunday, Oct 4 at 2:00 PM. Does that work?" }),
+    [],
+  );
+});
+
+test("no invite claim when the lead's invite wasn't sent", () => {
+  const booked = { ...base, bookedThisTurn: true, leadInviteMissing: true };
+  assert.equal(
+    replyViolations({ ...booked, reply: "You're booked for Monday at 10:00 AM. The calendar invite has been emailed to you." }).length,
+    1,
+  );
+  assert.deepEqual(
+    replyViolations({ ...booked, reply: "You're booked for Monday at 10:00 AM. Can you double-check your email so I can send the invite?" }),
+    [],
+  );
+});
+
 test("first reply must open with a greeting", () => {
   assert.equal(replyViolations({ ...base, firstReply: true, reply: "You can tour it Saturday." }).length, 1);
   assert.deepEqual(replyViolations({ ...base, firstReply: true, reply: "Hi Sam! Thanks for reaching out." }), []);

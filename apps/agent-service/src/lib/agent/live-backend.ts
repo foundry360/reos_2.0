@@ -4,6 +4,7 @@ import {
   loadContactUpcomingAppointments,
   loadReosBusyIntervals,
   loadTenantSchedule,
+  rescheduleReosAppointment,
 } from "@/lib/calendar/consult-appointments";
 import { lookaheadEnd } from "@/lib/calendar/calendar-core";
 import { normalizeWorkingHours } from "@/lib/calendar/working-hours";
@@ -41,6 +42,15 @@ export function liveBackend(tenantId: string): AgentBackend {
         attendeeEmail: params.attendeeEmail,
         leadName: params.leadName,
         summary: params.title,
+      }),
+    reschedule: (params) =>
+      rescheduleReosAppointment({
+        tenantId,
+        appointmentId: params.appointmentId,
+        start: params.start.toISOString(),
+        end: params.end.toISOString(),
+        attendeeEmail: params.attendeeEmail,
+        leadName: params.leadName,
       }),
     applyToolCalls: async (contactId, toolCalls) =>
       (await applyToolCalls(contactId, toolCalls)) ?? contactId,

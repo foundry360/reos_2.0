@@ -90,7 +90,38 @@
         },
         {
           "user": "2pm Sunday works",
-          "expect": { "book": "2026-10-04 14:00" }
+          "expect": { "reschedule": "2026-10-04 14:00", "replyMatches": "sun" }
+        }
+      ]
+    },
+    {
+      "id": "reschedule-direct-time",
+      "about": "Booked lead names a new open time in one message: move it in place, no second appointment",
+      "contact": { "email": "sam@example.com", "apptBooked": true, "leadStatus": "Converted" },
+      "phoneOnFile": true,
+      "upcoming": [["2026-10-03 10:00", "2026-10-03 10:30", "Consult - Sam Rivera"]],
+      "turns": [
+        {
+          "user": "Can we push my consult to Monday at 2pm instead?",
+          "expect": { "reschedule": "2026-10-05 14:00", "replyMatches": "mon", "noContactAsk": true }
+        }
+      ]
+    },
+    {
+      "id": "broken-email-with-pick",
+      "about": "Lead picks a time and types an email with a space in it: don't save or guess it, ask them to confirm",
+      "channel": "instagram",
+      "contact": { "email": null },
+      "offered": { "kind": "consult", "slots": ["2026-10-05 14:00", "2026-10-05 15:00"], "text": "I have Monday, Oct 5 at 2:00 PM or 3:00 PM. Which works?" },
+      "turns": [
+        {
+          "user": "2pm works. My email is J gelsomino@igovernai.com and phone 904-210-3388",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "email",
+            "replyNotMatches": "invite (has been|was) (sent|emailed)",
+            "unsetFields": ["email"]
+          }
         }
       ]
     },

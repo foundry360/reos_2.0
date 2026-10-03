@@ -55,8 +55,11 @@ export function buildEmailSnippet(bodyHtml: string, maxLen = 160): string {
   return `${text.slice(0, maxLen - 1).trim()}…`;
 }
 
+const WHOLE_EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/;
+
+/** The whole value is one address; "J gelsomino@x.com" is not valid just because it contains one. */
 export function isValidEmailAddress(value: string): boolean {
-  return EMAIL_RE.test(value.trim().toLowerCase());
+  return WHOLE_EMAIL_RE.test(value.trim().toLowerCase());
 }
 
 /** Prefer an optional profile override; otherwise the login email. */

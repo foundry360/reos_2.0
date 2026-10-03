@@ -465,6 +465,7 @@ export async function updateContactFields(
 }
 
 type SummarySource = {
+  first_name?: string | null;
   intent?: string | null;
   target_location?: string | null;
   property_type?: string | null;
@@ -476,24 +477,106 @@ type SummarySource = {
   preferences?: string | null;
 };
 
-/** Pipe-label summary matching Concierge CRM style. */
+const INTENT_VERBS: Record<string, string> = {
+  buyer: "buy",
+  buy: "buy",
+  buying: "buy",
+  seller: "sell",
+  sell: "sell",
+  selling: "sell",
+  investor: "invest in",
+  invest: "invest in",
+  renter: "rent",
+  rent: "rent",
+  tenant: "rent",
+  "buyer & seller": "buy and sell",
+  "buyer and seller": "buy and sell",
+  both: "buy and sell",
+};
+
+const PROPERTY_NOUNS: Record<string, string> = {
+  "single family": "single-family home",
+  "single-family": "single-family home",
+  sfh: "single-family home",
+  condo: "condo",
+  townhouse: "townhouse",
+  townhome: "townhome",
+  "multi family": "multi-family property",
+  "multi-family": "multi-family property",
+  land: "land",
+  lot: "lot",
+};
+
+const lowerFirst = (s: string) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
+const sentence = (s: string) => {
+  const t = s.trim().replace(/\s+/g, " ");
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+};
+
+function budgetPhrase(budget: string): string {
+  const b = lowerFirst(budget);
+  return /^(under|up to|below|less than|around|about|between|over|above|max)/i.test(b)
+    ? `with a budget ${b}`
+    : `with a budget of ${b}`;
+}
+
+function financingSentence(financing: string): string {
+  const f = financing.toLowerCase();
+  if (/\bcash\b/.test(f)) return "They plan to pay cash.";
+  if (/pre-?approved|pre-?qualified/.test(f)) return `They are ${f}.`;
+  if (/^not\b|^no\b/.test(f)) return `Financing: ${f}.`;
+  return `Financing: ${lowerFirst(financing)}.`;
+}
+
+/** Plain-language summary built from CRM fields (no model call). */
 export function buildAiSummaryFromFields(row: SummarySource): string | null {
-  const parts: string[] = [];
-  const push = (value?: string | null, prefix?: string) => {
-    const trimmed = value?.trim();
-    if (!trimmed) return;
-    parts.push(prefix ? `${prefix}${trimmed}` : trimmed);
-  };
-  push(row.intent);
-  push(row.property_type);
-  push(row.target_location);
-  push(row.budget, "Budget ");
-  push(row.timeline, "Timeline ");
-  push(row.financing_status);
-  push(row.must_haves, "Must-haves: ");
-  push(row.motivation, "Motivation: ");
-  push(row.preferences, "Preferences: ");
-  return parts.length > 0 ? parts.join(" | ") : null;
+  const v = (s?: string | null) => s?.trim() || "";
+  const name = v(row.first_name);
+  const intent = v(row.intent);
+  const type = v(row.property_type);
+  const location = v(row.target_location);
+  const budget = v(row.budget);
+
+  const sentences: string[] = [];
+
+  if (intent || type || location || budget) {
+    const verb = INTENT_VERBS[intent.toLowerCase()];
+    const noun = type ? PROPERTY_NOUNS[type.toLowerCase()] ?? type.toLowerCase() : "";
+    let lead: string;
+    const object = noun ? `a ${noun}` : verb?.startsWith("sell") ? "their home" : "a property";
+    if (verb) lead = `looking to ${verb} ${object}`;
+    else if (intent) lead = `a ${intent.toLowerCase()}${noun ? ` interested in a ${noun}` : ""}`;
+    else lead = `interested in ${noun ? `a ${noun}` : "a property"}`;
+    if (location) lead += ` in ${location}`;
+    if (budget) lead += ` ${budgetPhrase(budget)}`;
+    sentences.push(sentence(name ? `${name} is ${lead}` : lead[0].toUpperCase() + lead.slice(1)));
+  }
+
+  const timeline = v(row.timeline);
+  if (timeline) {
+    const t = lowerFirst(timeline).replace(/\b(Days?|Weeks?|Months?|Years?)\b/g, (m) => m.toLowerCase());
+    sentences.push(
+      /^(asap|immediately|now|right away)/i.test(t)
+        ? `They want to move ${t}.`
+        : /^\d/.test(t)
+          ? `Their timeline is ${t}.`
+          : `Timeline: ${t}.`,
+    );
+  }
+
+  const financing = v(row.financing_status);
+  if (financing) sentences.push(financingSentence(financing));
+
+  const mustHaves = v(row.must_haves);
+  if (mustHaves) sentences.push(sentence(`Must-haves: ${lowerFirst(mustHaves)}`));
+
+  const motivation = v(row.motivation);
+  if (motivation) sentences.push(sentence(`Motivation: ${lowerFirst(motivation)}`));
+
+  const preferences = v(row.preferences);
+  if (preferences) sentences.push(sentence(`Preferences: ${lowerFirst(preferences)}`));
+
+  return sentences.length > 0 ? sentences.join(" ") : null;
 }
 
 /**
@@ -510,7 +593,7 @@ export async function ensureAiSummary(
   const { data, error } = await db
     .from("contacts")
     .select(
-      "ai_summary, intent, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences",
+      "ai_summary, first_name, intent, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences",
     )
     .eq("id", contactId)
     .maybeSingle();

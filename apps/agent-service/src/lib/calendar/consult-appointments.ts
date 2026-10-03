@@ -164,12 +164,12 @@ export async function loadContactUpcomingAppointments(
   tenantId: string,
   contactId: string,
   now: Date,
-): Promise<Array<{ start: string; end: string; title: string | null }>> {
+): Promise<Array<{ id: string; start: string; end: string; title: string | null }>> {
   const db = getSupabaseAdmin();
   if (!db) return [];
   const { data, error } = await db
     .from("contact_activities")
-    .select("occurred_at, ends_at, title")
+    .select("id, occurred_at, ends_at, title")
     .eq("tenant_id", tenantId)
     .eq("contact_id", contactId)
     .in("activity_type", ["appointment", "meeting"])
@@ -181,6 +181,7 @@ export async function loadContactUpcomingAppointments(
     return [];
   }
   return (data ?? []).map((row) => ({
+    id: row.id,
     start: row.occurred_at,
     end:
       row.ends_at ??
@@ -246,6 +247,7 @@ export type BookReosConsultResult =
       end: string;
       label: string;
       inviteSent: boolean;
+      leadInviteSent: boolean;
       attendeeEmail: string | null;
       confirmation: string;
     }
@@ -450,7 +452,125 @@ export async function bookReosConsultSlot(params: {
     end: endIso,
     label,
     inviteSent: invite.inviteSent,
+    leadInviteSent: invite.leadSent,
     attendeeEmail: email,
     confirmation: confirmationParts.join(" "),
+  };
+}
+
+/**
+ * Move an existing appointment to a new time in place (same row, same invite uid),
+ * then re-send the invite with a higher SEQUENCE so calendars update the event.
+ */
+export async function rescheduleReosAppointment(params: {
+  tenantId: string;
+  appointmentId: string;
+  start: string;
+  end: string;
+  attendeeEmail?: string | null;
+  leadName?: string | null;
+}): Promise<BookReosConsultResult> {
+  const db = getSupabaseAdmin();
+  if (!db) return { ok: false, error: "Calendar service is unavailable." };
+
+  const { data: appt, error: loadError } = await db
+    .from("contact_activities")
+    .select("id, contact_id, activity_type, title, body, occurred_at, ends_at, metadata")
+    .eq("id", params.appointmentId)
+    .eq("tenant_id", params.tenantId)
+    .maybeSingle();
+  if (loadError || !appt) {
+    return { ok: false, error: loadError?.message ?? "Appointment was not found." };
+  }
+  if (appt.activity_type !== "appointment" && appt.activity_type !== "meeting") {
+    return { ok: false, error: "That record is not an appointment." };
+  }
+
+  const timeZone = await loadTenantTimezone(params.tenantId);
+  const start = new Date(params.start);
+  const end = new Date(params.end);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    return { ok: false, error: "Invalid time." };
+  }
+
+  const oldStart = new Date(appt.occurred_at).getTime();
+  const oldEnd = appt.ends_at
+    ? new Date(appt.ends_at).getTime()
+    : oldStart + APPOINTMENT_DEFAULT_MINUTES * 60 * 1000;
+  const now = new Date();
+  const busy = (await loadReosBusyIntervals(params.tenantId, now, lookaheadEnd(now))).filter(
+    (b) => !(b.start === oldStart && b.end === oldEnd),
+  );
+  if (overlapsBusy(start.getTime(), end.getTime(), busy)) {
+    return { ok: false, error: "That time is no longer available." };
+  }
+
+  const startIso = start.toISOString();
+  const endIso = end.toISOString();
+  const label = formatSlotLabel(startIso, timeZone);
+  const previousLabel = formatSlotLabel(new Date(oldStart).toISOString(), timeZone);
+  const prior =
+    appt.metadata && typeof appt.metadata === "object" && !Array.isArray(appt.metadata)
+      ? (appt.metadata as Record<string, unknown>)
+      : {};
+  const sequence = (typeof prior.invite_sequence === "number" ? prior.invite_sequence : 0) + 1;
+  const history = Array.isArray(prior.reschedules) ? prior.reschedules : [];
+
+  const { error: updateError } = await db
+    .from("contact_activities")
+    .update({
+      occurred_at: startIso,
+      ends_at: endIso,
+      body: [appt.body?.trim(), `Rescheduled from ${previousLabel} to ${label}.`].filter(Boolean).join("\n"),
+      metadata: {
+        ...prior,
+        invite_sequence: sequence,
+        reschedules: [...history, { from: appt.occurred_at, to: startIso, at: now.toISOString() }],
+      },
+    })
+    .eq("id", appt.id)
+    .eq("tenant_id", params.tenantId);
+  if (updateError) {
+    console.error("Reschedule update failed:", updateError.message);
+    return { ok: false, error: "Could not move the appointment." };
+  }
+
+  const contactId = appt.contact_id as string;
+  const { data: contact } = await db
+    .from("contacts")
+    .select("first_name, last_name, email")
+    .eq("id", contactId)
+    .maybeSingle();
+  const leadName =
+    params.leadName?.trim() ||
+    [contact?.first_name?.trim(), contact?.last_name?.trim()].filter(Boolean).join(" ") ||
+    null;
+  const email = params.attendeeEmail?.trim().toLowerCase() || contact?.email?.trim().toLowerCase() || null;
+  const title = appt.title?.trim() || `Consult${leadName ? ` - ${leadName}` : ""}`;
+
+  const invite = await sendAppointmentInvites({
+    tenantId: params.tenantId,
+    appointmentId: appt.id,
+    summary: title,
+    label,
+    start,
+    end,
+    lead: email && isValidEmailAddress(email) ? { email, name: leadName } : null,
+    agentUserId: await resolveAssignedAgentUserId({ tenantId: params.tenantId, contactId }),
+    update: { sequence, previousLabel },
+  });
+  if (invite.errors.length > 0) console.warn("Reschedule invite issues:", invite.errors.join("; "));
+
+  return {
+    ok: true,
+    appointmentId: appt.id,
+    contactId,
+    start: startIso,
+    end: endIso,
+    label,
+    inviteSent: invite.inviteSent,
+    leadInviteSent: invite.leadSent,
+    attendeeEmail: email,
+    confirmation: `Moved from ${previousLabel} to ${label}.`,
   };
 }

@@ -32,6 +32,8 @@ export interface SendAppointmentInvitesParams {
   agentUserId: string | null;
   /** Fallback reply-to / organizer when agent profile is unavailable. */
   organizerFallback?: AppointmentInvitePerson | null;
+  /** Set when an existing appointment moved: same uid, higher sequence, "moved" wording. */
+  update?: { sequence: number; previousLabel: string | null };
 }
 
 export interface SendAppointmentInvitesResult {
@@ -192,13 +194,19 @@ function inviteBodyHtml(params: {
   location?: string | null;
   conferenceUrl?: string | null;
   forAgent: boolean;
+  update?: { previousLabel: string | null };
 }): string {
   const greeting = params.recipientName?.trim()
     ? `Hi ${params.recipientName.trim().split(" ")[0]},`
     : "Hi,";
-  const roleLine = params.forAgent
-    ? "A consult was booked on your REOS calendar."
-    : "Your consult is confirmed.";
+  const from = params.update?.previousLabel ? ` from ${escapeHtml(params.update.previousLabel)}` : "";
+  const roleLine = params.update
+    ? params.forAgent
+      ? `A consult on your REOS calendar was rescheduled${from}. Your calendar will update to the new time.`
+      : `Your consult has been rescheduled${from}. Your calendar will update to the new time.`
+    : params.forAgent
+      ? "A consult was booked on your REOS calendar."
+      : "Your consult is confirmed.";
   const conference = params.conferenceUrl?.trim();
   const location = params.location?.trim();
   const locationIsConference = Boolean(
@@ -308,10 +316,14 @@ export async function sendAppointmentInvites(
     end: params.end,
     organizer,
     attendees,
+    sequence: params.update?.sequence ?? 0,
   });
 
   const filename = "invite.ics";
-  const subject = `Calendar invite: ${params.summary}`;
+  const subject = params.update
+    ? `Rescheduled: ${params.summary} (${params.label})`
+    : `Calendar invite: ${params.summary}`;
+  const update = params.update ? { previousLabel: params.update.previousLabel } : undefined;
 
   if (lead) {
     const sent = await sendOneInviteEmail({
@@ -325,6 +337,7 @@ export async function sendAppointmentInvites(
         location: physicalLocation,
         conferenceUrl,
         forAgent: false,
+        update,
       }),
       icsContent,
       filename,
@@ -345,6 +358,7 @@ export async function sendAppointmentInvites(
         location: physicalLocation,
         conferenceUrl: hostConferenceUrl,
         forAgent: true,
+        update,
       }),
       icsContent,
       filename,
