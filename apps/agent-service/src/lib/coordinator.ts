@@ -46,13 +46,13 @@ const SCHEDULING_HINT =
 
 /** Lead is asking to book / meet (not just chatting about mornings in general). */
 const WANTS_SCHEDULE =
-  /\b((let'?s|can we|could we|want to|wanna|need to|ready to)\s+(schedule|book|meet|set\s*up)|schedule\s+(a\s+)?(consult|call|meeting|appointment)|book\s+(a\s+)?(consult|call|meeting|appointment)|set\s*up\s+(a\s+)?(consult|call|meeting)|pick\s+a\s+time|find\s+a\s+time)\b/i;
+  /\b((let'?s|can (we|i)|could (we|i)|want to|wanna|need to|ready to|i'?d (like|love) to|would like to)\s+(schedule|book|meet|set\s*up|see|tour|view|visit|walk\s*through)|(schedule|book|set\s*up|arrange)\s+(a\s+)?(private\s+)?(consult|call|meeting|appointment|showing|tour|viewing|walk\s*through)|pick\s+a\s+time|find\s+a\s+time)\b/i;
 
 const SHORT_AFFIRM =
   /^(yes|yeah|yep|yup|sure|ok|okay|sounds good|that works|absolutely|please|perfect|great)([.!]|\s+please)?$/i;
 
 const SCHEDULE_PROMPT_HINT =
-  /\b(mornings or afternoons|morning or afternoon|works better|what day|which day|prefer|open times|available times|pull .* times|do mornings)\b/i;
+  /\b(mornings or afternoons|morning or afternoon|works better|what day|which day|what time|prefer|open times|available times|pull .* times|do mornings|when (are|would|will|can) you|when works|set up a (private )?(showing|tour|consult|call|meeting))\b/i;
 
 const BOOKING_CONFIRM_HINT =
   /\b(booked|you'?re all set|invite (was )?sent|confirmed for|on the calendar)\b/i;

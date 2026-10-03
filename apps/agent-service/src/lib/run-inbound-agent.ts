@@ -3,6 +3,7 @@ import {
   resolvePlaybook,
   looksLikeInfoQuestion,
   wantsToSchedule,
+  looksLikeSchedulingMessage,
   looksLikeScheduleAffirmation,
   lastOutboundWasSchedulingPrompt,
   looksLikeGratitude,
@@ -321,6 +322,9 @@ export async function runInboundAgent(params: {
     !ctx.apptBooked &&
     !looksLikeGratitude(body) &&
     (wantsToSchedule(body) ||
+      (looksLikeSchedulingMessage(body) &&
+        !looksLikeScheduleDecline(body) &&
+        lastOutboundWasSchedulingPrompt(lastAssistantText)) ||
       (looksLikeScheduleAffirmation(body) &&
         (ctx.readyToBook ||
           lastOutboundWasSchedulingPrompt(lastAssistantText))));
@@ -456,8 +460,7 @@ export async function runInboundAgent(params: {
         tenantId,
         contactId: ctx.contactId,
         email: ctx.email,
-        leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,
-      },
+        leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,      },
     );
     reply = turn.reply;
     toolCalls = turn.toolCalls;

@@ -84,8 +84,8 @@ export async function applyToolCalls(
 
   for (const call of toolCalls) {
     if (call.name === "book_appointment") {
-      fields.appt_booked = true;
-      fields.ready_to_book = false;
+      // appt_booked comes from bookReosConsultSlot (on success) or the success-gated
+      // update_contact in runInboundAgent — a failed attempt must not mark the lead booked.
       const bookedEmail = normalizeEmail(call.args.attendee_email);
       if (bookedEmail) fields.email = bookedEmail;
       continue;

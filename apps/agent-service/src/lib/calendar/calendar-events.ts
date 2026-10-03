@@ -2,8 +2,6 @@ import { createClient } from "@/lib/supabase/server";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import type { CalendarEvent, CalendarEventKind } from "@/lib/calendar/calendar-types";
 import { endOfDay, startOfDay } from "@/lib/calendar/calendar-date";
-import { listGoogleCalendarEvents } from "@/lib/google/calendar";
-
 const APPOINTMENT_MINUTES = 30;
 const TASK_DEFAULT_MINUTES = 30;
 
@@ -288,36 +286,6 @@ export async function fetchCalendarEvents(
           end: end.toISOString(),
           allDay: true,
           href: `/opportunities/${row.id}`,
-        });
-      }
-    }
-  }
-
-  if (filterSet.has("google")) {
-    const googleResult = await listGoogleCalendarEvents({
-      tenantId,
-      timeMin: rangeStart,
-      timeMax: rangeEnd,
-    });
-
-    if (!googleResult.ok) {
-      console.warn("calendar google events failed:", googleResult.error);
-    } else {
-      const accountLabel = googleResult.calendarLabel;
-      for (const row of googleResult.events) {
-        const start = new Date(row.start);
-        const end = new Date(row.end);
-        if (!overlapsRange(start, end, rangeStart, rangeEnd)) continue;
-
-        events.push({
-          id: `google:${row.id}`,
-          kind: "google",
-          title: row.title,
-          subtitle: row.subtitle ?? accountLabel,
-          start: row.start,
-          end: row.end,
-          allDay: row.allDay,
-          href: null,
         });
       }
     }

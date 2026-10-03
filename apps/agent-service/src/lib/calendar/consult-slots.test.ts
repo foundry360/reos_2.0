@@ -4,6 +4,7 @@ import {
   generateConsultSlots,
   isBookableStart,
   overlapsBusy,
+  parseRequestedStart,
   resolvePreferredDay,
   type BusyInterval,
 } from "./consult-slots.ts";
@@ -106,5 +107,34 @@ describe("isBookableStart", () => {
   it("accepts near-future times", () => {
     const err = isBookableStart(new Date("2026-09-23T15:00:00.000Z"), timeZone, now);
     assert.equal(err, null);
+  });
+});
+
+describe("parseRequestedStart", () => {
+  const timeZone = "America/New_York";
+  const now = new Date("2026-10-03T02:30:00.000Z"); // Fri Oct 2, 10:30 PM EDT
+  const sat11 = "2026-10-03T15:00:00.000Z";
+  const iso = (input: string, day?: string) =>
+    parseRequestedStart(input, timeZone, now, day)?.toISOString() ?? null;
+
+  it("reads ISO, local, and label formats", () => {
+    assert.equal(iso(sat11), sat11);
+    assert.equal(iso("2026-10-03T11:00:00"), sat11);
+    assert.equal(iso("2026-10-03 11:00"), sat11);
+    assert.equal(iso("Sat, Oct 3, 2026, 11:00 AM EDT"), sat11);
+    assert.equal(iso("Oct 3 at 11am"), sat11);
+  });
+
+  it("reads weekday and relative days", () => {
+    assert.equal(iso("Saturday 11am"), sat11);
+    assert.equal(iso("tomorrow at 11:00 AM"), sat11);
+  });
+
+  it("dates a bare time from the day hint", () => {
+    assert.equal(iso("11am"), null);
+    assert.equal(iso("11:00 AM", "saturday"), sat11);
+    assert.equal(iso("11 AM", "2026-10-03"), sat11);
+    assert.equal(iso("11:00 AM", "Sat, Oct 3, 2026, 10:00 AM EDT"), sat11);
+    assert.equal(iso("12 pm", "tomorrow"), "2026-10-03T16:00:00.000Z");
   });
 });

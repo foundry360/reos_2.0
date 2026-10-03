@@ -165,6 +165,10 @@ export function resolvePreferredDay(
 
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (raw === "today") return dayKey(zonedParts(now, timeZone));
+  if (raw === "tomorrow") {
+    return dayKey(zonedParts(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone));
+  }
 
   const want = WEEKDAYS[raw];
   if (want === undefined) return null;
@@ -187,6 +191,82 @@ export function resolvePreferredDay(
     }
   }
   return null;
+}
+
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/** "2026-10-03", "Oct 3", "Sat, Oct 3, 2026", "saturday", "tomorrow" → "YYYY-MM-DD". */
+function resolveDateKey(text: string, timeZone: string, now: Date): string | null {
+  const t = text.toLowerCase();
+  const iso = t.match(/\b(\d{4})-(\d{2})-(\d{2})(?!\d)/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  const named = t.match(
+    /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4})\b)?/,
+  );
+  if (named) {
+    const month = MONTHS[named[1]];
+    const day = Number(named[2]);
+    const today = zonedParts(now, timeZone);
+    let year = named[3] ? Number(named[3]) : today.year;
+    if (!named[3] && (month < today.month || (month === today.month && day < today.day))) {
+      year += 1;
+    }
+    return `${year}-${pad2(month)}-${pad2(day)}`;
+  }
+
+  if (/\btoday\b/.test(t)) return dayKey(zonedParts(now, timeZone));
+  if (/\btomorrow\b/.test(t)) {
+    return dayKey(zonedParts(new Date(now.getTime() + 24 * 60 * 60 * 1000), timeZone));
+  }
+
+  const weekday = t.match(
+    /\b(?:next\s+)?(sun|mon|tue|tues|wed|thu|thur|fri|sat)(?:day|sday|nesday|rsday|urday)?\b/,
+  );
+  return weekday ? resolvePreferredDay(weekday[1], timeZone, now) : null;
+}
+
+/** "11am", "11:30 AM", "12 pm", "14:00" → hour/minute. */
+function parseTimeOfDay(text: string): { hour: number; minute: number } | null {
+  const t = text.toLowerCase();
+  const ampm = t.match(/\b(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?\b/);
+  if (ampm) {
+    const hour12 = Number(ampm[1]);
+    const minute = ampm[2] ? Number(ampm[2]) : 0;
+    if (hour12 < 1 || hour12 > 12 || minute > 59) return null;
+    return { hour: (hour12 % 12) + (ampm[3] === "p" ? 12 : 0), minute };
+  }
+  if (/\bnoon\b/.test(t)) return { hour: 12, minute: 0 };
+  const h24 = t.match(/(?:^|[^\d])([01]?\d|2[0-3]):([0-5]\d)(?![\d])/);
+  return h24 ? { hour: Number(h24[1]), minute: Number(h24[2]) } : null;
+}
+
+/**
+ * Turn whatever the model passes as a start into an instant in the workspace time zone:
+ * an ISO instant, "2026-10-03 11:00", a slot label ("Sat, Oct 3, 2026, 11:00 AM EDT"),
+ * "Saturday 11am", or a bare time ("11am") with the date taken from dayHint.
+ */
+export function parseRequestedStart(
+  input: string,
+  timeZone: string,
+  now: Date = new Date(),
+  dayHint?: string,
+): Date | null {
+  const raw = input.trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const time = parseTimeOfDay(raw.replace(/\b\d{4}-\d{2}-\d{2}T?/, " "));
+  const dateKey =
+    resolveDateKey(raw, timeZone, now) ?? (dayHint ? resolveDateKey(dayHint, timeZone, now) : null);
+  if (!time || !dateKey) return null;
+
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return dateInTimeZone(year, month, day, time.hour, time.minute, timeZone);
 }
 
 export function isBookableStart(
@@ -226,10 +306,12 @@ export function generateConsultSlots(params: {
   | { ok: true; slots: CalendarSlot[]; timeZone: string }
   | { ok: false; error: string } {
   const preference = params.preference;
-  const limit = Math.min(Math.max(params.limit ?? 3, 1), 5);
   const timeZone = params.timeZone || DEFAULT_TIME_ZONE;
   const now = params.now ?? new Date();
   const preferredDay = resolvePreferredDay(params.day, timeZone, now);
+  // For a specific day return every open time, so a time the lead names is never
+  // wrongly reported as taken just because it fell outside a short list.
+  const limit = preferredDay ? 48 : Math.min(Math.max(params.limit ?? 3, 1), 5);
   const timeMin = now;
   const busy = params.busy;
 

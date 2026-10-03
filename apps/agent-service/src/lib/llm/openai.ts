@@ -134,7 +134,7 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
           day: {
             type: "string",
             description:
-              "Optional preferred day: weekday name (wednesday) or YYYY-MM-DD",
+              "Optional preferred day: weekday name (wednesday), YYYY-MM-DD, today, or tomorrow. With a day, every open time that day is returned.",
           },
           limit: {
             type: "number",
@@ -162,7 +162,12 @@ const SCHEDULER_CALENDAR_TOOLS: ChatCompletionTool[] = [
           start: {
             type: "string",
             description:
-              "Start of the slot the lead picked: the exact ISO start from get_available_slots, or if that is not in view, the offered label (e.g. \"Mon, Oct 5, 2026, 9:00 AM EDT\") or \"YYYY-MM-DD HH:MM\" in the workspace time zone. The server checks it against open times.",
+              "Start of the slot the lead picked, including its date: the exact ISO start from get_available_slots, the full slot label (e.g. \"Sat, Oct 3, 2026, 11:00 AM EDT\"), or \"YYYY-MM-DD HH:MM\" in the workspace time zone. If you only have a time like \"11am\", also pass day. The server checks it against open times.",
+          },
+          day: {
+            type: "string",
+            description:
+              "Day of the slot when start has no date: YYYY-MM-DD, a weekday name, or \"tomorrow\". Use the day the offered times were for.",
           },
           kind: {
             type: "string",
@@ -237,6 +242,10 @@ export interface AgentTurnOptions {
   contactId?: string;
   email?: string;
   leadName?: string;
+  /** Label of the first slot returned this turn; dates a bare "11am" booking. */
+  lastOfferedLabel?: string;
+  /** Kind used for get_available_slots this turn; default for a book_appointment that omits kind. */
+  lastOfferedKind?: "consult" | "showing";
 }
 
 function collectToolCalls(
@@ -280,13 +289,16 @@ async function executeOneTool(
         : "any";
     const limit = typeof args.limit === "number" ? args.limit : 3;
     const day = typeof args.day === "string" ? args.day : undefined;
-    return getAvailableReosConsultSlots({
+    const slots = await getAvailableReosConsultSlots({
       tenantId: options.tenantId,
       preference,
       day,
       limit,
       allowWeekends: args.kind === "showing",
     });
+    options.lastOfferedKind = args.kind === "showing" ? "showing" : "consult";
+    if (slots.ok && slots.slots[0]) options.lastOfferedLabel = slots.slots[0].label;
+    return slots;
   }
 
   if (name === "book_appointment") {
@@ -294,21 +306,27 @@ async function executeOneTool(
       return { ok: false, error: "Missing tenant for calendar booking." };
     }
     const requested = typeof args.start === "string" ? args.start : "";
+    const day = (typeof args.day === "string" && args.day.trim()) || options.lastOfferedLabel;
+    const titleSaysShowing =
+      typeof args.title === "string" && /^showing\b/i.test(args.title.trim());
     const isShowing =
-      args.kind === "showing" || (typeof args.title === "string" && /^showing\b/i.test(args.title.trim()));
+      args.kind === "showing" ||
+      (args.kind !== "consult" && (titleSaysShowing || options.lastOfferedKind === "showing"));
     const resolved = await resolveBookableStart({
       tenantId: options.tenantId,
       start: requested,
+      day,
       allowWeekends: isShowing,
     });
     if (!resolved.ok) {
-      console.warn("book_appointment rejected:", requested, resolved.error);
+      console.warn("book_appointment rejected:", JSON.stringify({ requested, day, isShowing }), resolved.error);
       return {
         ok: false,
         error: resolved.error,
         openTimes: resolved.openTimes.map((slot) => ({ label: slot.label, start: slot.start })),
       };
     }
+    console.info("book_appointment resolved:", JSON.stringify({ requested, day, isShowing, start: resolved.start.toISOString() }));
     const start = resolved.start.toISOString();
     const end = resolved.end.toISOString();
     const attendeeEmail =
@@ -327,7 +345,15 @@ async function executeOneTool(
         ? `${title}${options.leadName && !title.includes(options.leadName) ? ` - ${options.leadName}` : ""}`
         : null,
     });
-    if (!booked.ok) return booked;
+    if (!booked.ok) {
+      console.error("book_appointment save failed:", booked.error);
+      return /no longer available/i.test(booked.error)
+        ? booked
+        : {
+            ok: false,
+            error: `${booked.error} This is a system problem, not availability: do not say the time is taken. Apologize briefly and say you'll confirm the time with the team.`,
+          };
+    }
     options.contactId = booked.contactId;
     return {
       ok: true,
@@ -375,6 +401,7 @@ export async function runAgentTurn(
   const allToolCalls: AgentTurnResult["toolCalls"] = [];
   let reply = "";
   let bookingSucceeded = false;
+  let bookedResult: Record<string, unknown> | null = null;
 
   for (let round = 0; round < 4; round++) {
     const completion = await client.chat.completions.create({
@@ -410,7 +437,10 @@ export async function runAgentTurn(
       >;
       let result: unknown;
       try {
-        result = await executeOneTool(tc.function.name, args, options);
+        result =
+          tc.function.name === "book_appointment" && bookedResult
+            ? { ...bookedResult, note: "Already booked this turn. Do not book again." }
+            : await executeOneTool(tc.function.name, args, options);
       } catch (error) {
         console.error("Tool execution failed:", tc.function.name, error);
         result = {
@@ -423,6 +453,7 @@ export async function runAgentTurn(
         (result as { ok?: unknown } | null)?.ok === true
       ) {
         bookingSucceeded = true;
+        bookedResult ??= result as Record<string, unknown>;
       }
       messages.push({
         role: "tool",

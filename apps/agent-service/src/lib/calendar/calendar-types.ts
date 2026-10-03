@@ -1,12 +1,11 @@
 export type CalendarView = "day" | "week" | "month" | "agenda";
 
-export type CalendarEventKind = "appointment" | "task" | "other" | "google" | "social";
+export type CalendarEventKind = "appointment" | "task" | "other" | "social";
 
 export const CALENDAR_EVENT_KINDS: CalendarEventKind[] = [
   "appointment",
   "task",
   "other",
-  "google",
   "social",
 ];
 
@@ -14,7 +13,6 @@ export const CALENDAR_EVENT_KIND_LABELS: Record<CalendarEventKind, string> = {
   appointment: "Appointments",
   task: "Tasks",
   other: "Other",
-  google: "Google Calendar",
   social: "Social",
 };
 
@@ -22,7 +20,6 @@ export const CALENDAR_EVENT_COLORS: Record<CalendarEventKind, string> = {
   appointment: "#A855F7",
   task: "#F97316",
   other: "#22C55E",
-  google: "#4285F4",
   social: "#BCC256",
 };
 

@@ -11,7 +11,6 @@ import {
 import { formatLeadStatusLabel } from "@/lib/leads/lead-status";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import { fetchOpportunitiesForContact } from "@/lib/opportunities/opportunities-list";
-import { syncContactGmailMessages } from "@/lib/email/gmail-sync";
 import { isResendEmailConfigured } from "@/lib/email/resend";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
@@ -358,28 +357,7 @@ export async function loadPersonDetail(
     },
   ];
 
-  const emailAccount = (channelAccountsRes.data ?? []).find(
-    (row) => row.channel === "email" && row.status === "connected",
-  );
-  const gmailConnected = Boolean(emailAccount?.metadata);
   const emailConnected = await isResendEmailConfigured();
-
-  // Gmail remains an optional history sync. It is not required to send from REOS.
-  if (gmailConnected && contact.email?.trim()) {
-    try {
-      await syncContactGmailMessages({
-        tenantId,
-        contactId: contact.id,
-        contactEmail: contact.email.trim(),
-        opportunityId: opportunityRows[0]?.id ?? null,
-      });
-    } catch (error) {
-      console.warn(
-        "Gmail sync skipped:",
-        error instanceof Error ? error.message : error,
-      );
-    }
-  }
 
   const emailsRes = await supabase
     .from("crm_emails")

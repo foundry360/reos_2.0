@@ -22,32 +22,13 @@ interface PageProps {
     created?: string;
     meta_select_page?: string;
     meta_error?: string;
-    google_connected?: string;
-    google_error?: string;
     tab?: string;
   }>;
 }
 
 function channelFeedbackMessage(searchParams: {
   meta_error?: string;
-  google_connected?: string;
-  google_error?: string;
 }): { kind: "success" | "error"; text: string } | null {
-  if (searchParams.google_connected === "email") {
-    return { kind: "success", text: "Gmail connected." };
-  }
-  if (searchParams.google_connected === "calendar") {
-    return { kind: "success", text: "Google Calendar connected." };
-  }
-  if (searchParams.google_error === "not_configured") {
-    return {
-      kind: "error",
-      text: "Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
-    };
-  }
-  if (searchParams.google_error) {
-    return { kind: "error", text: searchParams.google_error };
-  }
   if (searchParams.meta_error === "not_configured") {
     return {
       kind: "error",

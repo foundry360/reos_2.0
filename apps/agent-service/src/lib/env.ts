@@ -23,8 +23,6 @@ const envSchema = z.object({
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
   /** Google Places Autocomplete (New) / Maps Platform key. */
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   /** Alias for GOOGLE_PLACES_API_KEY when using a shared Maps Platform key. */

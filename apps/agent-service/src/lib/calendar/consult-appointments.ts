@@ -5,11 +5,11 @@ import {
   DEFAULT_TIME_ZONE,
   LOOKAHEAD_DAYS,
   SLOT_STEP_MINUTES,
-  dateInTimeZone,
   formatSlotLabel,
   generateConsultSlots,
   isBookableStart,
   overlapsBusy,
+  parseRequestedStart,
   zonedParts,
   type BusyInterval,
   type CalendarSlot,
@@ -185,49 +185,6 @@ export async function getAvailableReosConsultSlots(params: {
   });
 }
 
-const MONTHS: Record<string, number> = {
-  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12,
-};
-
-/**
- * Turn whatever the model passes as a start ("2026-10-05T13:00:00.000Z", "2026-10-05 09:00",
- * or a label like "Mon, Oct 5, 2026, 9:00 AM EDT") into an instant in the workspace time zone.
- * Slot ISO values from an earlier turn are not in the chat history, so labels must work.
- */
-function parseRequestedStart(input: string, timeZone: string, now: Date): Date | null {
-  const raw = input.trim();
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
-    const date = new Date(raw);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const local = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}):(\d{2})/);
-  if (local) {
-    return dateInTimeZone(+local[1], +local[2], +local[3], +local[4], +local[5], timeZone);
-  }
-
-  const label = raw
-    .toLowerCase()
-    .match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?[,\s]+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
-  if (label) {
-    const month = MONTHS[label[1]];
-    const day = +label[2];
-    let hour = +label[4] % 12;
-    if (label[6] === "pm") hour += 12;
-    const minute = label[5] ? +label[5] : 0;
-    const currentYear = zonedParts(now, timeZone).year;
-    let year = label[3] ? +label[3] : currentYear;
-    let date = dateInTimeZone(year, month, day, hour, minute, timeZone);
-    if (!label[3] && date.getTime() < now.getTime() - 24 * 60 * 60 * 1000) {
-      year += 1;
-      date = dateInTimeZone(year, month, day, hour, minute, timeZone);
-    }
-    return date;
-  }
-
-  return null;
-}
-
 function withinBookingHours(
   start: Date,
   timeZone: string,
@@ -253,13 +210,15 @@ export type ResolveStartResult =
 export async function resolveBookableStart(params: {
   tenantId: string;
   start: string;
+  /** Day the lead picked ("saturday", "tomorrow", "2026-10-03") when start is only a time. */
+  day?: string;
   allowWeekends?: boolean;
 }): Promise<ResolveStartResult> {
   const { timeZone, workingHours } = await loadTenantSchedule(params.tenantId);
   const now = new Date();
   const allowWeekends = params.allowWeekends ?? false;
   const kind = allowWeekends ? "showing" : "consult";
-  const start = parseRequestedStart(params.start, timeZone, now);
+  const start = parseRequestedStart(params.start, timeZone, now, params.day);
 
   const openTimesFor = async (day?: string) => {
     const result = await getAvailableReosConsultSlots({
@@ -275,7 +234,8 @@ export async function resolveBookableStart(params: {
   if (!start) {
     return {
       ok: false,
-      error: "Could not read that time. Offer one of openTimes using its label, then book with its start.",
+      error:
+        "Could not tell which day and time to book. Call book_appointment again with start set to the exact label of the slot they chose (it includes the date), or pass day as well.",
       openTimes: await openTimesFor(),
     };
   }
@@ -289,7 +249,9 @@ export async function resolveBookableStart(params: {
     (start.getTime() < now.getTime() + 60 * 60 * 1000 ? "That time is too soon." : null) ??
     (!withinBookingHours(start, timeZone, workingHours, kind)
       ? bookingWindowsFor(workingHours, parts.weekday, kind).length === 0
-        ? `The team does not take ${kind === "showing" ? "showings" : "consults"} on ${parts.weekday}.`
+        ? kind === "consult"
+          ? `The team does not take consults on ${parts.weekday}. If this is a private showing of a property, call book_appointment again with kind "showing".`
+          : `The team does not take showings on ${parts.weekday}.`
         : `${formatSlotLabel(start.toISOString(), timeZone)} is outside working hours.`
       : null);
 
@@ -304,7 +266,12 @@ export async function resolveBookableStart(params: {
     }
   }
 
-  const openTimes = await openTimesFor(dayKey);
+  const openTimes = (await openTimesFor(dayKey))
+    .map((slot) => ({ slot, distance: Math.abs(new Date(slot.start).getTime() - start.getTime()) }))
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, 4)
+    .map(({ slot }) => slot)
+    .sort((a, b) => a.start.localeCompare(b.start));
   return {
     ok: false,
     error: `${invalid ?? `${formatSlotLabel(start.toISOString(), timeZone)} is already taken.`} Offer the open times listed (same day) instead.`,
