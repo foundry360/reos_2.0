@@ -69,7 +69,7 @@ async function resolveAgentRecipient(
 }
 
 /**
- * Prefer contact assigned agent, then opportunity assigned agent.
+ * Prefer contact assigned agent, then opportunity assigned agent, then the workspace owner.
  */
 export async function resolveAssignedAgentUserId(params: {
   tenantId: string;
@@ -112,7 +112,18 @@ export async function resolveAssignedAgentUserId(params: {
     .limit(1)
     .maybeSingle();
 
-  return openOpp?.assigned_agent_id ?? null;
+  if (openOpp?.assigned_agent_id) return openOpp.assigned_agent_id;
+
+  const { data: owner } = await db
+    .from("memberships")
+    .select("user_id")
+    .eq("tenant_id", params.tenantId)
+    .eq("role", "owner")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  return owner?.user_id ?? null;
 }
 
 async function sendOneInviteEmail(params: {
