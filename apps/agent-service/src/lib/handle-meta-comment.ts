@@ -7,7 +7,7 @@ import {
 } from "@/lib/db/contacts";
 import { isSupabaseConfigured } from "@/lib/env";
 import { loadPageAccessToken } from "@/lib/handle-inbound-meta";
-import { isCommentQuestion } from "@/lib/meta/comment-question";
+import { triageComment } from "@/lib/meta/comment-triage";
 import { sendMetaPrivateReply } from "@/lib/meta/send";
 import type { MetaCommentEvent } from "@/lib/meta/webhook";
 import { runInboundAgent } from "@/lib/run-inbound-agent";
@@ -56,8 +56,8 @@ function profileFromComment(event: MetaCommentEvent): {
 
 /**
  * Every new post comment creates or updates a contact and is logged on their thread.
- * Top-level comments that ask a question also run the conversation agent, whose answer
- * goes out as a private reply (DM) to the commenter.
+ * An AI triage decides whether the comment is a question and needs follow-up; if so the
+ * conversation agent answers with a private reply (DM) to the commenter.
  */
 export async function handleMetaComment(
   event: MetaCommentEvent,
@@ -74,8 +74,6 @@ export async function handleMetaComment(
   });
   if (!tenantId) return { ok: false, skipped: "tenant_unresolved" };
 
-  const isQuestion = isCommentQuestion(event.text);
-
   // Claim the comment before doing any work; Meta retries hit the unique key and stop here.
   const { data: claimed, error: claimError } = await db
     .from("meta_comment_events")
@@ -89,7 +87,6 @@ export async function handleMetaComment(
       commenter_id: event.commenterId,
       commenter_name: event.commenterName,
       body: event.text,
-      is_question: isQuestion,
     })
     .select("id")
     .single();
@@ -104,6 +101,7 @@ export async function handleMetaComment(
     patch: {
       contact_id?: string;
       message_id?: string | null;
+      is_question?: boolean;
       agent_status: AgentStatus;
       agent_detail?: string | null;
     },
@@ -139,13 +137,18 @@ export async function handleMetaComment(
       resolved.ctx.lastName = profile.lastName ?? undefined;
     }
 
+    const triage = await triageComment({
+      text: event.text,
+      platform: event.platform,
+      isReply: Boolean(event.parentCommentId),
+    });
+    const isQuestion = triage.isQuestion;
+
     const skipReason = !event.text
       ? "empty_comment"
-      : !isQuestion
-        ? "not_a_question"
-        : event.parentCommentId
-          ? "reply_thread"
-          : null;
+      : !triage.needsFollowUp
+        ? `no_follow_up (${triage.source}): ${triage.reason}`
+        : null;
 
     const pageToken = skipReason
       ? null
@@ -165,6 +168,7 @@ export async function handleMetaComment(
       await finish({
         contact_id: contactId,
         message_id: messageId,
+        is_question: isQuestion,
         agent_status: "skipped",
         agent_detail: detail,
       });
@@ -176,13 +180,14 @@ export async function handleMetaComment(
       body: event.text,
       channel: platform.dmChannel,
       inboundChannel: platform.identityChannel,
-      contextNote: `Source: they asked this in a public comment on the business's ${platform.label} post. Your reply is delivered to them as a private ${platform.dmLabel} message; answer their question first and keep it short.`,
+      contextNote: `Source: they wrote this in a public comment on the business's ${platform.label} post. Your reply is delivered to them as a private ${platform.dmLabel} message; respond to what they asked or expressed interest in first, and keep it short.`,
     });
     if (result.contactId) contactId = result.contactId;
 
     if (!result.reply) {
       await finish({
         contact_id: contactId,
+        is_question: isQuestion,
         agent_status: "no_reply",
         agent_detail: result.optedOut ? "opted_out" : `playbook:${result.playbook}`,
       });
@@ -196,7 +201,12 @@ export async function handleMetaComment(
     });
     if (!sent.ok) {
       console.error("Meta private reply failed:", sent.error);
-      await finish({ contact_id: contactId, agent_status: "failed", agent_detail: sent.error });
+      await finish({
+        contact_id: contactId,
+        is_question: isQuestion,
+        agent_status: "failed",
+        agent_detail: sent.error,
+      });
       return { ok: true, contactId, agent: "failed", detail: sent.error };
     }
 
@@ -211,6 +221,7 @@ export async function handleMetaComment(
 
     await finish({
       contact_id: contactId,
+      is_question: isQuestion,
       agent_status: "replied",
       agent_detail: `playbook:${result.playbook}`,
     });
