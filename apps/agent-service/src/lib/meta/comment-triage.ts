@@ -41,6 +41,8 @@ export async function triageComment(params: {
   text: string;
   platform: "facebook" | "instagram";
   isReply: boolean;
+  /** What the post is about, e.g. the listing it promotes. */
+  postSummary?: string | null;
 }): Promise<CommentTriage> {
   const text = params.text.trim();
   if (!text) return { isQuestion: false, needsFollowUp: false, reason: "empty comment", source: "keywords" };
@@ -60,10 +62,13 @@ export async function triageComment(params: {
           content: [
             `Platform: ${params.platform}`,
             params.isReply ? "This comment is a reply inside another comment's thread." : "This is a top-level comment on the post.",
+            params.postSummary ? `The post: ${params.postSummary.slice(0, 600)}` : null,
             `Comment: """${text.slice(0, 1000)}"""`,
             "",
             'Respond with JSON: {"is_question": boolean, "needs_follow_up": boolean, "reason": string}',
-          ].join("\n"),
+          ]
+            .filter((line): line is string => line !== null)
+            .join("\n"),
         },
       ],
     });

@@ -37,6 +37,8 @@ export interface PersonMessage {
   direction: "inbound" | "outbound";
   body: string;
   createdAt: string;
+  /** e.g. "Commented on: 123 Main St, Scottsdale · $850K". */
+  contextLabel?: string | null;
 }
 
 export type PersonMessagingChannel = "sms" | "messenger" | "instagram";

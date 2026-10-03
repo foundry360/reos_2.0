@@ -703,22 +703,29 @@ export async function appendMessage(params: {
   direction: "inbound" | "outbound";
   body: string;
   playbook?: string;
+  contextLabel?: string | null;
 }): Promise<string | null> {
   const db = getSupabaseAdmin();
   if (!db) return null;
 
-  const { data, error } = await db
-    .from("messages")
-    .insert({
-      tenant_id: params.tenantId,
-      contact_id: params.contactId,
-      channel: params.channel,
-      direction: params.direction,
-      body: params.body,
-      playbook: params.playbook ?? null,
-    })
-    .select("id")
-    .single();
+  const row = {
+    tenant_id: params.tenantId,
+    contact_id: params.contactId,
+    channel: params.channel,
+    direction: params.direction,
+    body: params.body,
+    playbook: params.playbook ?? null,
+  };
+  const insert = (values: Record<string, unknown>) =>
+    db.from("messages").insert(values).select("id").single();
+
+  let { data, error } = await insert(
+    params.contextLabel ? { ...row, context_label: params.contextLabel } : row,
+  );
+  // Before migration 050 is applied the column is missing; never lose the message over a label.
+  if (error && params.contextLabel) {
+    ({ data, error } = await insert(row));
+  }
 
   if (error) {
     console.error("Append message error:", error);
@@ -735,12 +742,18 @@ export async function getRecentMessages(
   if (!db) return [];
 
   // Fetch newest N, then reverse so the model sees chronological order.
-  const { data } = await db
-    .from("messages")
-    .select("direction, body")
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  const recent = (columns: string) =>
+    db
+      .from("messages")
+      .select(columns)
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false })
+      .limit(limit)
+      .returns<Array<{ direction: string; body: string; context_label?: string | null }>>();
+
+  // context_label arrives with migration 050; keep history working before it is applied.
+  const withLabels = await recent("direction, body, context_label");
+  const data = withLabels.error ? (await recent("direction, body")).data : withLabels.data;
 
   if (!data) return [];
 
@@ -749,7 +762,7 @@ export async function getRecentMessages(
     .reverse()
     .map((m) => ({
       role: m.direction === "inbound" ? ("user" as const) : ("assistant" as const),
-      content: m.body,
+      content: m.context_label ? `[${m.context_label}] ${m.body}` : m.body,
     }));
 }
 

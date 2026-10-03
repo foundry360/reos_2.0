@@ -88,6 +88,7 @@ function mapMessageRow(row: {
   direction: string;
   body: string;
   created_at: string;
+  context_label?: string | null;
 }): PersonMessage | null {
   if (row.direction !== "inbound" && row.direction !== "outbound") return null;
   return {
@@ -96,6 +97,7 @@ function mapMessageRow(row: {
     direction: row.direction,
     body: row.body,
     createdAt: row.created_at,
+    contextLabel: row.context_label ?? null,
   };
 }
 
@@ -115,7 +117,8 @@ function mapRealtimeMessage(row: Record<string, unknown>): PersonMessage | null 
         : null;
 
   if (!id || !channel || !direction || !body || !createdAt) return null;
-  return { id, channel, direction, body, createdAt };
+  const contextLabel = typeof row.context_label === "string" ? row.context_label : null;
+  return { id, channel, direction, body, createdAt, contextLabel };
 }
 
 function mergeMessages(
@@ -360,7 +363,7 @@ export function PersonMessagingPanel({
       if (cancelled) return;
       let query = supabase
         .from("messages")
-        .select("id, channel, direction, body, created_at")
+        .select("*")
         .eq("contact_id", contactId)
         .order("created_at", { ascending: true })
         .limit(100);
@@ -703,7 +706,9 @@ export function PersonMessagingPanel({
                 >
                   {isCommentChannel(message.channel) ? (
                     <p className={styles.personMessageCommentLabel}>
-                      {commentLabel(message.channel)}
+                      {message.contextLabel
+                        ? `${commentLabel(message.channel)} · ${message.contextLabel.replace(/^Commented on:\s*/, "")}`
+                        : commentLabel(message.channel)}
                     </p>
                   ) : null}
                   <p className={styles.personMessageBody}>{message.body}</p>

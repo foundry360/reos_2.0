@@ -199,7 +199,7 @@ export async function loadPersonDetail(
       fetchActivitiesForContact(tenantId, contact.id, { limit: 50, personKind: kind }),
       supabase
         .from("messages")
-        .select("id, direction, body, channel, created_at")
+        .select("*")
         .eq("tenant_id", tenantId)
         .eq("contact_id", contact.id)
         .order("created_at", { ascending: true })
@@ -456,6 +456,7 @@ export async function loadPersonDetail(
       direction: row.direction === "outbound" ? ("outbound" as const) : ("inbound" as const),
       body: row.body ?? "",
       createdAt: row.created_at,
+      contextLabel: typeof row.context_label === "string" ? row.context_label : null,
     })),
     messagingChannels: messagingChannels.map((option) => ({
       channel: option.channel,

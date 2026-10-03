@@ -217,6 +217,7 @@ async function persistInbound(params: {
   contactId?: string;
   channel: string;
   userBody: string;
+  contextLabel?: string | null;
 }): Promise<void> {
   const { tenantId, threadKey, contactId, channel, userBody } = params;
   if (isSupabaseConfigured() && contactId && tenantId !== "default-tenant") {
@@ -226,6 +227,7 @@ async function persistInbound(params: {
       channel,
       direction: "inbound",
       body: userBody,
+      contextLabel: params.contextLabel,
     });
     return;
   }
@@ -268,6 +270,8 @@ export async function runInboundAgent(params: {
   inboundChannel?: string;
   /** Extra line for the model's context block. */
   contextNote?: string;
+  /** Label stored with the inbound message, e.g. the property a comment was on. */
+  inboundContextLabel?: string | null;
 }): Promise<InboundAgentResult> {
   const { ctx, body, channel } = params;
   const inboundChannel = params.inboundChannel ?? channel;
@@ -282,6 +286,7 @@ export async function runInboundAgent(params: {
       contactId: ctx.contactId,
       channel: inboundChannel,
       userBody: body,
+      contextLabel: params.inboundContextLabel,
     });
     await persistOutbound({
       tenantId,
@@ -368,6 +373,7 @@ export async function runInboundAgent(params: {
     contactId: ctx.contactId,
     channel: inboundChannel,
     userBody: body,
+    contextLabel: params.inboundContextLabel,
   });
 
   if (playbook === "none") {

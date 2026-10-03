@@ -8,6 +8,7 @@ import {
 import { isSupabaseConfigured } from "@/lib/env";
 import { loadPageAccessToken } from "@/lib/handle-inbound-meta";
 import { triageComment } from "@/lib/meta/comment-triage";
+import { describePostForAgent, getPostContext } from "@/lib/meta/post-context";
 import { sendMetaPrivateReply } from "@/lib/meta/send";
 import type { MetaCommentEvent } from "@/lib/meta/webhook";
 import { runInboundAgent } from "@/lib/run-inbound-agent";
@@ -102,14 +103,19 @@ export async function handleMetaComment(
       contact_id?: string;
       message_id?: string | null;
       is_question?: boolean;
+      property_summary?: string | null;
       agent_status: AgentStatus;
       agent_detail?: string | null;
     },
   ): Promise<void> {
-    const { error } = await db!
-      .from("meta_comment_events")
-      .update(patch)
-      .eq("id", claimed!.id);
+    const update = (values: Record<string, unknown>) =>
+      db!.from("meta_comment_events").update(values).eq("id", claimed!.id);
+    let { error } = await update(patch);
+    // property_summary arrives with migration 050; still record the outcome without it.
+    if (error && "property_summary" in patch) {
+      const { property_summary: _omit, ...rest } = patch;
+      ({ error } = await update(rest));
+    }
     if (error) console.error("Meta comment status update failed:", error);
   }
 
@@ -137,10 +143,25 @@ export async function handleMetaComment(
       resolved.ctx.lastName = profile.lastName ?? undefined;
     }
 
+    const pageToken = event.text
+      ? await loadPageAccessToken(tenantId, platform.dmChannel, event.accountId)
+      : null;
+    const post = event.text
+      ? await getPostContext({
+          tenantId,
+          platform: event.platform,
+          postId: event.postId,
+          pageToken,
+        })
+      : null;
+    const propertySummary = post?.propertySummary ?? null;
+    const contextLabel = propertySummary ? `Commented on: ${propertySummary}` : null;
+
     const triage = await triageComment({
       text: event.text,
       platform: event.platform,
       isReply: Boolean(event.parentCommentId),
+      postSummary: propertySummary ?? post?.caption ?? null,
     });
     const isQuestion = triage.isQuestion;
 
@@ -150,10 +171,6 @@ export async function handleMetaComment(
         ? `no_follow_up (${triage.source}): ${triage.reason}`
         : null;
 
-    const pageToken = skipReason
-      ? null
-      : await loadPageAccessToken(tenantId, platform.dmChannel, event.accountId);
-
     if (skipReason || !pageToken) {
       const messageId = event.text
         ? await appendMessage({
@@ -162,6 +179,7 @@ export async function handleMetaComment(
             channel: platform.identityChannel,
             direction: "inbound",
             body: event.text,
+            contextLabel,
           })
         : null;
       const detail = skipReason ?? "missing_page_token";
@@ -169,6 +187,7 @@ export async function handleMetaComment(
         contact_id: contactId,
         message_id: messageId,
         is_question: isQuestion,
+        property_summary: propertySummary,
         agent_status: "skipped",
         agent_detail: detail,
       });
@@ -180,7 +199,13 @@ export async function handleMetaComment(
       body: event.text,
       channel: platform.dmChannel,
       inboundChannel: platform.identityChannel,
-      contextNote: `Source: they wrote this in a public comment on the business's ${platform.label} post. Your reply is delivered to them as a private ${platform.dmLabel} message; respond to what they asked or expressed interest in first, and keep it short.`,
+      inboundContextLabel: contextLabel,
+      contextNote: [
+        `Source: they wrote this in a public comment on the business's ${platform.label} post. Your reply is delivered to them as a private ${platform.dmLabel} message; respond to what they asked or expressed interest in first, and keep it short.`,
+        post ? describePostForAgent(post) : null,
+      ]
+        .filter(Boolean)
+        .join("\n"),
     });
     if (result.contactId) contactId = result.contactId;
 
@@ -188,6 +213,7 @@ export async function handleMetaComment(
       await finish({
         contact_id: contactId,
         is_question: isQuestion,
+        property_summary: propertySummary,
         agent_status: "no_reply",
         agent_detail: result.optedOut ? "opted_out" : `playbook:${result.playbook}`,
       });
@@ -204,6 +230,7 @@ export async function handleMetaComment(
       await finish({
         contact_id: contactId,
         is_question: isQuestion,
+        property_summary: propertySummary,
         agent_status: "failed",
         agent_detail: sent.error,
       });
@@ -222,6 +249,7 @@ export async function handleMetaComment(
     await finish({
       contact_id: contactId,
       is_question: isQuestion,
+      property_summary: propertySummary,
       agent_status: "replied",
       agent_detail: `playbook:${result.playbook}`,
     });
