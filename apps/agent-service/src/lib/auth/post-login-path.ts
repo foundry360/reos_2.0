@@ -1,5 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 function sanitizeNextPath(raw: string | null | undefined): string {
   const value = raw?.trim() || "/overview";
   if (!value.startsWith("/") || value.startsWith("//")) return "/overview";
@@ -34,7 +32,8 @@ type PlatformAdminLookup = {
  * Password setup links always win over admin/home redirects.
  */
 export async function resolvePostLoginPath(
-  supabase: SupabaseClient | PlatformAdminLookup,
+  // Kept shallow on purpose: checking a full SupabaseClient against a union exceeds TS's instantiation depth.
+  supabase: { from: (table: string) => unknown },
   userId: string,
   requestedNext?: string | null,
 ): Promise<string> {
@@ -44,7 +43,7 @@ export async function resolvePostLoginPath(
     return "/set-password";
   }
 
-  const { data: admin } = await supabase
+  const { data: admin } = await (supabase as PlatformAdminLookup)
     .from("platform_admins")
     .select("user_id")
     .eq("user_id", userId)
