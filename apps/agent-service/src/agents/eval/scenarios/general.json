@@ -31,7 +31,8 @@
           "expect": {
             "noBooking": true,
             "replyMatches": ["\\b(hi|hello|hey)\\b", "thank", "\\?"],
-            "replyNotMatches": ["10:00|10:30|11:00", "availability"]
+            "replyNotMatches": ["10:00|10:30|11:00", "availability"],
+            "unsetFields": ["budget", "targetLocation", "propertyType", "intent"]
           }
         }
       ]
@@ -48,7 +49,12 @@
         },
         {
           "user": "I'd like to see it Saturday morning",
-          "expect": { "checksCalendar": true, "noBooking": true, "replyMatches": "sat|oct 3" }
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "sat|oct 3",
+            "unsetFields": ["budget", "targetLocation", "propertyType"]
+          }
         }
       ]
     },

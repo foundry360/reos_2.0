@@ -20,6 +20,8 @@ export interface TurnExpect {
   replyNotMatches?: string | string[];
   savesEmail?: string;
   optedOut?: boolean;
+  /** Contact fields (camelCase) that must still be empty: the lead never stated them. */
+  unsetFields?: string[];
 }
 
 export interface TurnObservation {
@@ -29,6 +31,7 @@ export interface TurnObservation {
   /** Local "YYYY-MM-DD HH:MM" of bookings made this turn. */
   bookedLocal: string[];
   contactEmail?: string;
+  contactFields: Record<string, unknown>;
   optedOut: boolean;
   apptBookedFlag: boolean;
   totalBookings: number;
@@ -91,5 +94,9 @@ export function expectationFailures(obs: TurnObservation, expect: TurnExpect): s
     failures.push(`email not saved (have ${obs.contactEmail ?? "none"})`);
   }
   if (expect.optedOut && !obs.optedOut) failures.push("not opted out");
+  for (const field of expect.unsetFields ?? []) {
+    const value = obs.contactFields[field];
+    if (value != null && String(value).trim()) failures.push(`assumed ${field} = ${String(value)}`);
+  }
   return failures;
 }

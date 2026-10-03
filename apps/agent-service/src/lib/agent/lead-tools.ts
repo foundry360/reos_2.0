@@ -2,6 +2,7 @@ import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { checkRequestedStart, findOpenSlots, type AppointmentKind } from "@/lib/calendar/calendar-core";
 import { formatSlotLabel, zonedParts, type SlotPreference } from "@/lib/calendar/consult-slots";
 import type { AgentBackend, ToolEvent } from "@/lib/agent/backend";
+import { unsupportedFields } from "@/lib/agent/crm-evidence";
 
 const CONTACT_FIELDS = {
   first_name: { type: "string" },
@@ -100,6 +101,8 @@ export interface LeadTurnState {
   ambiguousPick?: boolean;
   /** The lead's message names or points at a specific time, or a time is held for their contact info. */
   leadPickedTime?: boolean;
+  /** Everything the lead has written in this conversation; CRM facts must be backed by it. */
+  leadText: string;
 }
 
 /** "YYYY-MM-DD HH:MM" in the workspace zone. The model only ever sees local starts, never UTC ISO. */
@@ -245,11 +248,22 @@ async function updateContact(state: LeadTurnState, args: Record<string, unknown>
   const clean = { ...args };
   delete clean.appt_booked;
   if (clean.lead_status === "Converted") delete clean.lead_status;
-  state.contactId =
-    (await state.backend.applyToolCalls(state.contactId, [{ name: "update_contact", args: clean }])) ??
-    state.contactId;
+  const notSaved = unsupportedFields(clean, state.leadText);
+  for (const field of notSaved) delete clean[field];
+  if (Object.keys(clean).length > 0) {
+    state.contactId =
+      (await state.backend.applyToolCalls(state.contactId, [{ name: "update_contact", args: clean }])) ??
+      state.contactId;
+  }
   if (typeof clean.email === "string" && clean.email.includes("@")) state.email = clean.email.trim().toLowerCase();
   if (typeof clean.phone === "string" && clean.phone.replace(/\D/g, "").length >= 10) state.phoneOnFile = true;
+  if (notSaved.length > 0) {
+    return {
+      ok: true,
+      notSaved,
+      note: `Not saved: ${notSaved.join(", ")}. The lead hasn't said this. Only save what the lead told you; never assume, and never copy listing details (price, city, type) into their fields. Ask if it matters.`,
+    };
+  }
   return { ok: true };
 }
 

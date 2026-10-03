@@ -276,6 +276,7 @@ export async function runLeadAgent(params: {
       [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "",
     ),
     leadPickedTime: Boolean(held) || pointsAtTime(userMessage),
+    leadText: [...messages.filter((m) => m.role === "user").map((m) => m.content), userMessage].join("\n"),
   };
   const chat: ChatCompletionMessageParam[] = [
     { role: "system", content: `${LEAD_AGENT_SYSTEM}\n\n---\nCONTEXT\n${context}` },

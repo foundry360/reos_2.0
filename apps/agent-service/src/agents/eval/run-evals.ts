@@ -238,6 +238,7 @@ async function runScenario(
       bookingsMade: newBookings.length,
       bookedLocal,
       contactEmail: backend.contact.email,
+      contactFields: { ...backend.contact } as Record<string, unknown>,
       optedOut: backend.contact.optedOut,
       apptBookedFlag: backend.contact.apptBooked,
       totalBookings: backend.bookings.length,
