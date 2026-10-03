@@ -1,0 +1,277 @@
+{
+  "scenarios": [
+    {
+      "id": "later-in-the-day",
+      "about": "Offered Monday mornings; lead asks for later in the day",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 10:00",
+          "2026-10-05 10:30",
+          "2026-10-05 11:00"
+        ],
+        "text": "I have Monday, Oct 5 at 10:00 AM, 10:30 AM, or 11:00 AM. Which works best?"
+      },
+      "turns": [
+        {
+          "user": "Any time later in the day?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": ["mon", "\\b(1[2]|[1-5])(:[0-5]\\d)?\\s?pm\\b"],
+            "replyNotMatches": "\\b(sat|sun|tomorrow|today)",
+            "noContactAsk": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "anything-later",
+      "about": "Short variant of later-in-the-day",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 10:00",
+          "2026-10-05 10:30",
+          "2026-10-05 11:00"
+        ],
+        "text": "Monday works. I have 10:00 AM, 10:30 AM, or 11:00 AM. Which one?"
+      },
+      "turns": [
+        {
+          "user": "anything later?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "\\b(1[2]|[1-5])(:[0-5]\\d)?\\s?pm\\b",
+            "replyNotMatches": "\\b(sat|sun|tomorrow|today)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cant-do-mornings",
+      "about": "Lead rules out mornings after morning times were offered",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-06 09:00",
+          "2026-10-06 09:30",
+          "2026-10-06 10:00"
+        ],
+        "text": "Tuesday, Oct 6: 9:00 AM, 9:30 AM, or 10:00 AM?"
+      },
+      "turns": [
+        {
+          "user": "I can't do mornings",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": ["tue", "\\b(1[2]|[1-5])(:[0-5]\\d)?\\s?pm\\b"],
+            "replyNotMatches": "\\b(9|10|11)(:[0-5]\\d)?\\s?am\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pick-the-second",
+      "about": "Lead picks an offered slot by position",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 10:00",
+          "2026-10-05 10:30",
+          "2026-10-05 11:00"
+        ],
+        "text": "I have Monday, Oct 5 at 10:00 AM, 10:30 AM, or 11:00 AM. Which works best?"
+      },
+      "turns": [
+        {
+          "user": "The second one works",
+          "expect": {
+            "book": "2026-10-05 10:30"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bare-11-after-offer",
+      "about": "Lead answers '11 works' to Saturday times; must book Saturday 11, not re-offer",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "showing",
+        "slots": [
+          "2026-10-03 10:00",
+          "2026-10-03 10:30",
+          "2026-10-03 11:00"
+        ],
+        "text": "For 12 Oak St I have Saturday, Oct 3 at 10:00 AM, 10:30 AM, or 11:00 AM."
+      },
+      "property": "oak",
+      "turns": [
+        {
+          "user": "11 works",
+          "expect": {
+            "book": "2026-10-03 11:00"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ten-thirty-please",
+      "about": "Lead names an offered time with minutes",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 10:00",
+          "2026-10-05 10:30",
+          "2026-10-05 11:00"
+        ],
+        "text": "Monday, Oct 5: 10:00 AM, 10:30 AM, or 11:00 AM?"
+      },
+      "turns": [
+        {
+          "user": "10:30 please",
+          "expect": {
+            "book": "2026-10-05 10:30"
+          }
+        }
+      ]
+    },
+    {
+      "id": "yes-book-it",
+      "about": "Single offered time, lead says yes",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 14:00"
+        ],
+        "text": "I have Monday, Oct 5 at 2:00 PM open. Want me to book it?"
+      },
+      "turns": [
+        {
+          "user": "Yes please",
+          "expect": {
+            "book": "2026-10-05 14:00"
+          }
+        }
+      ]
+    },
+    {
+      "id": "actually-tuesday",
+      "about": "Lead switches day after Monday times were offered",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 10:00",
+          "2026-10-05 10:30",
+          "2026-10-05 11:00"
+        ],
+        "text": "Monday, Oct 5: 10:00 AM, 10:30 AM, or 11:00 AM?"
+      },
+      "turns": [
+        {
+          "user": "Actually Tuesday would be better",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "tue"
+          }
+        }
+      ]
+    },
+    {
+      "id": "not-ready",
+      "about": "Lead declines scheduling for now",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "offered": {
+        "kind": "consult",
+        "slots": [
+          "2026-10-05 10:00",
+          "2026-10-05 10:30"
+        ],
+        "text": "I have Monday at 10:00 AM or 10:30 AM. Which works?"
+      },
+      "turns": [
+        {
+          "user": "Not ready to schedule yet, just looking for now",
+          "expect": {
+            "noBooking": true,
+            "replyNotMatches": "\\b([1-9]|1[0-2])(:[0-5]\\d)?\\s?(am|pm)\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "question-mid-booking",
+      "about": "Lead asks a property question while times are on the table; answer it, don't book",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "property": "oak",
+      "offered": {
+        "kind": "showing",
+        "slots": [
+          "2026-10-03 10:00",
+          "2026-10-03 10:30",
+          "2026-10-03 11:00"
+        ],
+        "text": "For 12 Oak St I have Saturday at 10:00 AM, 10:30 AM, or 11:00 AM."
+      },
+      "turns": [
+        {
+          "user": "Before I pick, how many bedrooms is it?",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "\\b(3|three)\\b"
+          }
+        }
+      ]
+    }
+  ]
+}

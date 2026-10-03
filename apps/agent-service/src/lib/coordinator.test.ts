@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  lastOutboundOfferedTimes,
   lastOutboundWasSchedulingPrompt,
   looksLikeInfoQuestion,
   looksLikeSchedulingMessage,
+  namesSpecificTime,
   resolvePlaybook,
   wantsToSchedule,
   type ContactContext,
@@ -49,6 +51,28 @@ test("agent asking when they're available is a scheduling prompt", () => {
     true,
   );
   assert.equal(looksLikeSchedulingMessage("Saturday around 2"), true);
+});
+
+test("follow-ups after times were offered stay in scheduling", () => {
+  const offered = "Sure! How about these options for later in the afternoon on Monday?\n\n1. 1:00 PM\n2. 1:30 PM\n3. 2:00 PM\n\nLet me know what works for you!";
+  assert.equal(lastOutboundOfferedTimes(offered), true);
+  assert.equal(lastOutboundWasSchedulingPrompt(offered), true);
+  assert.equal(looksLikeInfoQuestion("Any time later in the day?"), false);
+  assert.equal(resolvePlaybook({ ...baseCtx, readyToBook: true }, "Any time later in the day?"), "scheduler");
+  assert.equal(resolvePlaybook({ ...baseCtx, readyToBook: true }, "Great, 2pm works for me"), "scheduler");
+  assert.equal(
+    lastOutboundOfferedTimes("Your showing is confirmed for Monday at 2:00 PM."),
+    false,
+  );
+});
+
+test("picking a specific time is detected, ruling one out is not", () => {
+  for (const body of ["Great, 2pm works for me", "How about 10:30am?", "Lets do 11:30am", "10:00am"]) {
+    assert.equal(namesSpecificTime(body), true, body);
+  }
+  for (const body of ["2pm doesn't work for me", "Not 10am", "Can't do 3 pm", "Any time later in the day?"]) {
+    assert.equal(namesSpecificTime(body), false, body);
+  }
 });
 
 test("schedule intent routes to scheduler even before intake is complete", () => {

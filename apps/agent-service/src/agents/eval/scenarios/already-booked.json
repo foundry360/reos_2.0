@@ -1,0 +1,92 @@
+{
+  "scenarios": [
+    {
+      "id": "thanks-after-booking",
+      "about": "Already booked; a thank-you must not restart scheduling",
+      "contact": {
+        "email": "sam@example.com",
+        "apptBooked": true,
+        "leadStatus": "Converted"
+      },
+      "phoneOnFile": true,
+      "upcoming": [
+        [
+          "2026-10-03 10:00",
+          "2026-10-03 10:30",
+          "Consult - Sam Rivera"
+        ]
+      ],
+      "history": [
+        [
+          "user",
+          "10am Saturday"
+        ],
+        [
+          "assistant",
+          "You're all set for Sat, Oct 3 at 10:00 AM. A calendar invite was emailed to you."
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Thanks!",
+          "expect": {
+            "noBooking": true,
+            "replyNotMatches": "what time|which day|morning or afternoon|open times"
+          }
+        }
+      ]
+    },
+    {
+      "id": "when-is-my-appointment",
+      "about": "Lead asks when their appointment is",
+      "contact": {
+        "email": "sam@example.com",
+        "apptBooked": true,
+        "leadStatus": "Converted"
+      },
+      "phoneOnFile": true,
+      "upcoming": [
+        [
+          "2026-10-03 10:00",
+          "2026-10-03 10:30",
+          "Consult - Sam Rivera"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "What time is my appointment again?",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "10(:00)?\\s?am"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reschedule-to-sunday",
+      "about": "Booked lead asks to move to Sunday; check Sunday, never claim it moved without booking",
+      "contact": {
+        "email": "sam@example.com",
+        "apptBooked": true,
+        "leadStatus": "Converted"
+      },
+      "phoneOnFile": true,
+      "upcoming": [
+        [
+          "2026-10-03 10:00",
+          "2026-10-03 10:30",
+          "Consult - Sam Rivera"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Something came up, can we move it to Sunday instead?",
+          "expect": {
+            "checksCalendar": true,
+            "replyMatches": "sun"
+          }
+        }
+      ]
+    }
+  ]
+}

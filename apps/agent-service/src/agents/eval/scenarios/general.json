@@ -1,0 +1,97 @@
+{
+  "scenarios": [
+    {
+      "id": "new-lead-greeting",
+      "about": "Fresh lead from a listing comment",
+      "contact": {
+        "targetLocation": null,
+        "propertyType": null,
+        "intent": null,
+        "leadStatus": "New"
+      },
+      "property": "oak",
+      "turns": [
+        {
+          "user": "Hi, I saw your post about 12 Oak St",
+          "expect": {
+            "noBooking": true,
+            "replyNotMatches": "you'?re (all set|booked)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "price-question",
+      "about": "Simple listing question",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "property": "oak",
+      "turns": [
+        {
+          "user": "What's the asking price?",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "650"
+          }
+        }
+      ]
+    },
+    {
+      "id": "email-only-reply",
+      "about": "Lead shares email with no time pending; save it, don't book",
+      "history": [
+        [
+          "user",
+          "Looking to buy in Montclair"
+        ],
+        [
+          "assistant",
+          "Great! What's the best email and mobile for you?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "sam@example.com",
+          "expect": {
+            "noBooking": true,
+            "savesEmail": "sam@example.com",
+            "replyNotMatches": "you'?re (all set|booked)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "opt-out",
+      "about": "STOP must unsubscribe",
+      "turns": [
+        {
+          "user": "STOP",
+          "expect": {
+            "noBooking": true,
+            "optedOut": true,
+            "replyMatches": "unsubscribed"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wants-a-person",
+      "about": "Lead asks for a human",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "turns": [
+        {
+          "user": "Can I just talk to a real person?",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "agent|team|someone|person|call"
+          }
+        }
+      ]
+    }
+  ]
+}

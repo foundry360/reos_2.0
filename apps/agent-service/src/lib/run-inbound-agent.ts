@@ -6,6 +6,8 @@ import {
   looksLikeSchedulingMessage,
   looksLikeScheduleAffirmation,
   lastOutboundWasSchedulingPrompt,
+  lastOutboundOfferedTimes,
+  namesSpecificTime,
   looksLikeGratitude,
   looksLikeScheduleDecline,
   hasCoreIntake,
@@ -19,21 +21,15 @@ import {
   type AgentPlaybook,
   type ContactContext,
 } from "@/lib/coordinator";
-import { appendToThread, getThread } from "@/lib/conversation-store";
-import {
-  appendMessage,
-  getRecentMessages,
-  updateContactFields,
-} from "@/lib/db/contacts";
-import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
-import { applyToolCalls } from "@/lib/apply-tools";
 import { extractQualificationFromInbound } from "@/lib/extract-qualification";
-import { isSupabaseConfigured } from "@/lib/env";
 import { runAgentTurn } from "@/lib/llm/openai";
-import { loadTenantSchedule } from "@/lib/calendar/consult-appointments";
-import { describeWorkingHours, normalizeWorkingHours } from "@/lib/calendar/working-hours";
-import { describePostForAgent, getContactPropertyInterest } from "@/lib/meta/post-context";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { describeWorkingHours } from "@/lib/calendar/working-hours";
+import { describePostForAgent } from "@/lib/meta/post-context";
+import type { AgentBackend } from "@/lib/agent/backend";
+import { applyCompliance } from "@/lib/agent/compliance";
+import { tenantAgentVersion } from "@/lib/agent/agent-version";
+import { liveBackend } from "@/lib/agent/live-backend";
+import { runLeadAgent } from "@/lib/agent/run-lead-agent";
 
 export type AgentChannel = "sms" | "messenger" | "instagram";
 
@@ -43,65 +39,6 @@ export interface InboundAgentResult {
   contactId?: string;
   /** True when compliance blocked the agent (opt-out). */
   optedOut: boolean;
-}
-
-const OPT_OUT_KEYWORDS = new Set([
-  "stop",
-  "unsubscribe",
-  "cancel",
-  "quit",
-  "end",
-  "remove me",
-  "don't text",
-  "do not text",
-  "dont text",
-]);
-
-function isOptOutMessage(body: string): boolean {
-  const normalized = body.trim().toLowerCase();
-  if (OPT_OUT_KEYWORDS.has(normalized)) return true;
-  return (
-    normalized === "stop texting" ||
-    normalized === "please stop" ||
-    normalized === "not interested"
-  );
-}
-
-async function applyCompliance(
-  ctx: ContactContext,
-  body: string,
-): Promise<boolean> {
-  if (ctx.optedOut) return true;
-  if (!isOptOutMessage(body)) return false;
-  if (ctx.contactId) {
-    await updateContactFields(ctx.contactId, {
-      opted_out: true,
-      ready_to_book: false,
-    });
-  }
-  return true;
-}
-
-async function isPlaybookEnabled(
-  tenantId: string,
-  playbook: AgentPlaybook,
-): Promise<boolean> {
-  if (playbook === "none") return false;
-  const db = getSupabaseAdmin();
-  if (!db || tenantId === "default-tenant") return true;
-
-  const { data } = await db
-    .from("tenant_agents")
-    .select("concierge_enabled, scheduler_enabled, follow_up_enabled")
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-
-  if (!data) return true;
-
-  if (playbook === "concierge") return data.concierge_enabled !== false;
-  if (playbook === "scheduler") return data.scheduler_enabled !== false;
-  if (playbook === "follow_up") return data.follow_up_enabled !== false;
-  return true;
 }
 
 function buildContextBlock(
@@ -197,69 +134,52 @@ export function sanitizeChatHistory(
 }
 
 async function loadHistory(
-  tenantId: string,
+  backend: AgentBackend,
   threadKey: string,
   contactId?: string,
 ): Promise<ChatCompletionMessageParam[]> {
-  if (isSupabaseConfigured() && contactId) {
-    const rows = await getRecentMessages(contactId);
-    if (rows.length > 0) {
-      return sanitizeChatHistory(rows);
-    }
-  }
-  return sanitizeChatHistory(
-    getThread(tenantId, threadKey).map((m) => ({
-      role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
-      content: typeof m.content === "string" ? m.content : "",
-    })),
-  );
+  return sanitizeChatHistory(await backend.loadMessages({ threadKey, contactId }));
 }
 
-async function persistInbound(params: {
-  tenantId: string;
-  threadKey: string;
-  contactId?: string;
-  channel: string;
-  userBody: string;
-  contextLabel?: string | null;
-}): Promise<void> {
-  const { tenantId, threadKey, contactId, channel, userBody } = params;
-  if (isSupabaseConfigured() && contactId && tenantId !== "default-tenant") {
-    await appendMessage({
-      tenantId,
-      contactId,
-      channel,
-      direction: "inbound",
-      body: userBody,
-      contextLabel: params.contextLabel,
-    });
-    return;
-  }
-  appendToThread(tenantId, threadKey, { role: "user", content: userBody });
+export async function persistInbound(
+  backend: AgentBackend,
+  params: {
+    threadKey: string;
+    contactId?: string;
+    channel: string;
+    userBody: string;
+    contextLabel?: string | null;
+  },
+): Promise<void> {
+  await backend.appendMessage({
+    threadKey: params.threadKey,
+    contactId: params.contactId,
+    channel: params.channel,
+    direction: "inbound",
+    body: params.userBody,
+    contextLabel: params.contextLabel,
+  });
 }
 
-async function persistOutbound(params: {
-  tenantId: string;
-  threadKey: string;
-  contactId?: string;
-  channel: AgentChannel;
-  reply: string;
-  playbook: AgentPlaybook;
-}): Promise<void> {
-  const { tenantId, threadKey, contactId, channel, reply, playbook } = params;
-  if (!reply) return;
-  if (isSupabaseConfigured() && contactId && tenantId !== "default-tenant") {
-    await appendMessage({
-      tenantId,
-      contactId,
-      channel,
-      direction: "outbound",
-      body: reply,
-      playbook,
-    });
-    return;
-  }
-  appendToThread(tenantId, threadKey, { role: "assistant", content: reply });
+export async function persistOutbound(
+  backend: AgentBackend,
+  params: {
+    threadKey: string;
+    contactId?: string;
+    channel: AgentChannel;
+    reply: string;
+    playbook: AgentPlaybook;
+  },
+): Promise<void> {
+  if (!params.reply) return;
+  await backend.appendMessage({
+    threadKey: params.threadKey,
+    contactId: params.contactId,
+    channel: params.channel,
+    direction: "outbound",
+    body: params.reply,
+    playbook: params.playbook,
+  });
 }
 
 /**
@@ -278,24 +198,33 @@ export async function runInboundAgent(params: {
   inboundContextLabel?: string | null;
   /** contextNote already describes the post, so skip the stored property-of-interest lookup. */
   includesPostContext?: boolean;
+  /** Side-effect layer; defaults to live Supabase. Evals pass a sandbox. */
+  backend?: AgentBackend;
+  /** Override the configured OpenAI model (evals). */
+  model?: string;
 }): Promise<InboundAgentResult> {
   const { ctx, body, channel } = params;
   const inboundChannel = params.inboundChannel ?? channel;
   const tenantId = ctx.accountId ?? "default-tenant";
   const threadKey = ctx.phone;
 
-  if (await applyCompliance(ctx, body)) {
-    const reply = ctx.optedOut ? "" : "You have been unsubscribed.";
-    await persistInbound({
-      tenantId,
+  if (!params.backend && (await tenantAgentVersion(tenantId)) === 2) {
+    return runLeadAgent({ ...params, channel });
+  }
+
+  const backend = params.backend ?? liveBackend(tenantId);
+
+  const alreadyOptedOut = ctx.optedOut;
+  if (await applyCompliance(backend, ctx, body)) {
+    const reply = alreadyOptedOut ? "" : "You have been unsubscribed.";
+    await persistInbound(backend, {
       threadKey,
       contactId: ctx.contactId,
       channel: inboundChannel,
       userBody: body,
       contextLabel: params.inboundContextLabel,
     });
-    await persistOutbound({
-      tenantId,
+    await persistOutbound(backend, {
       threadKey,
       contactId: ctx.contactId,
       channel,
@@ -311,7 +240,7 @@ export async function runInboundAgent(params: {
   }
 
   // Peek last assistant line before routing (inbound not persisted yet).
-  const historyPeek = await loadHistory(tenantId, threadKey, ctx.contactId);
+  const historyPeek = await loadHistory(backend, threadKey, ctx.contactId);
   const lastAssistant = [...historyPeek]
     .reverse()
     .find((m) => m.role === "assistant");
@@ -322,6 +251,7 @@ export async function runInboundAgent(params: {
     !ctx.apptBooked &&
     !looksLikeGratitude(body) &&
     (wantsToSchedule(body) ||
+      (lastOutboundOfferedTimes(lastAssistantText) && !looksLikeScheduleDecline(body)) ||
       (looksLikeSchedulingMessage(body) &&
         !looksLikeScheduleDecline(body) &&
         lastOutboundWasSchedulingPrompt(lastAssistantText)) ||
@@ -342,7 +272,7 @@ export async function runInboundAgent(params: {
       ctx.readyToBook = true;
     }
     if (Object.keys(patch).length > 0) {
-      await updateContactFields(ctx.contactId, patch);
+      await backend.patchContact(ctx.contactId, patch);
     }
   }
 
@@ -353,12 +283,12 @@ export async function runInboundAgent(params: {
     !wantsToSchedule(body) &&
     ctx.contactId
   ) {
-    await updateContactFields(ctx.contactId, { ready_to_book: false });
+    await backend.patchContact(ctx.contactId, { ready_to_book: false });
     ctx.readyToBook = false;
   }
 
   let playbook = resolvePlaybook(ctx, body);
-  if (playbook !== "none" && !(await isPlaybookEnabled(tenantId, playbook))) {
+  if (playbook !== "none" && !(await backend.playbookEnabled(playbook))) {
     playbook = "none";
   }
 
@@ -371,13 +301,12 @@ export async function runInboundAgent(params: {
     !scheduleIntent &&
     ctx.contactId
   ) {
-    await updateContactFields(ctx.contactId, { ready_to_book: false });
+    await backend.patchContact(ctx.contactId, { ready_to_book: false });
     ctx.readyToBook = false;
   }
 
   // Always store the lead's message first so a later LLM failure still shows in CRM.
-  await persistInbound({
-    tenantId,
+  await persistInbound(backend, {
     threadKey,
     contactId: ctx.contactId,
     channel: inboundChannel,
@@ -394,7 +323,7 @@ export async function runInboundAgent(params: {
     };
   }
 
-  const history = await loadHistory(tenantId, threadKey, ctx.contactId);
+  const history = await loadHistory(backend, threadKey, ctx.contactId);
   // History already includes the inbound we just saved — do not duplicate as userMessage.
   const historyWithoutCurrent = history.slice(0, -1);
   const last = history[history.length - 1];
@@ -408,7 +337,7 @@ export async function runInboundAgent(params: {
   ).length;
   const hasSmsIdentity =
     channel === "sms" ||
-    (ctx.contactId ? await contactHasSmsIdentity(ctx.contactId) : false);
+    (ctx.contactId ? await backend.hasSmsIdentity(ctx.contactId) : false);
 
   // Capture email / phone as soon as they share it (before booking tools run).
   const inboundEmail = extractEmailAddress(body);
@@ -419,9 +348,9 @@ export async function runInboundAgent(params: {
     inboundEmail !== (ctx.email ?? "").toLowerCase() &&
     (playbook === "scheduler" || scheduleIntent || playbook === "concierge")
   ) {
-    await updateContactFields(ctx.contactId, { email: inboundEmail });
+    await backend.patchContact(ctx.contactId, { email: inboundEmail });
     ctx.email = inboundEmail;
-    ctx.contactId = await reconcileContactByEmailOrPhone(ctx.contactId, {
+    ctx.contactId = await backend.reconcileContact(ctx.contactId, {
       email: inboundEmail,
     });
   }
@@ -432,9 +361,9 @@ export async function runInboundAgent(params: {
 
   const propertyInterest = params.includesPostContext
     ? null
-    : await getContactPropertyInterest(ctx.contactId);
+    : await backend.propertyInterest(ctx.contactId);
   const note = [
-    await todayLine(tenantId),
+    await todayLine(backend),
     params.contextNote,
     propertyInterest
       ? describePostForAgent(propertyInterest).replace(
@@ -461,7 +390,11 @@ export async function runInboundAgent(params: {
         contactId: ctx.contactId,
         email: ctx.email,
         phoneOnFile: hasSmsIdentity || Boolean(inboundPhone),
-        leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,      },
+        forceBooking: playbook === "scheduler" && namesSpecificTime(userMessage),
+        leadName: [ctx.firstName, ctx.lastName].filter(Boolean).join(" ") || undefined,
+        backend,
+        model: params.model,
+      },
     );
     reply = turn.reply;
     toolCalls = turn.toolCalls;
@@ -540,14 +473,14 @@ export async function runInboundAgent(params: {
   const bookingAttemptFailed =
     !bookingSucceeded && toolCalls.some((tc) => tc.name === "book_appointment");
   const claimsBooked =
-    /\b(you'?re (all set|booked)|(is|are|i'?ve|have) (now )?booked|invite (was |has been )?sent|confirmed for|i'?ll (confirm|book|lock) (it|that|this)|one moment)\b/i.test(
+    /\b(you['’]?re (all set|booked|scheduled|confirmed)|(is|are|i['’]?ve|i have|have|has been|been) (now |all )?(booked|scheduled|confirmed|set up|reserved)|(scheduled|booked|confirmed) (you|your)|invite (was |has been )?sent|confirmed for|i['’]?ll (confirm|book|lock) (it|that|this)|one moment)\b/i.test(
       reply,
     );
   if (!bookedThisTurn) {
     for (const tc of toolCalls) {
-      if (tc.name === "update_contact" && tc.args.appt_booked === true) {
-        delete tc.args.appt_booked;
-      }
+      if (tc.name !== "update_contact") continue;
+      delete tc.args.appt_booked;
+      if (tc.args.lead_status === "Converted") delete tc.args.lead_status;
     }
     if (claimsBooked && !ctx.apptBooked) {
       reply = bookingAttemptFailed
@@ -683,15 +616,14 @@ export async function runInboundAgent(params: {
     }
   }
 
-  await persistOutbound({
-    tenantId,
+  await persistOutbound(backend, {
     threadKey,
     contactId: ctx.contactId,
     channel,
     reply,
     playbook,
   });
-  const survivorId = await applyToolCalls(ctx.contactId, toolCalls);
+  const survivorId = await backend.applyToolCalls(ctx.contactId, toolCalls);
   if (survivorId) ctx.contactId = survivorId;
 
   return {
@@ -702,18 +634,15 @@ export async function runInboundAgent(params: {
   };
 }
 
-async function todayLine(tenantId: string): Promise<string> {
-  const { timeZone, workingHours } =
-    tenantId === "default-tenant"
-      ? { timeZone: "America/New_York", workingHours: normalizeWorkingHours(null) }
-      : await loadTenantSchedule(tenantId);
+async function todayLine(backend: AgentBackend): Promise<string> {
+  const { timeZone, workingHours } = await backend.schedule();
   const today = new Intl.DateTimeFormat("en-US", {
     timeZone,
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-  }).format(new Date());
+  }).format(backend.now());
   const showings = workingHours.showingsOnDaysOff
     ? " Showings can also be booked on days off."
     : "";
@@ -778,16 +707,4 @@ function historyAlreadyDeclinedContactInfo(
     if (looksLikeContactInfoDecline(m.content)) return true;
   }
   return false;
-}
-
-async function contactHasSmsIdentity(contactId: string): Promise<boolean> {
-  const db = getSupabaseAdmin();
-  if (!db) return false;
-  const { data } = await db
-    .from("contact_identities")
-    .select("id")
-    .eq("contact_id", contactId)
-    .eq("channel", "sms")
-    .maybeSingle();
-  return Boolean(data?.id);
 }

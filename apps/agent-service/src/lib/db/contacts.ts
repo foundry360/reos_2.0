@@ -737,7 +737,7 @@ export async function appendMessage(params: {
 export async function getRecentMessages(
   contactId: string,
   limit = 20,
-): Promise<Array<{ role: "user" | "assistant"; content: string }>> {
+): Promise<Array<{ role: "user" | "assistant"; content: string; createdAt?: string }>> {
   const db = getSupabaseAdmin();
   if (!db) return [];
 
@@ -749,11 +749,13 @@ export async function getRecentMessages(
       .eq("contact_id", contactId)
       .order("created_at", { ascending: false })
       .limit(limit)
-      .returns<Array<{ direction: string; body: string; context_label?: string | null }>>();
+      .returns<
+        Array<{ direction: string; body: string; context_label?: string | null; created_at?: string }>
+      >();
 
   // context_label arrives with migration 050; keep history working before it is applied.
-  const withLabels = await recent("direction, body, context_label");
-  const data = withLabels.error ? (await recent("direction, body")).data : withLabels.data;
+  const withLabels = await recent("direction, body, context_label, created_at");
+  const data = withLabels.error ? (await recent("direction, body, created_at")).data : withLabels.data;
 
   if (!data) return [];
 
@@ -763,6 +765,7 @@ export async function getRecentMessages(
     .map((m) => ({
       role: m.direction === "inbound" ? ("user" as const) : ("assistant" as const),
       content: m.context_label ? `[${m.context_label}] ${m.body}` : m.body,
+      createdAt: m.created_at,
     }));
 }
 

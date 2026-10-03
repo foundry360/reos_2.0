@@ -1,0 +1,294 @@
+{
+  "scenarios": [
+    {
+      "id": "direct-time-with-contact",
+      "about": "Lead with email and mobile on file asks for a specific open time",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "history": [
+        [
+          "user",
+          "Hi, I'm looking to buy a single family home in Montclair"
+        ],
+        [
+          "assistant",
+          "Great, Montclair has a lot to offer. What's your timeline for buying?"
+        ],
+        [
+          "user",
+          "Next 2-3 months, pre-approved"
+        ],
+        [
+          "assistant",
+          "Perfect. Want me to help pick a time for a quick consult with the team?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Can we do Monday at 2pm?",
+          "expect": {
+            "book": "2026-10-05 14:00"
+          }
+        }
+      ]
+    },
+    {
+      "id": "direct-time-no-email",
+      "about": "Specific time but no email or mobile yet: hold the time, ask for both",
+      "history": [
+        [
+          "user",
+          "Hi, I'm looking to buy in Montclair"
+        ],
+        [
+          "assistant",
+          "Great! What's your timeline?"
+        ],
+        [
+          "user",
+          "Pretty soon, pre-approved already"
+        ],
+        [
+          "assistant",
+          "Want me to help pick a consult time?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Can we do Monday at 2pm?",
+          "expect": {
+            "noBooking": true,
+            "asksContactInfo": true,
+            "replyMatches": "\\b2(:00)?\\s?pm\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "contact-info-completes-booking",
+      "about": "Lead sends email + mobile after the agent held a time",
+      "history": [
+        [
+          "user",
+          "Can we do Monday at 2pm?"
+        ],
+        [
+          "assistant",
+          "Great, Mon, Oct 5, 2:00 PM is open. What's the best email and mobile to send the confirmation to?"
+        ]
+      ],
+      "contact": {
+        "readyToBook": true
+      },
+      "turns": [
+        {
+          "user": "sam@example.com 973-555-0142",
+          "expect": {
+            "book": "2026-10-05 14:00",
+            "savesEmail": "sam@example.com"
+          }
+        }
+      ]
+    },
+    {
+      "id": "taken-time",
+      "about": "Requested time is already booked: offer real alternatives, never claim booked",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "busy": [
+        [
+          "2026-10-05 14:00",
+          "2026-10-05 15:00"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "How about Monday at 2pm?",
+          "expect": {
+            "noBooking": true,
+            "checksCalendar": true,
+            "replyMatches": "\\b([1-9]|1[0-2])(:[0-5]\\d)?\\s?(am|pm)\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "outside-hours",
+      "about": "Requested time is after hours",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "turns": [
+        {
+          "user": "Can we do Tuesday at 7pm?",
+          "expect": {
+            "noBooking": true,
+            "replyNotMatches": "you'?re (all set|booked)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "tomorrow-morning-showing",
+      "about": "Lead asks to see the listing tomorrow morning; offer real Saturday morning times",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "property": "oak",
+      "history": [
+        [
+          "user",
+          "[Comment on 12 Oak St] Is this still available?"
+        ],
+        [
+          "assistant",
+          "Hi Sam! Yes, 12 Oak St is still available. Would you like to set up a private showing?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Can we see it tomorrow morning?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "\\b(10|11)(:[0-5]\\d)?\\s?am\\b",
+            "replyNotMatches": "reach out|get back to you"
+          }
+        }
+      ]
+    },
+    {
+      "id": "showing-specific-saturday",
+      "about": "Showing request with day and time on a listing",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "property": "oak",
+      "turns": [
+        {
+          "user": "Can I see 12 Oak St Saturday at 11?",
+          "expect": {
+            "book": "2026-10-03 11:00"
+          }
+        }
+      ]
+    },
+    {
+      "id": "this-weekend-showing",
+      "about": "Open-ended weekend showing request",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "property": "oak",
+      "turns": [
+        {
+          "user": "Does this weekend work for a showing?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "sat|sun"
+          }
+        }
+      ]
+    },
+    {
+      "id": "any-time-tuesday",
+      "about": "Lead is flexible on a named day",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "history": [
+        [
+          "assistant",
+          "Want me to help pick a consult time?"
+        ],
+        [
+          "user",
+          "Sure"
+        ],
+        [
+          "assistant",
+          "Which day works best for you?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Any time Tuesday works",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "\\b([1-9]|1[0-2])(:[0-5]\\d)?\\s?(am|pm)\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "after-four-tuesday",
+      "about": "Lead gives a lower bound on time",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "turns": [
+        {
+          "user": "Anything after 4 on Tuesday?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "\\b4:(00|30)\\s?pm\\b",
+            "replyNotMatches": "\\b(9|10|11)(:[0-5]\\d)?\\s?am\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "earliest-available",
+      "about": "Lead wants the soonest time",
+      "contact": {
+        "email": "sam@example.com",
+        "readyToBook": true
+      },
+      "phoneOnFile": true,
+      "turns": [
+        {
+          "user": "What's the earliest you have?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "\\b([1-9]|1[0-2])(:[0-5]\\d)?\\s?(am|pm)\\b"
+          }
+        }
+      ]
+    },
+    {
+      "id": "meet-agent-first",
+      "about": "Lead wants a consult before seeing houses",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "turns": [
+        {
+          "user": "I'd like to meet with an agent first before seeing any houses",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "consult|meet|call|time|day|when"
+          }
+        }
+      ]
+    }
+  ]
+}

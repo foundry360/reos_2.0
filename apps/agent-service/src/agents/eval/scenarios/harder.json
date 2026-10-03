@@ -1,0 +1,111 @@
+{
+  "scenarios": [
+    {
+      "id": "question-plus-time",
+      "about": "Question and a specific time in one message: answer it and book",
+      "contact": { "email": "sam@example.com" },
+      "phoneOnFile": true,
+      "property": "oak",
+      "turns": [
+        {
+          "user": "Does it have a yard? And can I see it Sunday at 3?",
+          "expect": { "book": "2026-10-04 15:00", "replyMatches": "yard" }
+        }
+      ]
+    },
+    {
+      "id": "change-time-while-held",
+      "about": "Time held for contact info; lead sends info and a different time",
+      "history": [
+        ["user", "Can we do Monday at 2pm?"],
+        ["assistant", "Great, Mon, Oct 5 at 2:00 PM is open. What's the best email and mobile to send the confirmation to?"]
+      ],
+      "contact": { "readyToBook": true },
+      "turns": [
+        {
+          "user": "Actually 3pm is better. sam@example.com, 973-555-0142",
+          "expect": { "book": "2026-10-05 15:00" }
+        }
+      ]
+    },
+    {
+      "id": "declines-email",
+      "about": "Lead won't share email: don't book, don't claim booked, stay friendly",
+      "history": [
+        ["user", "Can we do Monday at 2pm?"],
+        ["assistant", "Great, Mon, Oct 5 at 2:00 PM is open. What's the best email and mobile to send the confirmation to?"]
+      ],
+      "turns": [
+        {
+          "user": "I'd rather not give my email",
+          "expect": { "noBooking": true }
+        }
+      ]
+    },
+    {
+      "id": "sms-asks-email-only",
+      "about": "On SMS the mobile is known; ask only for email",
+      "channel": "sms",
+      "turns": [
+        {
+          "user": "Can we meet Tuesday at 10am?",
+          "expect": { "noBooking": true, "asksContactInfo": true, "replyNotMatches": "mobile|phone|cell" }
+        }
+      ]
+    },
+    {
+      "id": "sms-email-and-time",
+      "about": "SMS lead sends email with a showing request",
+      "channel": "sms",
+      "property": "oak",
+      "turns": [
+        {
+          "user": "Can I see 12 Oak St tomorrow at 10:30? My email is sam@example.com",
+          "expect": { "book": "2026-10-03 10:30", "savesEmail": "sam@example.com" }
+        }
+      ]
+    },
+    {
+      "id": "past-time-today",
+      "about": "Requested time already passed today",
+      "contact": { "email": "sam@example.com" },
+      "phoneOnFile": true,
+      "turns": [
+        {
+          "user": "Can we do today at 11?",
+          "expect": { "noBooking": true, "replyNotMatches": "you'?re (all set|booked)" }
+        }
+      ]
+    },
+    {
+      "id": "reschedule-then-pick",
+      "about": "Booked lead moves to Sunday and picks a time",
+      "contact": { "email": "sam@example.com", "apptBooked": true, "leadStatus": "Converted" },
+      "phoneOnFile": true,
+      "upcoming": [["2026-10-03 10:00", "2026-10-03 10:30", "Consult - Sam Rivera"]],
+      "turns": [
+        {
+          "user": "Can we move it to Sunday afternoon?",
+          "expect": { "checksCalendar": true, "noBooking": true, "replyMatches": "sun" }
+        },
+        {
+          "user": "2pm Sunday works",
+          "expect": { "book": "2026-10-04 14:00" }
+        }
+      ]
+    },
+    {
+      "id": "vague-yes-to-two-options",
+      "about": "Two times offered, lead says 'yes' without picking: ask which one",
+      "contact": { "email": "sam@example.com", "readyToBook": true },
+      "phoneOnFile": true,
+      "offered": { "kind": "consult", "slots": ["2026-10-05 14:00", "2026-10-05 15:00"], "text": "I have Monday at 2:00 PM or 3:00 PM. Which works?" },
+      "turns": [
+        {
+          "user": "yes",
+          "expect": { "noBooking": true, "replyMatches": "which|2:00|3:00" }
+        }
+      ]
+    }
+  ]
+}

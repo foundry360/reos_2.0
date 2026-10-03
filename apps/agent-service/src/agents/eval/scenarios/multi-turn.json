@@ -1,0 +1,85 @@
+{
+  "scenarios": [
+    {
+      "id": "full-showing-flow",
+      "about": "Listing inquiry to booked showing across four turns",
+      "property": "oak",
+      "history": [
+        [
+          "user",
+          "[Comment on 12 Oak St] Love this one!"
+        ],
+        [
+          "assistant",
+          "Thanks Sam! 12 Oak St just hit the market. Want to see it in person?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Yes I'd like to see it",
+          "expect": {
+            "noBooking": true
+          }
+        },
+        {
+          "user": "Saturday afternoon?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true,
+            "replyMatches": "\\b(12|1)(:[0-5]\\d)?\\s?pm\\b"
+          }
+        },
+        {
+          "user": "1:30 works",
+          "expect": {
+            "noBooking": true,
+            "asksContactInfo": true
+          }
+        },
+        {
+          "user": "sam@example.com and 973-555-0142",
+          "expect": {
+            "book": "2026-10-03 13:30"
+          }
+        }
+      ]
+    },
+    {
+      "id": "monday-then-later-then-pick",
+      "about": "Day, then 'later', then a bare hour",
+      "contact": {
+        "email": "sam@example.com"
+      },
+      "phoneOnFile": true,
+      "history": [
+        [
+          "assistant",
+          "Want me to help pick a consult time?"
+        ]
+      ],
+      "turns": [
+        {
+          "user": "Can we meet Monday?",
+          "expect": {
+            "checksCalendar": true,
+            "noBooking": true
+          }
+        },
+        {
+          "user": "Anything later than that?",
+          "expect": {
+            "noBooking": true,
+            "replyMatches": "\\b(11:30\\s?am|([1-9]|1[0-2])(:[0-5]\\d)?\\s?pm)\\b",
+            "replyNotMatches": "\\b(9|10)(:[0-5]\\d)?\\s?am\\b"
+          }
+        },
+        {
+          "user": "4 o'clock works",
+          "expect": {
+            "book": "2026-10-05 16:00"
+          }
+        }
+      ]
+    }
+  ]
+}

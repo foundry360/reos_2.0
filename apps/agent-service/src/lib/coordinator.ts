@@ -1,5 +1,5 @@
 /** Agent playbooks — mirrors GHL Concierge / Scheduler / Follow-Up routing. */
-export type AgentPlaybook = "concierge" | "scheduler" | "follow_up" | "none";
+export type AgentPlaybook = "concierge" | "scheduler" | "follow_up" | "lead_agent" | "none";
 
 /** Lead pipeline statuses (CRM UI). Routing also uses boolean flags below. */
 export type LeadStatus =
@@ -42,7 +42,7 @@ export interface ContactContext {
 }
 
 const SCHEDULING_HINT =
-  /\b(morning|afternoon|evening|schedule|schedul|book(ing)?|appointment|consult|calendar|available|availability|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|\d{1,2}(:\d{2})?\s*(am|pm))\b/i;
+  /\b(morning|afternoon|evening|noon|tonight|today|weekend|later|earlier|any ?time|other times?|another time|different time|schedule|schedul|book(ing)?|appointment|consult|showing|tour|calendar|available|availability|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|next week|\d{1,2}(:\d{2})?\s*(am|pm))\b/i;
 
 /** Lead is asking to book / meet (not just chatting about mornings in general). */
 const WANTS_SCHEDULE =
@@ -52,7 +52,9 @@ const SHORT_AFFIRM =
   /^(yes|yeah|yep|yup|sure|ok|okay|sounds good|that works|absolutely|please|perfect|great)([.!]|\s+please)?$/i;
 
 const SCHEDULE_PROMPT_HINT =
-  /\b(mornings or afternoons|morning or afternoon|works better|what day|which day|what time|prefer|open times|available times|pull .* times|do mornings|when (are|would|will|can) you|when works|set up a (private )?(showing|tour|consult|call|meeting))\b/i;
+  /\b(mornings or afternoons|morning or afternoon|works better|works best|what works|which time|which one|what day|which day|what time|prefer|open times|available times|pull .* times|do mornings|when (are|would|will|can) you|when works|set up a (private )?(showing|tour|consult|call|meeting)|schedule a (private )?(showing|tour|consult|call|meeting))\b/i;
+
+const CLOCK_TIME = /\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i;
 
 const BOOKING_CONFIRM_HINT =
   /\b(booked|you'?re all set|invite (was )?sent|confirmed for|on the calendar)\b/i;
@@ -85,6 +87,23 @@ export function lastOutboundWasSchedulingPrompt(
   if (!lastAssistantContent?.trim()) return false;
   if (BOOKING_CONFIRM_HINT.test(lastAssistantContent)) return false;
   return SCHEDULE_PROMPT_HINT.test(lastAssistantContent);
+}
+
+const TIME_NEGATION = /\b(not|no|don'?t|doesn'?t|can'?t|won'?t|isn'?t|instead of|other than|besides)\b|n't\b/i;
+
+/** Lead picked a specific clock time ("2pm works", "how about 10:30am?"), not ruling one out. */
+export function namesSpecificTime(body: string): boolean {
+  const t = body.trim();
+  return CLOCK_TIME.test(t) && !TIME_NEGATION.test(t);
+}
+
+/** Last outbound offered specific clock times (lead is mid-booking). */
+export function lastOutboundOfferedTimes(
+  lastAssistantContent: string | undefined | null,
+): boolean {
+  if (!lastAssistantContent?.trim()) return false;
+  if (BOOKING_CONFIRM_HINT.test(lastAssistantContent)) return false;
+  return CLOCK_TIME.test(lastAssistantContent);
 }
 
 /** Polite close after a booking — not a schedule request. */

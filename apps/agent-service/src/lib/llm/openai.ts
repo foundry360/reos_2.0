@@ -13,14 +13,12 @@ import { CONCIERGE_SYSTEM } from "@/agents/concierge";
 import { SCHEDULER_SYSTEM } from "@/agents/scheduler";
 import { FOLLOW_UP_SYSTEM } from "@/agents/follow-up";
 import { applyToolCalls } from "@/lib/apply-tools";
-import {
-  bookReosConsultSlot,
-  getAvailableReosConsultSlots,
-  loadTenantSchedule,
-  resolveBookableStart,
-  type SlotPreference,
-} from "@/lib/calendar/consult-appointments";
+import { type SlotPreference } from "@/lib/calendar/consult-appointments";
 import { formatSlotLabel } from "@/lib/calendar/consult-slots";
+import { checkRequestedStart, findOpenSlots } from "@/lib/calendar/calendar-core";
+import type { AgentBackend } from "@/lib/agent/backend";
+import { liveBackend } from "@/lib/agent/live-backend";
+import { meterUsage } from "@/lib/llm/usage-meter";
 
 const CRM_TOOLS: ChatCompletionTool[] = [
   {
@@ -243,6 +241,8 @@ export interface AgentTurnOptions {
   tenantId?: string;
   contactId?: string;
   email?: string;
+  /** Lead named a specific time: the first model round must call book_appointment. */
+  forceBooking?: boolean;
   /** False when we have no mobile for this lead; book_appointment then waits for one. */
   phoneOnFile?: boolean;
   leadName?: string;
@@ -250,6 +250,10 @@ export interface AgentTurnOptions {
   lastOfferedLabel?: string;
   /** Kind used for get_available_slots this turn; default for a book_appointment that omits kind. */
   lastOfferedKind?: "consult" | "showing";
+  /** Calendar/CRM side effects; defaults to the live Supabase backend. */
+  backend?: AgentBackend;
+  /** Override the configured OpenAI model (evals). */
+  model?: string;
 }
 
 function collectToolCalls(
@@ -275,8 +279,16 @@ async function executeOneTool(
   args: Record<string, unknown>,
   options: AgentTurnOptions,
 ): Promise<unknown> {
+  const backend =
+    options.backend ?? (options.tenantId ? liveBackend(options.tenantId) : null);
+
   if (name === "update_contact") {
-    const survivor = await applyToolCalls(options.contactId, [{ name, args }]);
+    // Booked state is only set by a successful book_appointment, never by the model.
+    delete args.appt_booked;
+    if (args.lead_status === "Converted") delete args.lead_status;
+    const survivor = backend
+      ? await backend.applyToolCalls(options.contactId, [{ name, args }])
+      : await applyToolCalls(options.contactId, [{ name, args }]);
     if (survivor) options.contactId = survivor;
     if (typeof args.email === "string" && args.email.trim()) options.email = args.email.trim();
     if (typeof args.phone === "string" && args.phone.trim()) options.phoneOnFile = true;
@@ -284,7 +296,7 @@ async function executeOneTool(
   }
 
   if (name === "get_available_slots") {
-    if (!options.tenantId) {
+    if (!backend) {
       return { ok: false, error: "Missing tenant for calendar lookup." };
     }
     const preference =
@@ -295,20 +307,28 @@ async function executeOneTool(
         : "any";
     const limit = typeof args.limit === "number" ? args.limit : 3;
     const day = typeof args.day === "string" ? args.day : undefined;
-    const slots = await getAvailableReosConsultSlots({
-      tenantId: options.tenantId,
+    const slots = findOpenSlots({
+      schedule: await backend.schedule(),
+      busy: await backend.busy(),
+      now: backend.now(),
+      kind: args.kind === "showing" ? "showing" : "consult",
       preference,
       day,
       limit,
-      allowWeekends: args.kind === "showing",
     });
     options.lastOfferedKind = args.kind === "showing" ? "showing" : "consult";
     if (slots.ok && slots.slots[0]) options.lastOfferedLabel = slots.slots[0].label;
-    return slots;
+    if (!slots.ok) return slots;
+    const shown = Math.min(Math.max(limit, 1), 4);
+    return {
+      ...slots,
+      slots: slots.slots.slice(0, shown),
+      moreOpenTimes: slots.slots.length > shown,
+    };
   }
 
   if (name === "book_appointment") {
-    if (!options.tenantId) {
+    if (!backend) {
       return { ok: false, error: "Missing tenant for calendar booking." };
     }
     const requested = typeof args.start === "string" ? args.start : "";
@@ -318,11 +338,14 @@ async function executeOneTool(
     const isShowing =
       args.kind === "showing" ||
       (args.kind !== "consult" && (titleSaysShowing || options.lastOfferedKind === "showing"));
-    const resolved = await resolveBookableStart({
-      tenantId: options.tenantId,
+    const schedule = await backend.schedule();
+    const resolved = checkRequestedStart({
+      schedule,
+      busy: await backend.busy(),
+      now: backend.now(),
+      kind: isShowing ? "showing" : "consult",
       start: requested,
       day,
-      allowWeekends: isShowing,
     });
     if (!resolved.ok) {
       console.warn("book_appointment rejected:", JSON.stringify({ requested, day, isShowing }), resolved.error);
@@ -344,8 +367,7 @@ async function executeOneTool(
       options.phoneOnFile === false ? "mobile" : null,
     ].filter(Boolean);
     if (missing.length > 0) {
-      const timeZone = (await loadTenantSchedule(options.tenantId)).timeZone;
-      const label = formatSlotLabel(start, timeZone);
+      const label = formatSlotLabel(start, schedule.timeZone);
       return {
         ok: false,
         needsContactInfo: missing,
@@ -354,14 +376,13 @@ async function executeOneTool(
       };
     }
     const title = typeof args.title === "string" ? args.title.trim() : "";
-    const booked = await bookReosConsultSlot({
-      tenantId: options.tenantId,
+    const booked = await backend.book({
       contactId: options.contactId,
-      start,
-      end,
+      start: resolved.start,
+      end: resolved.end,
       attendeeEmail,
-      leadName: options.leadName,
-      summary: title
+      leadName: options.leadName ?? null,
+      title: title
         ? `${title}${options.leadName && !title.includes(options.leadName) ? ` - ${options.leadName}` : ""}`
         : null,
     });
@@ -405,8 +426,8 @@ export async function runAgentTurn(
   }
 
   const apiKey = await getOpenAIApiKey();
-  const client = new OpenAI({ apiKey });
-  const model = getOpenAIModel();
+  const client = new OpenAI({ apiKey, maxRetries: 5 });
+  const model = options.model ?? getOpenAIModel();
   const tools = toolsFor(playbook);
 
   const messages: ChatCompletionMessageParam[] = [
@@ -428,9 +449,13 @@ export async function runAgentTurn(
       model,
       messages,
       tools,
-      tool_choice: "auto",
+      tool_choice:
+        round === 0 && options.forceBooking && tools?.some((t) => t.type === "function" && t.function.name === "book_appointment")
+          ? { type: "function", function: { name: "book_appointment" } }
+          : "auto",
       max_tokens: 700,
     });
+    meterUsage(model, completion.usage);
 
     const msg = completion.choices[0]?.message;
     if (!msg) break;
@@ -498,6 +523,7 @@ export async function runAgentTurn(
         ],
         max_tokens: 400,
       });
+      meterUsage(model, final.usage);
       reply = final.choices[0]?.message?.content?.trim() || reply;
     } catch (error) {
       console.error("Agent follow-up completion failed:", error);

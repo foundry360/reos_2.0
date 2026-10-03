@@ -1,0 +1,89 @@
+{
+  "defaults": {
+    "now": "2026-10-02T14:00:00-04:00",
+    "channel": "messenger",
+    "timeZone": "America/New_York",
+    "workingHours": {
+      "days": {
+        "sun": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          },
+          {
+            "start": "13:30",
+            "end": "18:00"
+          }
+        ],
+        "mon": [
+          {
+            "start": "10:00",
+            "end": "13:00"
+          },
+          {
+            "start": "13:30",
+            "end": "18:00"
+          }
+        ],
+        "tue": [
+          {
+            "start": "09:00",
+            "end": "17:00"
+          }
+        ],
+        "wed": [
+          {
+            "start": "09:00",
+            "end": "17:00"
+          }
+        ],
+        "thu": [
+          {
+            "start": "09:00",
+            "end": "17:00"
+          }
+        ],
+        "fri": [
+          {
+            "start": "09:00",
+            "end": "17:00"
+          }
+        ],
+        "sat": [
+          {
+            "start": "10:00",
+            "end": "14:00"
+          }
+        ]
+      },
+      "showingsOnDaysOff": true
+    },
+    "contact": {
+      "firstName": "Sam",
+      "lastName": "Rivera",
+      "leadStatus": "Working",
+      "intent": "Buyer",
+      "targetLocation": "Montclair",
+      "propertyType": "Single Family"
+    }
+  },
+  "properties": {
+    "oak": {
+      "caption": "Just listed! 12 Oak St, Montclair. 3 bed / 2 bath colonial, $650K. DM for a private showing.",
+      "permalink": null,
+      "isListing": true,
+      "property": {
+        "address": "12 Oak St",
+        "city": "Montclair",
+        "price": "$650K",
+        "beds": "3",
+        "baths": "2",
+        "sqft": "1,850 sq ft",
+        "status": "Just listed",
+        "openHouse": null,
+        "highlights": "renovated kitchen, fenced yard, walk to train"
+      },
+      "propertySummary": "12 Oak St, Montclair · $650K · 3 bd / 2 ba"
+    }
+  }
+}
