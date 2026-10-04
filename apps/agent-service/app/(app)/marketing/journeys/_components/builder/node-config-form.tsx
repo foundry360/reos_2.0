@@ -4,6 +4,7 @@ import {
   ACTION_TYPES,
   CONDITION_FIELDS,
   CONDITION_OPERATORS,
+  IMPLEMENTED_TRIGGER_EVENTS,
   NOTIFY_RECIPIENTS,
   STEP_FIELD_PATTERN,
   TEMPLATE_TOKENS,
@@ -18,6 +19,7 @@ import {
   type TriggerEventType,
 } from "@/lib/journeys/runtime/contracts";
 import type { JourneyNodeConfig, JourneyNodeType } from "@/lib/journeys/journey-types";
+import { DropdownSelect, type DropdownSelectOption } from "@/components/shell/dropdown-select";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
@@ -52,41 +54,53 @@ function fieldsFor(event: TriggerEventType | null, includeTrigger: boolean) {
   });
 }
 
+/** Prepends an empty choice so a value can be cleared (e.g. "Don't change"). */
+function withClear(options: DropdownSelectOption[], clearLabel?: string): DropdownSelectOption[] {
+  return clearLabel ? [{ value: "", label: clearLabel }, ...options] : options;
+}
+
 function ValueInput({
   id,
   definition,
   value,
   onChange,
+  clearLabel,
 }: {
   id: string;
   definition: FieldDefinition | null;
   value: unknown;
   onChange: (value: string | number | boolean | null) => void;
+  clearLabel?: string;
 }) {
   if (definition?.type === "boolean") {
     return (
-      <select
+      <DropdownSelect
         id={id}
-        className={shell.select}
         value={value === true ? "true" : value === false ? "false" : ""}
-        onChange={(event) => onChange(event.target.value === "" ? null : event.target.value === "true")}
-      >
-        <option value="">Choose…</option>
-        <option value="true">Yes</option>
-        <option value="false">No</option>
-      </select>
+        placeholder={clearLabel ?? "Choose…"}
+        onChange={(next) => onChange(next === "" ? null : next === "true")}
+        options={withClear(
+          [
+            { value: "true", label: "Yes" },
+            { value: "false", label: "No" },
+          ],
+          clearLabel,
+        )}
+      />
     );
   }
   if (definition?.type === "enum" && definition.options) {
     return (
-      <select id={id} className={shell.select} value={str(value)} onChange={(event) => onChange(event.target.value || null)}>
-        <option value="">Choose…</option>
-        {definition.options.map((option) => (
-          <option key={option} value={option}>
-            {option.replace(/_/g, " ")}
-          </option>
-        ))}
-      </select>
+      <DropdownSelect
+        id={id}
+        value={str(value)}
+        placeholder={clearLabel ?? "Choose…"}
+        onChange={(next) => onChange(next || null)}
+        options={withClear(
+          definition.options.map((option) => ({ value: option, label: option.replace(/_/g, " ") })),
+          clearLabel,
+        )}
+      />
     );
   }
   return (
@@ -140,12 +154,11 @@ function RuleEditor({
         <label className={shell.label} htmlFor={`${idPrefix}-field`}>
           Field
         </label>
-        <select
+        <DropdownSelect
           id={`${idPrefix}-field`}
-          className={shell.select}
           value={isStepField ? STEP_FIELD : rule.field}
-          onChange={(event) => {
-            const field = event.target.value;
+          placeholder="Choose a field…"
+          onChange={(field) => {
             const allowed = field && field !== STEP_FIELD ? operatorsForField(field) : [];
             onChange({
               field,
@@ -153,16 +166,16 @@ function RuleEditor({
               value: null,
             });
           }}
-        >
-          <option value="">Choose a field…</option>
-          {fieldsFor(triggerEvent, true).map(([key, def]) => (
-            <option key={key} value={key}>
-              {key.startsWith("opportunity.") ? "Opportunity: " : key.startsWith("trigger.") ? "Event: " : ""}
-              {def.label}
-            </option>
-          ))}
-          {allowSteps && stepOptions.length > 0 ? <option value={STEP_FIELD}>Output of an earlier step…</option> : null}
-        </select>
+          options={[
+            ...fieldsFor(triggerEvent, true).map(([key, def]) => ({
+              value: key,
+              label: `${key.startsWith("opportunity.") ? "Opportunity: " : key.startsWith("trigger.") ? "Event: " : ""}${def.label}`,
+            })),
+            ...(allowSteps && stepOptions.length > 0
+              ? [{ value: STEP_FIELD, label: "Output of an earlier step…" }]
+              : []),
+          ]}
+        />
       </div>
 
       {isStepField ? (
@@ -171,19 +184,13 @@ function RuleEditor({
             <label className={shell.label} htmlFor={`${idPrefix}-step`}>
               Step
             </label>
-            <select
+            <DropdownSelect
               id={`${idPrefix}-step`}
-              className={shell.select}
               value={stepMatch?.[1] ?? ""}
-              onChange={(event) => setStepPath(event.target.value, stepMatch?.[2] ?? "")}
-            >
-              <option value="">Choose…</option>
-              {stepOptions.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              placeholder="Choose…"
+              onChange={(key) => setStepPath(key, stepMatch?.[2] ?? "")}
+              options={stepOptions.map((option) => ({ value: option.key, label: option.label }))}
+            />
           </div>
           <div className={shell.field}>
             <label className={shell.label} htmlFor={`${idPrefix}-output`}>
@@ -204,19 +211,16 @@ function RuleEditor({
         <label className={shell.label} htmlFor={`${idPrefix}-operator`}>
           Operator
         </label>
-        <select
+        <DropdownSelect
           id={`${idPrefix}-operator`}
-          className={shell.select}
           value={rule.operator}
           disabled={operators.length === 0}
-          onChange={(event) => onChange({ ...rule, operator: event.target.value as ConditionRule["operator"] })}
-        >
-          {(operators.length ? operators : (["equals"] as const)).map((operator) => (
-            <option key={operator} value={operator}>
-              {CONDITION_OPERATORS[operator].label}
-            </option>
-          ))}
-        </select>
+          onChange={(operator) => onChange({ ...rule, operator: operator as ConditionRule["operator"] })}
+          options={(operators.length ? operators : (["equals"] as const)).map((operator) => ({
+            value: operator,
+            label: CONDITION_OPERATORS[operator].label,
+          }))}
+        />
       </div>
 
       {needsValue ? (
@@ -305,20 +309,13 @@ export function NodeConfigForm({
           <label className={shell.label} htmlFor={id("event")}>
             Starts when
           </label>
-          <select
+          <DropdownSelect
             id={id("event")}
-            className={shell.select}
             value={event ?? ""}
-            onChange={(e) => set({ event: e.target.value, filters: [] })}
-          >
-            <option value="">Choose an event…</option>
-            {(Object.keys(TRIGGER_EVENTS) as TriggerEventType[]).map((key) => (
-              <option key={key} value={key} disabled={!TRIGGER_EVENTS[key].implemented}>
-                {TRIGGER_EVENTS[key].label}
-                {TRIGGER_EVENTS[key].implemented ? "" : " (coming soon)"}
-              </option>
-            ))}
-          </select>
+            placeholder="Choose an event…"
+            onChange={(next) => set({ event: next, filters: [] })}
+            options={IMPLEMENTED_TRIGGER_EVENTS.map((key) => ({ value: key, label: TRIGGER_EVENTS[key].label }))}
+          />
           {event ? <p className={shell.fieldHint}>{TRIGGER_EVENTS[event].description}</p> : null}
         </div>
         {filters.map((rule, index) => (
@@ -385,8 +382,10 @@ export function NodeConfigForm({
           multiline
         />
         <p className={styles.panelNote}>
-          No AI agent is connected to journeys yet, so this step is recorded as skipped and the journey
-          continues.
+          The AI reads the lead, their recent conversation, and earlier step results, then returns the
+          fields your instructions name (for example sales_ready or score). Check them in a later
+          condition with &ldquo;Output of an earlier step&rdquo;. This step never messages the lead or
+          changes their record.
         </p>
       </>
     );
@@ -398,27 +397,21 @@ export function NodeConfigForm({
           <label className={shell.label} htmlFor={id("action")}>
             Action
           </label>
-          <select
+          <DropdownSelect
             id={id("action")}
-            className={shell.select}
             value={action}
-            onChange={(e) =>
+            placeholder="Choose an action…"
+            onChange={(next) =>
               onChange(
-                e.target.value === "wait"
+                next === "wait"
                   ? { action: "wait", duration: 1, unit: "days" }
-                  : e.target.value === "notify_team"
+                  : next === "notify_team"
                     ? { action: "notify_team", recipients: "assigned_agent" }
-                    : { action: e.target.value },
+                    : { action: next },
               )
             }
-          >
-            <option value="">Choose an action…</option>
-            {Object.entries(ACTION_TYPES).map(([key, def]) => (
-              <option key={key} value={key}>
-                {def.label}
-              </option>
-            ))}
-          </select>
+            options={Object.entries(ACTION_TYPES).map(([key, def]) => ({ value: key, label: def.label }))}
+          />
           {action in ACTION_TYPES ? (
             <p className={shell.fieldHint}>{ACTION_TYPES[action as keyof typeof ACTION_TYPES].description}</p>
           ) : null}
@@ -440,14 +433,13 @@ export function NodeConfigForm({
             <label className={shell.label} htmlFor={id("agent")}>
               Assign to
             </label>
-            <select id={id("agent")} className={shell.select} value={str(config.agentUserId)} onChange={(e) => set({ agentUserId: e.target.value })}>
-              <option value="">Choose a team member…</option>
-              {agentOptions.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.label}
-                </option>
-              ))}
-            </select>
+            <DropdownSelect
+              id={id("agent")}
+              value={str(config.agentUserId)}
+              placeholder="Choose a team member…"
+              onChange={(agentUserId) => set({ agentUserId })}
+              options={agentOptions.map((agent) => ({ value: agent.id, label: agent.label }))}
+            />
           </div>
         ) : null}
 
@@ -488,7 +480,13 @@ export function NodeConfigForm({
                   <label className={shell.label} htmlFor={id(`field-${key}`)}>
                     {def.label}
                   </label>
-                  <ValueInput id={id(`field-${key}`)} definition={def} value={fields[key]} onChange={setField} />
+                  <ValueInput
+                    id={id(`field-${key}`)}
+                    definition={def}
+                    value={fields[key]}
+                    onChange={setField}
+                    clearLabel="Don't change"
+                  />
                 </div>
               );
             })}
@@ -504,13 +502,15 @@ export function NodeConfigForm({
               <label className={shell.label} htmlFor={id("recipients")}>
                 Send to
               </label>
-              <select id={id("recipients")} className={shell.select} value={str(config.recipients) || "assigned_agent"} onChange={(e) => set({ recipients: e.target.value })}>
-                {NOTIFY_RECIPIENTS.map((value) => (
-                  <option key={value} value={value}>
-                    {value === "assigned_agent" ? "The lead's agent" : "Everyone in the workspace"}
-                  </option>
-                ))}
-              </select>
+              <DropdownSelect
+                id={id("recipients")}
+                value={str(config.recipients) || "assigned_agent"}
+                onChange={(recipients) => set({ recipients })}
+                options={NOTIFY_RECIPIENTS.map((value) => ({
+                  value,
+                  label: value === "assigned_agent" ? "The lead's agent" : "Everyone in the workspace",
+                }))}
+              />
             </div>
           </>
         ) : null}
@@ -527,13 +527,12 @@ export function NodeConfigForm({
               <label className={shell.label} htmlFor={id("unit")}>
                 Unit
               </label>
-              <select id={id("unit")} className={shell.select} value={str(config.unit) || "days"} onChange={(e) => set({ unit: e.target.value })}>
-                {WAIT_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
+              <DropdownSelect
+                id={id("unit")}
+                value={str(config.unit) || "days"}
+                onChange={(unit) => set({ unit })}
+                options={WAIT_UNITS.map((unit) => ({ value: unit, label: unit[0].toUpperCase() + unit.slice(1) }))}
+              />
             </div>
           </div>
         ) : null}

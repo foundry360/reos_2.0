@@ -1,5 +1,4 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { createAIStepRouter } from "./ai";
 import {
   dispatchJourneyEvent,
   resumeDueRuns,
@@ -8,6 +7,7 @@ import {
   type JourneyEvent,
 } from "./engine";
 import { createLiveActionExecutor } from "./live-actions";
+import { createLiveJourneyAIExecutor } from "./live-ai";
 import { createSupabaseJourneyStore } from "./supabase-store";
 
 /** Server-only wiring. The service role never leaves this module's callers (server actions, webhooks, cron). */
@@ -17,8 +17,7 @@ export function createLiveEngineDeps(): EngineDeps | null {
   return {
     store: createSupabaseJourneyStore(db),
     actions: createLiveActionExecutor(db),
-    // No AI step executors are registered yet; AI nodes record a skipped step.
-    ai: createAIStepRouter(),
+    ai: createLiveJourneyAIExecutor(),
   };
 }
 

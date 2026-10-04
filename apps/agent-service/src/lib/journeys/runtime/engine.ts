@@ -21,7 +21,7 @@ import {
 } from "./contracts.ts";
 import { evaluateAll, evaluateCondition, type ExecutionContext } from "./conditions.ts";
 import { nextNodeId, stepKeys, triggerNodes, type JourneySnapshot, type SnapshotNode } from "./graph.ts";
-import { runAIStep, type AIStepRouter } from "./ai.ts";
+import { journeyAIStepOutput, type JourneyAIExecutor, type JourneyAIRequest } from "./ai.ts";
 
 // ---------- Types ----------
 
@@ -163,7 +163,7 @@ export interface ActionExecutor {
 export interface EngineDeps {
   store: JourneyRuntimeStore;
   actions: ActionExecutor;
-  ai: AIStepRouter;
+  ai: JourneyAIExecutor;
   now?: () => Date;
 }
 
@@ -187,6 +187,13 @@ const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead"]);
 
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
   return `${event.type}:${event.sourceId}:${journeyId}:v${version}`;
+}
+
+/** A failed AI result becomes a step error so the normal retry/fail path handles it. */
+async function runAINode(executor: JourneyAIExecutor, request: JourneyAIRequest): Promise<ActionResult> {
+  const result = await executor.execute(request);
+  if (!result.success) throw new JourneyStepError(result.error, result.retryable ? "transient" : "config");
+  return { status: "completed", output: journeyAIStepOutput(result) };
 }
 
 function classify(error: unknown): { message: string; kind: ErrorKind } {
@@ -409,24 +416,28 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     await store.updateRun(run.id, { currentNodeId, context: { ...state, inFlight: { nodeId: node.id, stepId } } });
 
     try {
-      const result =
-        node.type === "ai"
-          ? await runAIStep(deps.ai, {
-              tenantId: run.tenantId,
-              runId: run.id,
-              nodeId: node.id,
-              contactId: run.contactId,
-              config: node.config as unknown as AIConfig,
-              context: context(),
-            })
-          : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
-              tenantId: run.tenantId,
-              runId: run.id,
-              nodeId: node.id,
-              contactId: run.contactId,
-              lead: entities.lead,
-              opportunity: entities.opportunity,
-            });
+      const ai = node.type === "ai" ? (node.config as unknown as AIConfig) : null;
+      const result = ai
+        ? await runAINode(deps.ai, {
+            tenantId: run.tenantId,
+            journeyId: run.journeyId,
+            runId: run.id,
+            nodeId: node.id,
+            stepKey: keys.get(node.id) ?? node.id,
+            contactId: run.contactId,
+            agent: ai.agent,
+            goal: ai.goal ?? "",
+            instructions: ai.instructions ?? "",
+            context: context(),
+          })
+        : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
+            tenantId: run.tenantId,
+            runId: run.id,
+            nodeId: node.id,
+            contactId: run.contactId,
+            lead: entities.lead,
+            opportunity: entities.opportunity,
+          });
       const output = result.status === "skipped" ? { ...result.output, skipped_reason: result.reason } : result.output;
       await store.updateStep(stepId, { status: result.status, output, completedAt: now().toISOString() });
       recordOutput(node, output);

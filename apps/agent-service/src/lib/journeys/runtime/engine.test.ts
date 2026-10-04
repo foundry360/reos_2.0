@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import { createAIStepRouter } from "./ai.ts";
+import type { JourneyAIExecutor, JourneyAIRequest, JourneyAIResult } from "./ai.ts";
 import {
   dispatchJourneyEvent,
   executeRun,
@@ -67,6 +67,17 @@ class RecordingActions implements ActionExecutor {
   }
 }
 
+class FakeAI implements JourneyAIExecutor {
+  requests: JourneyAIRequest[] = [];
+  results: Array<JourneyAIResult | Error> = [];
+  async execute(request: JourneyAIRequest): Promise<JourneyAIResult> {
+    this.requests.push(structuredClone(request));
+    const next = this.results.shift() ?? { success: true, output: {}, text: "" };
+    if (next instanceof Error) throw next;
+    return next;
+  }
+}
+
 function leadEvent(sourceId = LEAD, tenantId = TENANT): JourneyEvent {
   return {
     tenantId,
@@ -81,14 +92,16 @@ function leadEvent(sourceId = LEAD, tenantId = TENANT): JourneyEvent {
 
 let store: MemoryJourneyStore;
 let actions: RecordingActions;
+let ai: FakeAI;
 let clock: Date;
 let deps: EngineDeps;
 
 beforeEach(() => {
   store = new MemoryJourneyStore();
   actions = new RecordingActions();
+  ai = new FakeAI();
   clock = new Date("2026-10-01T12:00:00Z");
-  deps = { store, actions, ai: createAIStepRouter(), now: () => new Date(clock) };
+  deps = { store, actions, ai, now: () => new Date(clock) };
   store.contacts.set(LEAD, { tenantId: TENANT, lead: { first_name: "Ana", lead_temperature: "Hot" } });
 });
 
@@ -300,37 +313,163 @@ describe("failures and retries", () => {
   });
 });
 
+const AI_INSTRUCTIONS = "Return sales_ready (boolean), score (0-100), and reason.";
+
+/** Trigger → Assign → AI "Qualify" → Condition on its output → (yes) Text / (no) Task */
+function aiJourney(): JourneySnapshot {
+  return {
+    nodes: [
+      node("t", "trigger", "New lead", { event: "lead.created", filters: [] }),
+      node("a1", "action", "Assign", { action: "assign_lead", agentUserId: "11111111-1111-1111-1111-111111111111" }),
+      node("ai", "ai", "Qualify", { goal: "Is this lead sales ready?", instructions: AI_INSTRUCTIONS, agent: "default" }),
+      node("c", "condition", "Sales ready?", { field: "steps.qualify.output.sales_ready", operator: "equals", value: true }),
+      node("yes", "action", "Text hot lead", { action: "send_sms", body: "Hi {{first_name}}" }),
+      node("no", "action", "Nurture task", { action: "create_task", title: "Nurture", notes: "", dueInDays: 3 }),
+    ],
+    connections: [link("t", "a1"), link("a1", "ai"), link("ai", "c"), link("c", "yes", "yes"), link("c", "no", "no")],
+  };
+}
+
+const READY: JourneyAIResult = {
+  success: true,
+  output: { sales_ready: true, score: 82, reason: "Asked for a showing and confirmed budget." },
+  text: "Ready: asked for a showing and confirmed budget.",
+};
+
 describe("AI steps", () => {
-  it("records a skipped step when no agent is configured and continues", async () => {
-    store.saveJourney(TENANT, "j1", {
-      nodes: [
-        node("t", "trigger", "New lead", { event: "lead.created", filters: [] }),
-        node("ai", "ai", "Qualify", { goal: "Qualify", instructions: "", agent: "default" }),
-        node("s", "action", "Text", { action: "send_sms", body: "Hi" }),
-      ],
-      connections: [link("t", "ai"), link("ai", "s")],
-    });
+  it("executes the AI node, persists its output, and branches on it", async () => {
+    ai.results.push(READY);
+    store.saveJourney(TENANT, "j1", aiJourney());
     const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const runId = outcome.runId!;
+
     assert.equal(outcome.execution?.status, "completed");
-    assert.equal(store.stepsFor(outcome.runId!).find((s) => s.nodeId === "ai")?.status, "skipped");
-    assert.deepEqual(actions.names(), ["send_sms"]);
+    assert.equal(ai.requests.length, 1);
+    const aiStep = store.stepsFor(runId).find((s) => s.nodeId === "ai")!;
+    assert.equal(aiStep.status, "completed");
+    assert.deepEqual(aiStep.output, {
+      sales_ready: true,
+      score: 82,
+      reason: "Asked for a showing and confirmed budget.",
+      ai_response: "Ready: asked for a showing and confirmed budget.",
+    });
+    assert.deepEqual(store.runs.get(runId)!.context.steps.qualify.output, aiStep.output);
+    assert.deepEqual(store.stepsFor(runId).find((s) => s.nodeId === "c")?.output, { result: true, branch: "yes" });
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"]);
   });
 
-  it("routes to a registered agent by key", async () => {
-    deps.ai = createAIStepRouter({
-      qualifier: { run: async () => ({ status: "completed", output: { score: 88 } }) },
-    });
-    store.saveJourney(TENANT, "j1", {
-      nodes: [
-        node("t", "trigger", "New lead", { event: "lead.created", filters: [] }),
-        node("ai", "ai", "Qualify", { goal: "Qualify", instructions: "", agent: "qualifier" }),
-        node("c", "condition", "High score", { field: "steps.qualify.output.score", operator: "greater_than", value: 80 }),
-        node("s", "action", "Text", { action: "send_sms", body: "Hi" }),
-      ],
-      connections: [link("t", "ai"), link("ai", "c"), link("c", "s", "yes")],
-    });
+  it("takes the No branch when the AI says the lead isn't ready", async () => {
+    ai.results.push({ success: true, output: { sales_ready: false, score: 20 }, text: "Just browsing." });
+    store.saveJourney(TENANT, "j1", aiJourney());
     await dispatchJourneyEvent(deps, leadEvent());
-    assert.deepEqual(actions.names(), ["send_sms"]);
+    assert.deepEqual(actions.names(), ["assign_lead", "create_task"]);
+  });
+
+  it("lets numeric conditions read AI scores", async () => {
+    ai.results.push(READY);
+    const journey = aiJourney();
+    journey.nodes[3] = node("c", "condition", "High score", {
+      field: "steps.qualify.output.score",
+      operator: "greater_than_or_equal",
+      value: 80,
+    });
+    store.saveJourney(TENANT, "j1", journey);
+    await dispatchJourneyEvent(deps, leadEvent());
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"]);
+  });
+
+  it("gives the executor the workspace, journey, run, lead, earlier outputs, and instructions", async () => {
+    ai.results.push(READY);
+    store.contacts.get(LEAD)!.opportunity = { stage: "Qualified" };
+    store.saveJourney(TENANT, "j1", aiJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    const [request] = ai.requests;
+    assert.equal(request.tenantId, TENANT);
+    assert.equal(request.journeyId, "j1");
+    assert.equal(request.runId, outcome.runId);
+    assert.equal(request.nodeId, "ai");
+    assert.equal(request.stepKey, "qualify");
+    assert.equal(request.contactId, LEAD);
+    assert.equal(request.agent, "default");
+    assert.equal(request.goal, "Is this lead sales ready?");
+    assert.equal(request.instructions, AI_INSTRUCTIONS);
+    assert.equal(request.context.lead?.first_name, "Ana");
+    assert.deepEqual(request.context.opportunity, { stage: "Qualified" });
+    assert.deepEqual(request.context.trigger, { event: "lead.created", payload: { channel: "sms" } });
+    assert.deepEqual(Object.keys(request.context.steps), ["new_lead", "assign"]);
+    assert.deepEqual(request.context.steps.assign.output, { action: "assign_lead", ok: true });
+  });
+
+  it("marks a failed AI step failed, persists the error, and retries without running later steps", async () => {
+    ai.results.push({ success: false, error: "Model timed out.", retryable: true });
+    store.saveJourney(TENANT, "j1", aiJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const runId = outcome.runId!;
+
+    assert.equal(outcome.execution?.status, "waiting");
+    const failed = store.stepsFor(runId).find((s) => s.nodeId === "ai")!;
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.error, "Model timed out.");
+    assert.equal(failed.errorKind, "transient");
+    assert.equal(failed.output, undefined);
+    const run = store.runs.get(runId)!;
+    assert.equal(run.error, "Model timed out.");
+    assert.equal(run.currentNodeId, "ai");
+    assert.equal(run.resumeAt, "2026-10-01T12:01:00.000Z");
+    assert.equal(run.context.steps.qualify, undefined);
+    assert.equal(store.stepsFor(runId).some((s) => s.nodeId === "c"), false);
+    assert.deepEqual(actions.names(), ["assign_lead"]);
+
+    ai.results.push(READY);
+    advance(60_000);
+    await resumeDueRuns(deps);
+    assert.equal(store.runs.get(runId)!.status, "completed");
+    const attempts = store.stepsFor(runId).filter((s) => s.nodeId === "ai");
+    assert.deepEqual(attempts.map((s) => [s.status, s.attemptCount]), [["failed", 1], ["completed", 2]]);
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"], "the assign step isn't repeated");
+  });
+
+  it(`fails the run after ${MAX_ATTEMPTS} failed AI attempts`, async () => {
+    for (let i = 0; i < MAX_ATTEMPTS; i++) ai.results.push(new Error("Service unavailable"));
+    store.saveJourney(TENANT, "j1", aiJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    for (let i = 0; i < MAX_ATTEMPTS; i++) {
+      advance(60 * 60_000);
+      await resumeDueRuns(deps);
+    }
+    const run = store.runs.get(outcome.runId!)!;
+    assert.equal(run.status, "failed");
+    assert.equal(run.error, "Service unavailable");
+    assert.equal(ai.requests.length, MAX_ATTEMPTS);
+    assert.ok(store.stepsFor(run.id).filter((s) => s.nodeId === "ai").every((s) => s.status === "failed"));
+    assert.deepEqual(actions.names(), ["assign_lead"]);
+  });
+
+  it("fails immediately when the AI step can't succeed by retrying", async () => {
+    ai.results.push({ success: false, error: "AI isn't configured for REOS yet.", retryable: false });
+    store.saveJourney(TENANT, "j1", aiJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    assert.equal(outcome.execution?.status, "failed");
+    const run = store.runs.get(outcome.runId!)!;
+    assert.equal(run.error, "AI isn't configured for REOS yet.");
+    assert.equal(run.resumeAt, null);
+    const step = store.stepsFor(run.id).find((s) => s.nodeId === "ai")!;
+    assert.equal(step.errorKind, "config");
+    assert.deepEqual(actions.names(), ["assign_lead"]);
+  });
+
+  it("never hands the executor a lead from another workspace", async () => {
+    ai.results.push(READY);
+    store.saveJourney(OTHER_TENANT, "j-b", aiJourney());
+    await dispatchJourneyEvent(deps, leadEvent(LEAD, OTHER_TENANT));
+
+    const [request] = ai.requests;
+    assert.equal(request.tenantId, OTHER_TENANT);
+    assert.equal(request.journeyId, "j-b");
+    assert.equal(request.context.lead, null);
+    assert.equal(request.context.opportunity, null);
   });
 });
 

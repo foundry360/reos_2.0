@@ -82,7 +82,7 @@ function allowedTimesFor(params: {
  * Reasoning-era models (gpt-5+, o-series) reject temperature/max_tokens and count thinking toward the limit.
  * GPT-6 Luna only accepts function tools on Chat Completions with reasoning off; Sol/Astra need the Responses API.
  */
-function samplingParams(model: string, maxTokens: number) {
+export function samplingParams(model: string, maxTokens: number) {
   if (/^gpt-6-luna/.test(model)) {
     return { max_completion_tokens: maxTokens, reasoning_effort: "none" as unknown as "low" };
   }
