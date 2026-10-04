@@ -2,9 +2,11 @@
 
 import {
   ACTION_TYPES,
+  AI_OUTPUT_TYPES,
   CONDITION_FIELDS,
   CONDITION_OPERATORS,
   IMPLEMENTED_TRIGGER_EVENTS,
+  MAX_AI_OUTPUT_FIELDS,
   NOTIFY_RECIPIENTS,
   STEP_FIELD_PATTERN,
   TEMPLATE_TOKENS,
@@ -14,6 +16,7 @@ import {
   isTriggerEventType,
   operatorsForField,
   validateNodeConfig,
+  type AIOutputField,
   type ConditionRule,
   type FieldDefinition,
   type TriggerEventType,
@@ -240,6 +243,95 @@ function RuleEditor({
   );
 }
 
+/** Output field names must work as condition paths, so typing is nudged into snake_case. */
+function outputFieldName(value: string): string {
+  return value.toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 60);
+}
+
+function OutputSchemaEditor({
+  idPrefix,
+  fields,
+  onChange,
+}: {
+  idPrefix: string;
+  fields: AIOutputField[];
+  onChange: (fields: AIOutputField[]) => void;
+}) {
+  const update = (index: number, patch: Partial<AIOutputField>) =>
+    onChange(fields.map((field, i) => (i === index ? { ...field, ...patch } : field)));
+
+  return (
+    <div className={shell.field}>
+      <span className={shell.label}>Output fields</span>
+      {fields.map((field, index) => (
+        <div key={index} className={styles.configGroup}>
+          <div className={styles.configGroupHeader}>
+            <span>{field.name || `Field ${index + 1}`}</span>
+            <button
+              type="button"
+              className={styles.configLink}
+              onClick={() => onChange(fields.filter((_, i) => i !== index))}
+            >
+              Remove
+            </button>
+          </div>
+          <div className={shell.fieldRow}>
+            <div className={shell.field}>
+              <label className={shell.label} htmlFor={`${idPrefix}-${index}-name`}>
+                Name
+              </label>
+              <input
+                id={`${idPrefix}-${index}-name`}
+                className={shell.input}
+                value={field.name}
+                placeholder="e.g. sales_ready"
+                onChange={(event) => update(index, { name: outputFieldName(event.target.value) })}
+              />
+            </div>
+            <div className={shell.field}>
+              <label className={shell.label} htmlFor={`${idPrefix}-${index}-type`}>
+                Type
+              </label>
+              <DropdownSelect
+                id={`${idPrefix}-${index}-type`}
+                value={field.type}
+                placeholder="Choose…"
+                onChange={(type) => update(index, { type: type as AIOutputField["type"] })}
+                options={AI_OUTPUT_TYPES.map((type) => ({ value: type, label: type[0].toUpperCase() + type.slice(1) }))}
+              />
+            </div>
+          </div>
+          <div className={shell.field}>
+            <label className={shell.label} htmlFor={`${idPrefix}-${index}-description`}>
+              Description
+            </label>
+            <input
+              id={`${idPrefix}-${index}-description`}
+              className={shell.input}
+              value={field.description}
+              placeholder="Optional, e.g. Readiness score from 0 to 100"
+              onChange={(event) => update(index, { description: event.target.value })}
+            />
+          </div>
+        </div>
+      ))}
+      {fields.length < MAX_AI_OUTPUT_FIELDS ? (
+        <button
+          type="button"
+          className={`${shell.btnSecondary} ${shell.btnPill}`}
+          onClick={() => onChange([...fields, { name: "", type: "string", description: "" }])}
+        >
+          Add output field
+        </button>
+      ) : null}
+      <p className={shell.fieldHint}>
+        Optional. With output fields, the AI must return exactly these names and types or the step fails and
+        retries. Without them, it names its own fields from your instructions.
+      </p>
+    </div>
+  );
+}
+
 function TextField({
   id,
   label,
@@ -381,11 +473,15 @@ export function NodeConfigForm({
           onChange={(instructions) => set({ instructions })}
           multiline
         />
+        <OutputSchemaEditor
+          idPrefix={id("output")}
+          fields={(Array.isArray(config.outputSchema) ? config.outputSchema : []) as AIOutputField[]}
+          onChange={(outputSchema) => set({ outputSchema })}
+        />
         <p className={styles.panelNote}>
-          The AI reads the lead, their recent conversation, and earlier step results, then returns the
-          fields your instructions name (for example sales_ready or score). Check them in a later
-          condition with &ldquo;Output of an earlier step&rdquo;. This step never messages the lead or
-          changes their record.
+          The AI reads the lead, their recent conversation, and earlier step results, then returns its
+          answer as fields (for example sales_ready or score). Check them in a later condition with
+          &ldquo;Output of an earlier step&rdquo;. This step never messages the lead or changes their record.
         </p>
       </>
     );

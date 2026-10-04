@@ -231,12 +231,45 @@ export interface TriggerConfig {
   filters: ConditionRule[];
 }
 
+export const AI_OUTPUT_TYPES = ["string", "number", "boolean"] as const;
+export type AIOutputType = (typeof AI_OUTPUT_TYPES)[number];
+
+export interface AIOutputField {
+  name: string;
+  /** "" only in drafts; activation requires a type. */
+  type: AIOutputType | "";
+  description: string;
+}
+
+/** Output field names double as condition paths (steps.<key>.output.<name>). */
+export const AI_OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,59}$/;
+export const MAX_AI_OUTPUT_FIELDS = 20;
+/** Step output key holding the AI's plain-language explanation. */
+export const AI_TEXT_KEY = "ai_response";
+
 export interface AIConfig {
   /** What the AI step should accomplish. */
   goal: string;
   instructions: string;
   /** Router key for the agent that runs this step. Never a model name. */
   agent: string;
+  /** Optional. When present, the AI must return exactly these fields. */
+  outputSchema?: AIOutputField[];
+}
+
+/** The well-formed fields of an AI node's schema; empty means freeform output. */
+export function aiOutputSchema(config: Partial<AIConfig>): Array<AIOutputField & { type: AIOutputType }> {
+  const fields = Array.isArray(config.outputSchema) ? config.outputSchema : [];
+  const seen = new Set<string>();
+  const usable: Array<AIOutputField & { type: AIOutputType }> = [];
+  for (const field of fields.slice(0, MAX_AI_OUTPUT_FIELDS)) {
+    const name = typeof field?.name === "string" ? field.name : "";
+    const type = AI_OUTPUT_TYPES.includes(field?.type as AIOutputType) ? (field.type as AIOutputType) : null;
+    if (!type || !AI_OUTPUT_NAME_PATTERN.test(name) || name === AI_TEXT_KEY || seen.has(name)) continue;
+    seen.add(name);
+    usable.push({ name, type, description: typeof field.description === "string" ? field.description : "" });
+  }
+  return usable;
 }
 
 export type ConditionConfig = ConditionRule;
@@ -327,7 +360,37 @@ function validateAI(raw: Record<string, unknown>, mode: ValidationMode): ConfigV
   const errors: string[] = [];
   if (mode === "strict" && !goal.trim()) errors.push("Describe the AI step's goal.");
   const agent = typeof raw.agent === "string" && /^[a-z0-9_.-]{1,60}$/.test(raw.agent) ? raw.agent : "default";
-  return { config: { goal, instructions: str(raw.instructions, 2000), agent }, errors };
+  const config: AIConfig = { goal, instructions: str(raw.instructions, 2000), agent };
+
+  // Drafts keep half-typed fields so editing isn't lost; activation flags them.
+  const rawFields = Array.isArray(raw.outputSchema) ? raw.outputSchema.slice(0, MAX_AI_OUTPUT_FIELDS) : [];
+  const outputSchema: AIOutputField[] = rawFields.map((entry) => {
+    const input = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : {};
+    return {
+      name: str(input.name, 60).trim(),
+      type: AI_OUTPUT_TYPES.includes(input.type as AIOutputType) ? (input.type as AIOutputType) : "",
+      description: str(input.description, 300),
+    };
+  });
+  if (outputSchema.length > 0) config.outputSchema = outputSchema;
+
+  if (mode === "strict") {
+    const counts = new Map<string, number>();
+    for (const field of outputSchema) counts.set(field.name, (counts.get(field.name) ?? 0) + 1);
+    outputSchema.forEach((field, index) => {
+      const label = field.name ? `Output field "${field.name}"` : `Output field ${index + 1}`;
+      if (!field.name) errors.push(`${label}: enter a name.`);
+      else if (field.name === AI_TEXT_KEY) errors.push(`${label}: "${AI_TEXT_KEY}" is reserved for the AI's explanation.`);
+      else if (!AI_OUTPUT_NAME_PATTERN.test(field.name)) {
+        errors.push(`${label}: use lowercase letters, numbers, and underscores, starting with a letter.`);
+      }
+      if (field.name && (counts.get(field.name) ?? 0) > 1 && outputSchema.findIndex((f) => f.name === field.name) === index) {
+        errors.push(`${label} is used more than once.`);
+      }
+      if (!field.type) errors.push(`${label}: choose a type.`);
+    });
+  }
+  return { config, errors };
 }
 
 function validateAction(raw: Record<string, unknown>, mode: ValidationMode): ConfigValidation<ActionConfig | { action: "" }> {

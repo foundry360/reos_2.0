@@ -14,6 +14,7 @@ import type {
   NewStep,
   RunPatch,
   RunRecord,
+  RunWriteResult,
   StepPatch,
 } from "./engine.ts";
 
@@ -119,15 +120,16 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     if (run.lockedUntil && new Date(run.lockedUntil) > now) return null;
     run.lockedUntil = leaseUntil.toISOString();
     run.status = "running";
-    return structuredClone(run);
+    return { ...structuredClone(run), lease: run.lockedUntil };
   }
 
-  async updateRun(runId: string, patch: RunPatch) {
+  async updateRun(runId: string, lease: string, patch: RunPatch): Promise<RunWriteResult> {
     const run = this.runs.get(runId);
-    if (!run || run.status === "cancelled") return;
+    if (!run || run.status !== "running" || run.lockedUntil !== lease) return "lease_lost";
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) (run as unknown as Record<string, unknown>)[key] = structuredClone(value);
     }
+    return "updated";
   }
 
   async loadSnapshot(journeyId: string, version: number) {

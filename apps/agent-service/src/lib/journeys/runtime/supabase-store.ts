@@ -194,16 +194,19 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
         .select(RUN_COLUMNS)
         .maybeSingle();
       if (error) fail("claimRun", error);
-      return data ? toRun(data as RunRow) : null;
+      return data ? { ...toRun(data as RunRow), lease: leaseUntil.toISOString() } : null;
     },
 
-    async updateRun(runId, patch) {
-      const { error } = await db
+    async updateRun(runId, lease, patch) {
+      const { data, error } = await db
         .from("journey_runs")
         .update(runPatchRow(patch))
         .eq("id", runId)
-        .neq("status", "cancelled");
+        .eq("status", "running")
+        .eq("locked_until", lease)
+        .select("id");
       if (error) fail("updateRun", error);
+      return data && data.length > 0 ? "updated" : "lease_lost";
     },
 
     async loadSnapshot(journeyId, version) {

@@ -91,6 +91,80 @@ describe("node config validation", () => {
   });
 });
 
+describe("AI output schema validation", () => {
+  const valid = [
+    { name: "sales_ready", type: "boolean", description: "Ready for sales" },
+    { name: "score", type: "number", description: "" },
+    { name: "reason", type: "string", description: "Why" },
+  ];
+
+  it("accepts a valid schema and drops unknown keys on each field", () => {
+    const { config, errors } = validateNodeConfig(
+      "ai",
+      { goal: "Qualify", outputSchema: valid.map((field) => ({ ...field, format: "email", items: [] })) },
+      "strict",
+    );
+    assert.deepEqual(errors, []);
+    assert.deepEqual(config.outputSchema, valid);
+  });
+
+  it("keeps the schema optional", () => {
+    const { config, errors } = validateNodeConfig("ai", { goal: "Qualify", outputSchema: [] }, "strict");
+    assert.deepEqual(errors, []);
+    assert.equal("outputSchema" in config, false);
+  });
+
+  const invalid = [
+    { name: "score", type: "number", description: "" },
+    { name: "score", type: "string", description: "" },
+    { name: "Sales Ready", type: "boolean", description: "" },
+    { name: "1st", type: "boolean", description: "" },
+    { name: "ai_response", type: "string", description: "" },
+    { name: "", type: "string", description: "" },
+    { name: "reason", type: "", description: "" },
+    { name: "tags", type: "array", description: "" },
+  ];
+
+  it("blocks activation for duplicate names, unsafe names, and missing types", () => {
+    const { errors } = validateNodeConfig("ai", { goal: "Qualify", outputSchema: invalid }, "strict");
+    assert.deepEqual(errors, [
+      'Output field "score" is used more than once.',
+      'Output field "Sales Ready": use lowercase letters, numbers, and underscores, starting with a letter.',
+      'Output field "1st": use lowercase letters, numbers, and underscores, starting with a letter.',
+      'Output field "ai_response": "ai_response" is reserved for the AI\'s explanation.',
+      "Output field 6: enter a name.",
+      'Output field "reason": choose a type.',
+      'Output field "tags": choose a type.',
+    ]);
+  });
+
+  it("still saves the same schema as a draft", () => {
+    const { config, errors } = validateNodeConfig("ai", { goal: "Qualify", outputSchema: invalid }, "draft");
+    assert.deepEqual(errors, []);
+    const saved = config.outputSchema as Array<{ name: string; type: string }>;
+    assert.equal(saved.length, invalid.length);
+    assert.deepEqual(saved[2], { name: "Sales Ready", type: "boolean", description: "" });
+    assert.deepEqual(saved[7], { name: "tags", type: "", description: "" });
+  });
+
+  it("fails journey activation through the existing activation check", () => {
+    const g = graph();
+    g.nodes.push({
+      id: "ai",
+      type: "ai" as never,
+      name: "Qualify",
+      description: "",
+      config: { goal: "Qualify", outputSchema: [{ name: "score", type: "", description: "" }] },
+    });
+    g.connections = [
+      { id: "1", sourceNodeId: "t", targetNodeId: "ai", sourceHandle: null, targetHandle: null },
+      { id: "1b", sourceNodeId: "ai", targetNodeId: "c", sourceHandle: null, targetHandle: null },
+      ...g.connections.slice(1),
+    ];
+    assert.match(activationIssues(g).map((i) => i.message).join(" | "), /Output field "score": choose a type/);
+  });
+});
+
 describe("templates", () => {
   it("fills known placeholders and leaves others alone", () => {
     assert.equal(

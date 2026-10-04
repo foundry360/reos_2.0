@@ -44,6 +44,8 @@ Same project as before; root directory **`apps/agent-service`**.
 
 Add env vars from `.env.example`. Redeploy after Supabase is wired.
 
+Journey scheduling (Supabase pg_cron → `/api/cron/journeys` every minute): see [journeys-production-scheduler.md](journeys-production-scheduler.md).
+
 ## 5. Local dev
 
 ```bash

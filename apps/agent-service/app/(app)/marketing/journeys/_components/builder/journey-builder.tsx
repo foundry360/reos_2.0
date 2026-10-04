@@ -4,6 +4,7 @@ import "@xyflow/react/dist/style.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Background,
   BackgroundVariant,
@@ -44,6 +45,7 @@ import {
 import { JourneyConnectionLine, JourneyEdge } from "./journey-edge";
 import { JourneyNodeView } from "./journey-node-view";
 import { JOURNEY_NODE_COLORS } from "../journey-node-icon";
+import { LeaveJourneyModal } from "./leave-journey-modal";
 import { NodePicker } from "./node-picker";
 import { PropertiesPanel, type NodePatch } from "./properties-panel";
 import { isTriggerEventType } from "@/lib/journeys/runtime/contracts";
@@ -110,6 +112,9 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
   const [statusPending, setStatusPending] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const router = useRouter();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const stayOnPage = useCallback(() => setPendingHref(null), []);
 
   const dirty = useMemo(
     () => snapshotOf(name, description, nodes, edges) !== savedSnapshot,
@@ -219,10 +224,9 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
       if (!anchor || anchor.target === "_blank") return;
       const url = new URL(anchor.href, window.location.href);
       if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
-      if (!window.confirm("You have unsaved changes to this journey. Leave without saving?")) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingHref(`${url.pathname}${url.search}${url.hash}`);
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     document.addEventListener("click", onClickCapture, true);
@@ -459,6 +463,15 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
           runsHref={`/marketing/journeys/${journey.id}/runs`}
         />
       </div>
+
+      <LeaveJourneyModal
+        open={pendingHref !== null}
+        onStay={stayOnPage}
+        onLeave={() => {
+          if (pendingHref) router.push(pendingHref);
+          setPendingHref(null);
+        }}
+      />
     </div>
   );
 }

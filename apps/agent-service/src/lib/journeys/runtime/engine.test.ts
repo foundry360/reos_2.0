@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { JourneyAIExecutor, JourneyAIRequest, JourneyAIResult } from "./ai.ts";
+import { createJourneyAIExecutor, type JourneyAIExecutor, type JourneyAIRequest, type JourneyAIResult } from "./ai.ts";
 import {
   dispatchJourneyEvent,
   executeRun,
   JourneyStepError,
+  LEASE_MS,
   MAX_ATTEMPTS,
   resumeDueRuns,
   type ActionExecutor,
@@ -56,8 +57,11 @@ function waitingJourney(): JourneySnapshot {
 class RecordingActions implements ActionExecutor {
   calls: Array<{ action: string; input: ActionInput }> = [];
   failures: Array<Error> = [];
+  /** Runs while the action is "executing" (time passing, another worker, a cancellation). */
+  onExecute?: (action: string, input: ActionInput) => Promise<void> | void;
   async execute(action: Parameters<ActionExecutor["execute"]>[0], input: ActionInput) {
     this.calls.push({ action: action.action, input });
+    await this.onExecute?.(action.action, input);
     const failure = this.failures.shift();
     if (failure) throw failure;
     return { status: "completed" as const, output: { action: action.action, ok: true } };
@@ -70,8 +74,10 @@ class RecordingActions implements ActionExecutor {
 class FakeAI implements JourneyAIExecutor {
   requests: JourneyAIRequest[] = [];
   results: Array<JourneyAIResult | Error> = [];
+  onExecute?: (request: JourneyAIRequest) => Promise<void> | void;
   async execute(request: JourneyAIRequest): Promise<JourneyAIResult> {
     this.requests.push(structuredClone(request));
+    await this.onExecute?.(request);
     const next = this.results.shift() ?? { success: true, output: {}, text: "" };
     if (next instanceof Error) throw next;
     return next;
@@ -394,6 +400,7 @@ describe("AI steps", () => {
     assert.equal(request.agent, "default");
     assert.equal(request.goal, "Is this lead sales ready?");
     assert.equal(request.instructions, AI_INSTRUCTIONS);
+    assert.deepEqual(request.outputSchema, [], "a node without output fields stays freeform");
     assert.equal(request.context.lead?.first_name, "Ana");
     assert.deepEqual(request.context.opportunity, { stage: "Qualified" });
     assert.deepEqual(request.context.trigger, { event: "lead.created", payload: { channel: "sms" } });
@@ -470,6 +477,337 @@ describe("AI steps", () => {
     assert.equal(request.journeyId, "j-b");
     assert.equal(request.context.lead, null);
     assert.equal(request.context.opportunity, null);
+  });
+});
+
+const OUTPUT_SCHEMA = [
+  { name: "sales_ready", type: "boolean", description: "Ready for a sales conversation" },
+  { name: "score", type: "number", description: "Readiness score 0-100" },
+  { name: "reason", type: "string", description: "" },
+];
+
+function structuredJourney(condition: Record<string, unknown>): JourneySnapshot {
+  const journey = aiJourney();
+  journey.nodes[2].config = { ...journey.nodes[2].config, outputSchema: OUTPUT_SCHEMA };
+  journey.nodes[3].config = condition;
+  return journey;
+}
+
+describe("AI steps with output fields", () => {
+  let modelReplies: string[];
+
+  beforeEach(() => {
+    modelReplies = [];
+    deps.ai = createJourneyAIExecutor({
+      model: { isConfigured: async () => true, complete: async () => modelReplies.shift() ?? "{}" },
+      conversation: { recent: async () => [] },
+    });
+  });
+
+  const valid = JSON.stringify({
+    output: { sales_ready: true, score: 82, reason: "Requested a showing." },
+    text: "The lead appears ready.",
+  });
+
+  it("persists the validated fields and branches on score >= 80", async () => {
+    modelReplies.push(valid);
+    store.saveJourney(
+      TENANT,
+      "j1",
+      structuredJourney({ field: "steps.qualify.output.score", operator: "greater_than_or_equal", value: 80 }),
+    );
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    assert.equal(outcome.execution?.status, "completed");
+    const step = store.stepsFor(outcome.runId!).find((s) => s.nodeId === "ai")!;
+    assert.deepEqual(step.output, {
+      sales_ready: true,
+      score: 82,
+      reason: "Requested a showing.",
+      ai_response: "The lead appears ready.",
+    });
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"]);
+  });
+
+  it("branches on sales_ready = true", async () => {
+    modelReplies.push(valid);
+    store.saveJourney(
+      TENANT,
+      "j1",
+      structuredJourney({ field: "steps.qualify.output.sales_ready", operator: "equals", value: true }),
+    );
+    await dispatchJourneyEvent(deps, leadEvent());
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"]);
+  });
+
+  it("takes the No branch on a valid false answer", async () => {
+    modelReplies.push(JSON.stringify({ output: { sales_ready: false, score: 30, reason: "Browsing." }, text: "" }));
+    store.saveJourney(
+      TENANT,
+      "j1",
+      structuredJourney({ field: "steps.qualify.output.sales_ready", operator: "equals", value: true }),
+    );
+    await dispatchJourneyEvent(deps, leadEvent());
+    assert.deepEqual(actions.names(), ["assign_lead", "create_task"]);
+  });
+
+  it("fails and retries the step on an answer with wrong types, without branching", async () => {
+    modelReplies.push(JSON.stringify({ output: { sales_ready: "true", score: "82", reason: "x" }, text: "" }));
+    store.saveJourney(
+      TENANT,
+      "j1",
+      structuredJourney({ field: "steps.qualify.output.sales_ready", operator: "equals", value: true }),
+    );
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const runId = outcome.runId!;
+
+    assert.equal(outcome.execution?.status, "waiting");
+    const failed = store.stepsFor(runId).find((s) => s.nodeId === "ai")!;
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.errorKind, "transient");
+    assert.match(failed.error ?? "", /"sales_ready" should be a boolean; "score" should be a number/);
+    assert.equal(store.runs.get(runId)!.context.steps.qualify, undefined);
+    assert.equal(store.stepsFor(runId).some((s) => s.nodeId === "c"), false);
+    assert.deepEqual(actions.names(), ["assign_lead"]);
+
+    modelReplies.push(valid);
+    advance(60_000);
+    await resumeDueRuns(deps);
+    assert.equal(store.runs.get(runId)!.status, "completed");
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"]);
+  });
+
+  it("fails the step when a field is missing", async () => {
+    modelReplies.push(JSON.stringify({ output: { sales_ready: true, score: 82 }, text: "" }));
+    store.saveJourney(
+      TENANT,
+      "j1",
+      structuredJourney({ field: "steps.qualify.output.sales_ready", operator: "equals", value: true }),
+    );
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const failed = store.stepsFor(outcome.runId!).find((s) => s.nodeId === "ai")!;
+    assert.equal(failed.status, "failed");
+    assert.match(failed.error ?? "", /"reason" is missing/);
+    assert.deepEqual(actions.names(), ["assign_lead"]);
+  });
+
+  it("keeps undeclared fields out of the step output", async () => {
+    modelReplies.push(
+      JSON.stringify({ output: { sales_ready: true, score: 90, reason: "x", owner: "someone" }, text: "" }),
+    );
+    store.saveJourney(
+      TENANT,
+      "j1",
+      structuredJourney({ field: "steps.qualify.output.sales_ready", operator: "equals", value: true }),
+    );
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const step = store.stepsFor(outcome.runId!).find((s) => s.nodeId === "ai")!;
+    assert.deepEqual(step.output, { sales_ready: true, score: 90, reason: "x" });
+  });
+
+  it("runs a legacy AI node without output fields exactly as before", async () => {
+    modelReplies.push(JSON.stringify({ output: { salesReady: true, note: "kept" }, text: "Ready." }));
+    store.saveJourney(TENANT, "j1", aiJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const step = store.stepsFor(outcome.runId!).find((s) => s.nodeId === "ai")!;
+    assert.deepEqual(step.output, { sales_ready: true, note: "kept", ai_response: "Ready." });
+    assert.deepEqual(actions.names(), ["assign_lead", "send_sms"]);
+  });
+});
+
+/** Trigger → SMS → Task → Notify: three side effects in one pass. */
+function linearJourney(): JourneySnapshot {
+  return {
+    nodes: [
+      node("t", "trigger", "New lead", { event: "lead.created", filters: [] }),
+      node("s1", "action", "Text", { action: "send_sms", body: "Hi" }),
+      node("k", "action", "Task", { action: "create_task", title: "Call", notes: "", dueInDays: 1 }),
+      node("n", "action", "Notify", { action: "notify_team", title: "New lead", body: "", recipients: "assigned_agent" }),
+    ],
+    connections: [link("t", "s1"), link("s1", "k"), link("k", "n")],
+  };
+}
+
+const onlyRun = () => [...store.runs.values()][0];
+const iso = (ms: number) => new Date(ms).toISOString();
+
+describe("lease ownership", () => {
+  it("renews the lease after each step so a pass can outlive the original lease", async () => {
+    const leases: Array<string | null> = [];
+    let rival: string | undefined;
+    actions.onExecute = async (action) => {
+      leases.push(onlyRun().lockedUntil);
+      advance(90_000);
+      if (action === "create_task") rival = (await executeRun(deps, onlyRun().id)).status;
+    };
+    store.saveJourney(TENANT, "j1", linearJourney());
+    const start = clock.getTime();
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    assert.equal(outcome.execution?.status, "completed");
+    assert.deepEqual(actions.names(), ["send_sms", "create_task", "notify_team"]);
+    assert.deepEqual(leases, [iso(start + LEASE_MS), iso(start + 90_000 + LEASE_MS), iso(start + 180_000 + LEASE_MS)]);
+    assert.ok(clock.getTime() - start > LEASE_MS, "the pass ran longer than one lease");
+    assert.equal(rival, "not_claimed", "a second worker can't claim a run whose lease is being renewed");
+    assert.equal(onlyRun().status, "completed");
+    assert.equal(onlyRun().lockedUntil, null);
+  });
+
+  it("stops at the next boundary after another worker takes over, without overwriting it", async () => {
+    let stolenLease = "";
+    actions.onExecute = async (action) => {
+      if (action !== "send_sms") return;
+      // Worker A stalls past its lease; worker B claims the run.
+      advance(LEASE_MS + 60_000);
+      const claimed = await store.claimRun(onlyRun().id, clock, new Date(clock.getTime() + LEASE_MS));
+      assert.ok(claimed, "worker B can claim once A's lease expired");
+      stolenLease = claimed.lease;
+    };
+    store.saveJourney(TENANT, "j1", linearJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    assert.equal(outcome.execution?.status, "lease_lost");
+    assert.deepEqual(actions.names(), ["send_sms"], "A runs no further actions");
+    const run = onlyRun();
+    assert.equal(run.lockedUntil, stolenLease, "B still owns the run");
+    assert.equal(run.status, "running");
+    assert.equal(run.currentNodeId, "s1");
+    assert.deepEqual(run.context.inFlight?.nodeId, "s1", "A's in-flight marker is the last state A wrote");
+    assert.equal(run.context.steps.text, undefined, "A didn't write past the lease");
+    assert.equal(store.stepsFor(run.id).some((s) => s.nodeId === "k"), false);
+  });
+
+  it("lets only the lease holder continue; recovery never repeats the SMS", async () => {
+    actions.onExecute = async (action) => {
+      if (action !== "send_sms") return;
+      advance(LEASE_MS + 60_000);
+      await store.claimRun(onlyRun().id, clock, new Date(clock.getTime() + LEASE_MS));
+    };
+    store.saveJourney(TENANT, "j1", linearJourney());
+    await dispatchJourneyEvent(deps, leadEvent());
+    actions.onExecute = undefined;
+    const runId = onlyRun().id;
+
+    assert.equal((await executeRun(deps, runId)).status, "not_claimed", "B's lease blocks a third worker");
+
+    // B dies too; once its lease expires the normal crash recovery takes over.
+    advance(LEASE_MS + 1);
+    const resumed = await resumeDueRuns(deps);
+    assert.equal(resumed.outcomes[0].status, "failed");
+    assert.match(onlyRun().error ?? "", /interrupted/);
+    assert.deepEqual(actions.names(), ["send_sms"], "the SMS is never sent twice");
+  });
+
+  it("finishes the current node but runs nothing after a cancellation", async () => {
+    actions.onExecute = (action) => {
+      if (action === "send_sms") onlyRun().status = "cancelled";
+    };
+    store.saveJourney(TENANT, "j1", linearJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+    const run = onlyRun();
+
+    assert.equal(outcome.execution?.status, "lease_lost");
+    assert.deepEqual(actions.names(), ["send_sms"]);
+    assert.equal(run.status, "cancelled", "the cancellation isn't overwritten");
+    assert.equal(store.stepsFor(run.id).find((s) => s.nodeId === "s1")?.status, "completed");
+    assert.equal(store.stepsFor(run.id).some((s) => s.nodeId === "k" || s.nodeId === "n"), false);
+  });
+
+  it("doesn't continue past an AI node when the run is cancelled while the AI runs", async () => {
+    ai.results.push(READY);
+    ai.onExecute = () => {
+      onlyRun().status = "cancelled";
+    };
+    store.saveJourney(TENANT, "j1", aiJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    assert.equal(outcome.execution?.status, "lease_lost");
+    assert.deepEqual(actions.names(), ["assign_lead"]);
+    assert.equal(store.stepsFor(onlyRun().id).some((s) => s.nodeId === "c"), false);
+    assert.equal(onlyRun().status, "cancelled");
+  });
+
+  it("doesn't start a side effect when ownership is lost just before it", async () => {
+    const insert = store.insertStep.bind(store);
+    store.insertStep = async (step) => {
+      const id = await insert(step);
+      if (step.nodeId === "k") store.runs.get(step.runId)!.status = "cancelled";
+      return id;
+    };
+    store.saveJourney(TENANT, "j1", linearJourney());
+    const [outcome] = await dispatchJourneyEvent(deps, leadEvent());
+
+    assert.equal(outcome.execution?.status, "lease_lost");
+    assert.deepEqual(actions.names(), ["send_sms"], "the task is never created");
+    assert.equal(store.stepsFor(onlyRun().id).find((s) => s.nodeId === "k")?.status, "skipped");
+  });
+
+  it("rejects writes under a stale lease or to a cancelled run", async () => {
+    store.saveJourney(TENANT, "j1", waitingJourney());
+    await dispatchJourneyEvent(deps, leadEvent());
+    const runId = onlyRun().id;
+    advance(3 * 24 * 60 * 60_000);
+
+    const claimed = (await store.claimRun(runId, clock, new Date(clock.getTime() + LEASE_MS)))!;
+    const renewed = iso(clock.getTime() + 2 * LEASE_MS);
+    assert.equal(await store.updateRun(runId, claimed.lease, { lockedUntil: renewed }), "updated");
+    assert.equal(await store.updateRun(runId, claimed.lease, { error: "stale" }), "lease_lost");
+    assert.equal(onlyRun().error, null);
+    onlyRun().status = "cancelled";
+    assert.equal(await store.updateRun(runId, renewed, { status: "completed" }), "lease_lost");
+    assert.equal(onlyRun().status, "cancelled");
+  });
+
+  it("recovers a run whose worker disappeared once the lease expires", async () => {
+    store.saveJourney(TENANT, "j1", waitingJourney());
+    await dispatchJourneyEvent(deps, leadEvent());
+    const runId = onlyRun().id;
+    advance(2 * 24 * 60 * 60_000);
+    await store.claimRun(runId, clock, new Date(clock.getTime() + LEASE_MS)); // claimed, then the worker died
+
+    assert.equal((await resumeDueRuns(deps)).processed, 0, "still leased");
+    advance(LEASE_MS + 1);
+    const resumed = await resumeDueRuns(deps);
+    assert.equal(resumed.outcomes[0].status, "completed");
+    assert.deepEqual(actions.names(), ["send_sms"]);
+  });
+
+  it("releases the lease when parking for a wait and resumes at the next step under a new lease", async () => {
+    let leaseDuringResume: string | null = null;
+    actions.onExecute = () => {
+      leaseDuringResume = onlyRun().lockedUntil;
+    };
+    store.saveJourney(TENANT, "j1", waitingJourney());
+    await dispatchJourneyEvent(deps, leadEvent());
+    assert.equal(onlyRun().status, "waiting");
+    assert.equal(onlyRun().lockedUntil, null);
+    assert.equal(onlyRun().resumeAt, "2026-10-03T12:00:00.000Z");
+
+    advance(2 * 24 * 60 * 60_000);
+    await resumeDueRuns(deps);
+    assert.equal(leaseDuringResume, iso(clock.getTime() + LEASE_MS));
+    assert.deepEqual(actions.names(), ["send_sms"]);
+    assert.equal(onlyRun().status, "completed");
+    assert.equal(onlyRun().lockedUntil, null);
+  });
+
+  it("releases the lease when scheduling a retry and when failing", async () => {
+    actions.failures.push(new Error("Timeout"));
+    store.saveJourney(TENANT, "j1", branchingJourney());
+    await dispatchJourneyEvent(deps, leadEvent());
+    assert.equal(onlyRun().status, "waiting");
+    assert.equal(onlyRun().lockedUntil, null);
+    assert.equal(onlyRun().context.attempts?.a1, 1);
+
+    actions.failures.push(new JourneyStepError("Bad config", "config"));
+    advance(60_000);
+    await resumeDueRuns(deps);
+    assert.equal(onlyRun().status, "failed");
+    assert.equal(onlyRun().lockedUntil, null);
+    assert.deepEqual(
+      store.stepsFor(onlyRun().id).filter((s) => s.nodeId === "a1").map((s) => [s.status, s.attemptCount, s.errorKind]),
+      [["failed", 1, "transient"], ["failed", 2, "config"]],
+    );
   });
 });
 

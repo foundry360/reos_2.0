@@ -12,6 +12,7 @@
 
 import type { JourneyStatus } from "../journey-types.ts";
 import {
+  aiOutputSchema,
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
@@ -64,6 +65,11 @@ export interface RunRecord {
   error: string | null;
   resumeAt: string | null;
 }
+
+/** A run this worker leased; `lease` is the locked_until value it holds. */
+export type ClaimedRun = RunRecord & { lease: string };
+
+export type RunWriteResult = "updated" | "lease_lost";
 
 export interface NewRun {
   tenantId: string;
@@ -132,9 +138,13 @@ export interface JourneyRuntimeStore {
   /** Inserts unless (tenant, idempotencyKey) exists. */
   createRun(run: NewRun): Promise<{ run: RunRecord; created: boolean }>;
   /** Atomically leases a running/waiting run that isn't leased; marks it running. */
-  claimRun(runId: string, now: Date, leaseUntil: Date): Promise<RunRecord | null>;
-  /** Never overwrites a run that was cancelled in the meantime. */
-  updateRun(runId: string, patch: RunPatch): Promise<void>;
+  claimRun(runId: string, now: Date, leaseUntil: Date): Promise<ClaimedRun | null>;
+  /**
+   * Applies the patch only while the run is still running under `lease` (the
+   * locked_until value this worker last wrote). Returns "lease_lost" when the
+   * run was cancelled or re-claimed; throws on database errors.
+   */
+  updateRun(runId: string, lease: string, patch: RunPatch): Promise<RunWriteResult>;
   loadSnapshot(journeyId: string, version: number): Promise<JourneySnapshot | null>;
   journeyStatus(tenantId: string, journeyId: string): Promise<JourneyStatus | null>;
   insertStep(step: NewStep): Promise<string>;
@@ -278,11 +288,17 @@ export async function dispatchJourneyEvent(deps: EngineDeps, event: JourneyEvent
 // ---------- Execution ----------
 
 export interface ExecuteOutcome {
-  status: RunStatus | "not_claimed";
+  /** "lease_lost": the run was cancelled or another worker took it over; this pass stopped. */
+  status: RunStatus | "not_claimed" | "lease_lost";
   steps: number;
 }
 
-/** Runs one leased pass over a run. Safe to call concurrently: only one caller wins the lease. */
+/**
+ * Runs one leased pass over a run. Safe to call concurrently: only one caller
+ * wins the lease. Every run write renews the lease and succeeds only while
+ * this worker still holds it, so the pass stops at the next step boundary
+ * once the run is cancelled or re-claimed, before any further side effect.
+ */
 export async function executeRun(deps: EngineDeps, runId: string): Promise<ExecuteOutcome> {
   const { store } = deps;
   const now = deps.now ?? (() => new Date());
@@ -290,17 +306,29 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
   const run = await store.claimRun(runId, claimedAt, new Date(claimedAt.getTime() + LEASE_MS));
   if (!run) return { status: "not_claimed", steps: 0 };
 
+  let lease = run.lease;
+  let executed = 0;
+
+  /** Writes run state under the current lease, renewing it unless the patch releases it. */
+  const write = async (patch: RunPatch): Promise<boolean> => {
+    const next =
+      patch.lockedUntil !== undefined ? patch.lockedUntil : new Date(now().getTime() + LEASE_MS).toISOString();
+    if ((await store.updateRun(run.id, lease, { ...patch, lockedUntil: next })) === "lease_lost") return false;
+    if (next) lease = next;
+    return true;
+  };
+  const leaseLost = (): ExecuteOutcome => ({ status: "lease_lost", steps: executed });
+
   const finish = async (status: RunStatus, patch: RunPatch = {}): Promise<ExecuteOutcome> => {
     const terminal = status === "completed" || status === "failed" || status === "cancelled";
-    await store.updateRun(run.id, {
+    const written = await write({
       status,
       lockedUntil: null,
       ...(terminal ? { completedAt: now().toISOString(), resumeAt: null } : {}),
       ...patch,
     });
-    return { status, steps: executed };
+    return written ? { status, steps: executed } : leaseLost();
   };
-  let executed = 0;
 
   const journeyStatus = await store.journeyStatus(run.tenantId, run.journeyId);
   if (journeyStatus === null) return finish("cancelled", { error: "The journey was deleted." });
@@ -325,7 +353,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
   const recordOutput = (node: SnapshotNode, output: Record<string, unknown>) => {
     state.steps[keys.get(node.id) ?? node.id] = { output };
   };
-  const persist = () => store.updateRun(run.id, { currentNodeId, context: state });
+  const persist = () => write({ currentNodeId, context: state });
 
   // A wait finished: close its step and move past it.
   if (run.context.waitingStepId && currentNodeId) {
@@ -338,7 +366,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     });
     if (node) recordOutput(node, output);
     currentNodeId = nextNodeId(snapshot, currentNodeId);
-    await persist();
+    if (!(await persist())) return leaseLost();
   }
 
   // The previous pass died while a side effect was executing.
@@ -377,7 +405,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       await store.insertStep({ ...base, status: "completed", input: {}, output, completedAt: startedAt });
       recordOutput(node, output);
       currentNodeId = nextNodeId(snapshot, node.id);
-      await persist();
+      if (!(await persist())) return leaseLost();
       continue;
     }
 
@@ -388,7 +416,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       await store.insertStep({ ...base, status: "completed", input: { ...rule }, output, completedAt: startedAt });
       recordOutput(node, output);
       currentNodeId = nextNodeId(snapshot, node.id, result);
-      await persist();
+      if (!(await persist())) return leaseLost();
       continue;
     }
 
@@ -413,7 +441,14 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     const attempt = (state.attempts?.[node.id] ?? 0) + 1;
     const input = { ...node.config };
     const stepId = await store.insertStep({ ...base, status: "running", input, attemptCount: attempt });
-    await store.updateRun(run.id, { currentNodeId, context: { ...state, inFlight: { nodeId: node.id, stepId } } });
+    if (!(await write({ currentNodeId, context: { ...state, inFlight: { nodeId: node.id, stepId } } }))) {
+      await store.updateStep(stepId, {
+        status: "skipped",
+        error: "Not run: the run was cancelled or taken over by another worker.",
+        completedAt: now().toISOString(),
+      });
+      return leaseLost();
+    }
 
     try {
       const ai = node.type === "ai" ? (node.config as unknown as AIConfig) : null;
@@ -428,6 +463,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
             agent: ai.agent,
             goal: ai.goal ?? "",
             instructions: ai.instructions ?? "",
+            outputSchema: aiOutputSchema(ai),
             context: context(),
           })
         : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
@@ -443,7 +479,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       recordOutput(node, output);
       if (state.attempts) delete state.attempts[node.id];
       currentNodeId = nextNodeId(snapshot, node.id);
-      await persist();
+      if (!(await persist())) return leaseLost();
     } catch (error) {
       const { message, kind } = classify(error);
       await store.updateStep(stepId, { status: "failed", error: message, errorKind: kind, completedAt: now().toISOString() });
@@ -463,20 +499,45 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
   return finish("completed", { currentNodeId: null, context: state, error: null });
 }
 
-/** Worker entry: runs every due run (waits finished, retries due, abandoned inline runs). */
+export interface ResumeResult {
+  /** Due runs listed this batch. */
+  found: number;
+  /** Runs that returned an outcome (including not_claimed). */
+  processed: number;
+  /** Runs whose execution threw (store/infrastructure errors); other runs still ran. */
+  errors: number;
+  /** True when shouldContinue stopped the batch before every listed run was tried. */
+  stopped: boolean;
+  outcomes: Array<{ runId: string } & ExecuteOutcome>;
+}
+
+/**
+ * Worker entry: runs every due run (waits finished, retries due, abandoned
+ * inline runs). Listing doesn't reserve anything; each run is only executed by
+ * the caller that wins its claim. `shouldContinue` is checked before each run
+ * so a time-boxed caller leaves the rest for the next invocation.
+ */
 export async function resumeDueRuns(
   deps: EngineDeps,
   limit = 25,
-): Promise<{ processed: number; outcomes: Array<{ runId: string } & ExecuteOutcome> }> {
+  options: { shouldContinue?: () => boolean } = {},
+): Promise<ResumeResult> {
   const now = deps.now ?? (() => new Date());
   const ids = await deps.store.listDueRunIds(now(), limit);
   const outcomes: Array<{ runId: string } & ExecuteOutcome> = [];
+  let errors = 0;
+  let stopped = false;
   for (const runId of ids) {
+    if (options.shouldContinue && !options.shouldContinue()) {
+      stopped = true;
+      break;
+    }
     try {
       outcomes.push({ runId, ...(await executeRun(deps, runId)) });
     } catch (error) {
-      console.error("[journeys] run failed to execute:", runId, error);
+      errors++;
+      console.error("[journeys] run failed to execute:", runId, error instanceof Error ? error.message : error);
     }
   }
-  return { processed: outcomes.length, outcomes };
+  return { found: ids.length, processed: outcomes.length, errors, stopped, outcomes };
 }

@@ -1,7 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import {
   dispatchJourneyEvent,
-  resumeDueRuns,
   type DispatchOutcome,
   type EngineDeps,
   type JourneyEvent,
@@ -31,10 +30,4 @@ export async function runJourneyEvent(event: JourneyEvent): Promise<DispatchOutc
     console.error("[journeys] dispatch failed:", event.type, error);
     return [];
   }
-}
-
-export async function resumeDueJourneyRuns(limit = 25) {
-  const deps = createLiveEngineDeps();
-  if (!deps) return { processed: 0, outcomes: [] };
-  return resumeDueRuns(deps, limit);
 }

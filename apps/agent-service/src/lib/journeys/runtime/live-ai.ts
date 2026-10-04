@@ -16,14 +16,16 @@ export function createLiveJourneyAIExecutor(): JourneyAIExecutor {
   return createJourneyAIExecutor({
     model: {
       isConfigured: async () => Boolean(await getOpenAIApiKey()),
-      async complete({ system, user }) {
+      async complete({ system, user, responseSchema }) {
         const apiKey = await getOpenAIApiKey();
         if (!apiKey) throw new Error("AI isn't configured for REOS yet.");
         const model = getOpenAIModel();
         const client = new OpenAI({ apiKey, maxRetries: 0, timeout: REQUEST_TIMEOUT_MS });
         const completion = await client.chat.completions.create({
           model,
-          response_format: { type: "json_object" },
+          response_format: responseSchema
+            ? { type: "json_schema", json_schema: { name: "journey_step_result", strict: true, schema: responseSchema } }
+            : { type: "json_object" },
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
