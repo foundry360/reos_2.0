@@ -2,21 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import {
-  buildEmailSnippet,
   htmlToPlainText,
   parseRecipientList,
   resolveReplyToEmail,
 } from "@/lib/email/email-utils";
 import type { SendEmailInput, SendEmailResult } from "@/lib/email/email-types";
-import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
+import { recordOutboundEmail } from "@/lib/email/record-outbound-email";
 import {
   getResendSender,
   isResendEmailConfigured,
   sendResendMessage,
 } from "@/lib/email/resend";
 import { createClient } from "@/lib/supabase/server";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { isPlatformAdmin } from "@/lib/admin/auth";
 
@@ -123,117 +121,25 @@ export async function sendEmailAction(input: SendEmailInput): Promise<SendEmailR
     return { ok: false, error: sent.error };
   }
 
-  const snippet = buildEmailSnippet(bodyHtml);
-  const bodyText = htmlToPlainText(bodyHtml);
-  const sentAt = new Date().toISOString();
-  const threadId =
-    input.threadId?.trim() || `resend:${sent.providerMessageId}`;
-
-  const db = getSupabaseAdmin();
-  if (!db) {
-    return { ok: false, error: "Could not save email record." };
-  }
-
-  const emailRow = {
-    tenant_id: tenantId,
-    user_id: user.id,
-    contact_id: contactId,
-    opportunity_id: opportunityId,
-    provider_message_id: sent.providerMessageId,
-    thread_id: threadId,
-    direction: "outbound" as const,
-    from_email: sent.fromEmail,
-    from_name: sent.fromName,
-    to_recipients: toRecipients,
-    cc_recipients: ccRecipients,
+  const emailId = await recordOutboundEmail({
+    tenantId,
+    userId: user.id,
+    contactId,
+    opportunityId,
+    to: toRecipients,
+    cc: ccRecipients,
     subject,
-    body_html: bodyHtml,
-    body_text: bodyText,
-    snippet,
-    status: "sent" as const,
-    sent_at: sentAt,
-  };
-
-  // Prefer provider=resend (migration 043). Until that check constraint is
-  // updated, fall back to a compatible provider value and tag metadata.
-  let storedProvider: "resend" | "gmail" = "resend";
-  let { data: row, error: insertError } = await db
-    .from("crm_emails")
-    .insert({
-      ...emailRow,
-      provider: "resend",
-      metadata: { reply_to: agentEmail },
-    })
-    .select("id")
-    .single();
-
-  if (
-    insertError &&
-    /crm_emails_provider_check/i.test(insertError.message ?? "")
-  ) {
-    console.warn(
-      "crm_emails provider check rejected resend; saving with compatibility fallback until migration 043 is applied",
-    );
-    storedProvider = "gmail";
-    ({ data: row, error: insertError } = await db
-      .from("crm_emails")
-      .insert({
-        ...emailRow,
-        provider: "gmail",
-        metadata: {
-          reply_to: agentEmail,
-          delivery_provider: "resend",
-        },
-      })
-      .select("id")
-      .single());
-  }
-
-  let emailId = row?.id ?? null;
-
-  if (insertError?.code === "23505" && sent.providerMessageId) {
-    const { data: existing } = await db
-      .from("crm_emails")
-      .select("id")
-      .eq("tenant_id", tenantId)
-      .eq("provider", storedProvider)
-      .eq("provider_message_id", sent.providerMessageId)
-      .maybeSingle();
-
-    if (existing) {
-      await db
-        .from("crm_emails")
-        .update({
-          contact_id: contactId,
-          opportunity_id: opportunityId,
-          thread_id: threadId,
-          subject,
-          body_html: bodyHtml,
-          body_text: bodyText,
-          snippet,
-          sent_at: sentAt,
-        })
-        .eq("id", existing.id);
-      emailId = existing.id;
-    }
-  }
+    bodyHtml,
+    replyTo: agentEmail,
+    threadId: input.threadId,
+    sent,
+  });
 
   if (!emailId) {
-    console.error("crm_emails insert failed:", insertError?.message);
     return { ok: false, error: "Email was sent but could not be saved in REOS." };
   }
 
   if (contactId) {
-    await logSystemContactActivity({
-      tenantId,
-      contactId,
-      activityType: "email",
-      title: `Email sent: ${subject}`,
-      body: snippet,
-      relatedEntityType: opportunityId ? "opportunity" : null,
-      relatedEntityId: opportunityId,
-    });
-
     const { data: contact } = await supabase
       .from("contacts")
       .select("record_type")

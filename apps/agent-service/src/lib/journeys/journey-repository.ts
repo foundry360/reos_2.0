@@ -12,6 +12,7 @@ import {
   type JourneySummary,
 } from "./journey-types";
 import { activationBlocker } from "./journey-validation";
+import { resumePausedRuns } from "./journey-run-repository";
 
 export type RepositoryResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -279,11 +280,17 @@ export async function saveJourney(params: {
   const supabase = await createClient();
   const { data: owned } = await supabase
     .from("journeys")
-    .select("id")
+    .select("id, status")
     .eq("tenant_id", params.tenantId)
     .eq("id", params.journeyId)
     .maybeSingle();
   if (!owned) return { ok: false, error: "Journey not found." };
+
+  // New runs start on whatever is saved, so an active journey must stay runnable.
+  if (owned.status === "active") {
+    const blocker = activationBlocker(params.graph);
+    if (blocker) return { ok: false, error: `This journey is active, so it can't be saved yet. ${blocker}` };
+  }
 
   const saved = await writeGraph({
     journeyId: params.journeyId,
@@ -347,6 +354,16 @@ export async function setJourneyStatus(params: {
     if (error) console.error("setJourneyStatus failed:", error.message);
     return { ok: false, error: "Could not update the journey status. Refresh and try again." };
   }
+
+  if (params.status === "active") {
+    // Saves snapshot every version; this covers a journey activated before its first save.
+    const { error: snapshotError } = await supabase.rpc("snapshot_journey_version", {
+      p_journey_id: params.journeyId,
+    });
+    if (snapshotError) console.error("snapshot_journey_version failed:", snapshotError.message);
+    if (from === "paused") await resumePausedRuns(params.tenantId, params.journeyId);
+  }
+
   return { ok: true, value: { status: toStatus(data.status), updatedAt: data.updated_at } };
 }
 

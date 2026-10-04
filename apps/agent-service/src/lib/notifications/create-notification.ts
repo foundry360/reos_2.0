@@ -73,28 +73,30 @@ export async function createUserNotification(
 }
 
 /**
- * Notify every tenant member (respecting lead prefs). Uses the service role so
- * webhook / intake paths work without a user session.
+ * Notify tenant members (all, or the given members) respecting each member's
+ * category preference. Uses the service role so webhook / intake / automation
+ * paths work without a user session. Returns how many notifications were created.
  */
-export async function notifyTenantNewLead(input: {
+export async function notifyTenantMembers(input: {
   tenantId: string;
-  contactId: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  channel?: "sms" | "messenger" | "instagram";
-}): Promise<void> {
+  /** Limit to these users; they must still be members of the tenant. */
+  userIds?: string[];
+  category: NotificationCategory;
+  title: string;
+  body?: string | null;
+  href?: string | null;
+}): Promise<number> {
   const db = getSupabaseAdmin();
-  if (!db) return;
+  if (!db) return 0;
 
   try {
-    const { data: members, error: membersError } = await db
-      .from("memberships")
-      .select("user_id")
-      .eq("tenant_id", input.tenantId);
+    let query = db.from("memberships").select("user_id").eq("tenant_id", input.tenantId);
+    if (input.userIds) query = query.in("user_id", input.userIds);
+    const { data: members, error: membersError } = await query;
 
     if (membersError) {
-      console.error("notifyTenantNewLead members failed:", membersError.message);
-      return;
+      console.error("notifyTenantMembers members failed:", membersError.message);
+      return 0;
     }
 
     const userIds = [
@@ -104,7 +106,7 @@ export async function notifyTenantNewLead(input: {
           .filter((id): id is string => Boolean(id)),
       ),
     ];
-    if (userIds.length === 0) return;
+    if (userIds.length === 0) return 0;
 
     const { data: prefRows } = await db
       .from("notification_preferences")
@@ -117,43 +119,62 @@ export async function notifyTenantNewLead(input: {
       (prefRows ?? []).map((row) => [row.user_id as string, mapPreferences(row)]),
     );
 
-    const displayName =
-      [input.firstName?.trim(), input.lastName?.trim()].filter(Boolean).join(" ") ||
-      "Unknown";
-
-    const channelLabel =
-      input.channel === "instagram"
-        ? "Instagram"
-        : input.channel === "messenger"
-          ? "Messenger"
-          : input.channel === "sms"
-            ? "SMS"
-            : null;
-
     const rows = userIds
-      .filter((userId) => {
-        const prefs = prefsByUser.get(userId) ?? DEFAULT_NOTIFICATION_PREFERENCES;
-        return prefs.leadsInApp;
-      })
+      .filter((userId) =>
+        prefEnabled(input.category, prefsByUser.get(userId) ?? DEFAULT_NOTIFICATION_PREFERENCES),
+      )
       .map((userId) => ({
         user_id: userId,
         tenant_id: input.tenantId,
-        category: "leads" as const,
-        title: `New lead: ${displayName}`,
-        body: channelLabel ? `Via ${channelLabel}` : null,
-        href: `/leads/${input.contactId}`,
+        category: input.category,
+        title: input.title,
+        body: input.body?.trim() || null,
+        href: input.href?.trim() || null,
       }));
 
-    if (rows.length === 0) return;
+    if (rows.length === 0) return 0;
 
     const { error } = await db.from("user_notifications").insert(rows);
     if (error) {
       const missing = /user_notifications|schema cache|relation/i.test(error.message);
       if (!missing) {
-        console.error("notifyTenantNewLead insert failed:", error.message);
+        console.error("notifyTenantMembers insert failed:", error.message);
       }
+      return 0;
     }
+    return rows.length;
   } catch (error) {
-    console.error("notifyTenantNewLead failed:", error);
+    console.error("notifyTenantMembers failed:", error);
+    return 0;
   }
+}
+
+/** Notify every tenant member about a new lead (respecting lead prefs). */
+export async function notifyTenantNewLead(input: {
+  tenantId: string;
+  contactId: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  channel?: "sms" | "messenger" | "instagram";
+}): Promise<void> {
+  const displayName =
+    [input.firstName?.trim(), input.lastName?.trim()].filter(Boolean).join(" ") ||
+    "Unknown";
+
+  const channelLabel =
+    input.channel === "instagram"
+      ? "Instagram"
+      : input.channel === "messenger"
+        ? "Messenger"
+        : input.channel === "sms"
+          ? "SMS"
+          : null;
+
+  await notifyTenantMembers({
+    tenantId: input.tenantId,
+    category: "leads",
+    title: `New lead: ${displayName}`,
+    body: channelLabel ? `Via ${channelLabel}` : null,
+    href: `/leads/${input.contactId}`,
+  });
 }

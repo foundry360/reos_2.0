@@ -13,6 +13,7 @@ import {
   syncIntakeOpportunityStage,
 } from "@/lib/opportunities/create-from-booking";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
 
 export interface InboundChannel {
   channel: "sms" | "messenger" | "instagram";
@@ -324,6 +325,19 @@ async function intakeContact(
 
   // New Intake opportunity when the lead engages (stays a Lead until consult booked).
   await syncIntakeOpportunityStage(contact.id);
+
+  emitJourneyEvent({
+    tenantId,
+    type: "lead.created",
+    sourceId: contact.id,
+    contactId: contact.id,
+    entityType: "contact",
+    entityId: contact.id,
+    payload: {
+      channel: notificationChannel(channel),
+      source: channel.endsWith("_comment") ? "comment" : "message",
+    },
+  });
 
   return toContactContext(contact as ContactRow, externalId);
 }

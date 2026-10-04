@@ -238,6 +238,7 @@ export async function mergeContacts(
     "opportunities",
     "tasks",
     "contact_activities",
+    "journey_runs",
   ] as const) {
     const { error } = await db
       .from(table)

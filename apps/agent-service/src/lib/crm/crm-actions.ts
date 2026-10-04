@@ -44,12 +44,45 @@ import {
   formatSlotLabel,
 } from "@/lib/calendar/consult-slots";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
+import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
+import { randomUUID } from "node:crypto";
 
 export interface CrmActionResult {
   ok: boolean;
   error?: string;
   id?: string;
   kind?: PersonKind;
+}
+
+/** Status changes and task completions can repeat, so each occurrence gets its own id. */
+function emitLeadStatusChanged(
+  tenantId: string,
+  contactId: string,
+  fromStatus: string | null,
+  toStatus: string,
+) {
+  emitJourneyEvent({
+    tenantId,
+    type: "lead.status_changed",
+    sourceId: randomUUID(),
+    contactId,
+    entityType: "contact",
+    entityId: contactId,
+    payload: { from_status: fromStatus ?? "", to_status: toStatus },
+  });
+}
+
+function emitTaskCompleted(tenantId: string, taskId: string, contactId: string | null, title: string) {
+  if (!contactId) return;
+  emitJourneyEvent({
+    tenantId,
+    type: "task.completed",
+    sourceId: randomUUID(),
+    contactId,
+    entityType: "task",
+    entityId: taskId,
+    payload: { task_id: taskId, title },
+  });
 }
 
 function parsePersonKind(value: FormDataEntryValue | null): PersonKind {
@@ -355,6 +388,15 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
       firstName,
       lastName,
     });
+    emitJourneyEvent({
+      tenantId: tenant.tenantId,
+      type: "lead.created",
+      sourceId: contact.id,
+      contactId: contact.id,
+      entityType: "contact",
+      entityId: contact.id,
+      payload: { source: "manual" },
+    });
     revalidatePath("/", "layout");
   } else {
     await notifySelf({
@@ -601,6 +643,10 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
     });
   }
 
+  if (kind === "lead" && existing.lead_status !== updates.lead_status) {
+    emitLeadStatusChanged(tenant.tenantId, leadId, existing.lead_status, String(updates.lead_status ?? ""));
+  }
+
   revalidateAfterPersonUpdate(kind, nextKind, leadId);
   return { ok: true, id: leadId, kind: nextKind };
 }
@@ -678,6 +724,7 @@ export async function updateLeadStatusAction(
     body: `${formatLeadStatusLabel(existing.lead_status ?? "")} → ${formatLeadStatusLabel(status)}`,
     href: `${personBasePath(nextKind)}/${id}`,
   });
+  emitLeadStatusChanged(tenant.tenantId, id, existing.lead_status, status);
 
   revalidateAfterPersonUpdate(kind, nextKind, id);
   return { ok: true, id, kind: nextKind };
@@ -1412,6 +1459,9 @@ export async function updateTaskStatusAction(
     body: status === "done" ? "Marked as done" : "Moved back to upcoming",
     href: "/tasks",
   });
+  if (status === "done") {
+    emitTaskCompleted(tenant.tenantId, id, existing.contact_id, existing.title);
+  }
 
   revalidatePath("/tasks");
   if (existing.opportunity_id) {
@@ -1528,6 +1578,9 @@ export async function updateTaskAction(formData: FormData): Promise<CrmActionRes
       body: status === "done" ? "Marked as done" : "Moved back to upcoming",
       href: "/tasks",
     });
+    if (status === "done") {
+      emitTaskCompleted(tenant.tenantId, id, existing.contact_id, title);
+    }
   }
 
   revalidatePath("/tasks");
@@ -1746,6 +1799,15 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
   }
 
   if (isMeeting && activity.id) {
+    emitJourneyEvent({
+      tenantId: tenant.tenantId,
+      type: "appointment.booked",
+      sourceId: activity.id,
+      contactId,
+      entityType: "appointment",
+      entityId: activity.id,
+      payload: { start: occurredAt, end: endDate?.toISOString() ?? null, booked_by: "team" },
+    });
     const leadName = [contact.first_name, contact.last_name]
       .map((part) => part?.trim())
       .filter(Boolean)

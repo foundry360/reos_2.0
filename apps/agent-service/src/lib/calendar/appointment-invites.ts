@@ -43,7 +43,7 @@ export interface SendAppointmentInvitesResult {
   errors: string[];
 }
 
-async function resolveAgentRecipient(
+export async function resolveAgentRecipient(
   userId: string,
 ): Promise<AppointmentInvitePerson | null> {
   const db = getSupabaseAdmin();

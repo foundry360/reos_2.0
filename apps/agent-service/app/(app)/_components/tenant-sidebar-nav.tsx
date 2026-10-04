@@ -24,7 +24,6 @@ const TENANT_NAV = [
   { href: "/opportunities", label: "Opportunities", icon: <IconOpportunities /> },
   { href: "/tasks", label: "Tasks", icon: <IconTasks /> },
   { href: "/calendar", label: "Calendar", icon: <IconCalendar /> },
-  { href: "/reports", label: "Reports", icon: <IconReports /> },
 ];
 
 const TENANT_NAV_SECTIONS = [
@@ -48,6 +47,7 @@ export function TenantSidebarNav() {
         sections={TENANT_NAV_SECTIONS}
         secondaryLabel="Tools"
         secondaryItems={[
+          { href: "/reports", label: "Reports", icon: <IconReports /> },
           {
             id: "data-import",
             label: "Data",

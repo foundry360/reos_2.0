@@ -3,6 +3,7 @@ import { JourneyBuilder } from "../_components/builder/journey-builder";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconJourney } from "@/components/shell/sidebar-nav";
 import { getJourneyDefinition } from "@/lib/journeys/journey-repository";
+import { listAgentOptionsForTenant } from "@/lib/crm/crm-lists";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import shell from "@/components/shell/shell.module.css";
 
@@ -28,7 +29,10 @@ export default async function JourneyBuilderCanvasPage({ params }: PageProps) {
     );
   }
 
-  const result = await getJourneyDefinition(tenantId, id);
+  const [result, agentOptions] = await Promise.all([
+    getJourneyDefinition(tenantId, id),
+    listAgentOptionsForTenant(),
+  ]);
   if (!result.ok) {
     return (
       <>
@@ -41,5 +45,5 @@ export default async function JourneyBuilderCanvasPage({ params }: PageProps) {
   }
   if (!result.value) notFound();
 
-  return <JourneyBuilder journey={result.value} />;
+  return <JourneyBuilder journey={result.value} agentOptions={agentOptions} />;
 }

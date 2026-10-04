@@ -1,6 +1,14 @@
 import type { JourneyNodeType } from "@/lib/journeys/journey-types";
 import styles from "./journeys.module.css";
 
+/** Keep in sync with the --node-accent values in journeys.module.css. */
+export const JOURNEY_NODE_COLORS: Record<JourneyNodeType, string> = {
+  trigger: "#43bd9c",
+  ai: "#69aed1",
+  condition: "#fba139",
+  action: "#abb7c5",
+};
+
 export const NODE_TYPE_CLASS: Record<JourneyNodeType, string> = {
   trigger: styles.typeTrigger,
   ai: styles.typeAi,
@@ -8,10 +16,10 @@ export const NODE_TYPE_CLASS: Record<JourneyNodeType, string> = {
   action: styles.typeAction,
 };
 
-function Glyph({ type }: { type: JourneyNodeType }) {
+export function JourneyNodeGlyph({ type, size = 16 }: { type: JourneyNodeType; size?: number }) {
   const common = {
-    width: 16,
-    height: 16,
+    width: size,
+    height: size,
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
@@ -37,16 +45,15 @@ function Glyph({ type }: { type: JourneyNodeType }) {
     case "condition":
       return (
         <svg {...common}>
-          <circle cx="6" cy="5" r="2" />
-          <circle cx="6" cy="19" r="2" />
-          <circle cx="18" cy="12" r="2" />
-          <path d="M6 7v10M6 12h4a4 4 0 0 0 4-4V8M14 12h2" />
+          <path d="M6 4v6a4 4 0 0 0 4 4h8" />
+          <path d="M15 11l3 3-3 3" />
+          <path d="M6 14v6" />
         </svg>
       );
     case "action":
       return (
         <svg {...common}>
-          <path d="M5 12h14M13 6l6 6-6 6" />
+          <path d="M20 6 9 17l-5-5" />
         </svg>
       );
   }
@@ -54,8 +61,13 @@ function Glyph({ type }: { type: JourneyNodeType }) {
 
 export function JourneyNodeIcon({ type }: { type: JourneyNodeType }) {
   return (
-    <span className={`${styles.typeIcon} ${NODE_TYPE_CLASS[type]}`} aria-hidden>
-      <Glyph type={type} />
+    <span
+      className={`${styles.typeIcon} ${type === "condition" ? styles.typeIconDiamond : ""} ${NODE_TYPE_CLASS[type]}`}
+      aria-hidden
+    >
+      <span className={styles.typeIconGlyph}>
+        <JourneyNodeGlyph type={type} />
+      </span>
     </span>
   );
 }

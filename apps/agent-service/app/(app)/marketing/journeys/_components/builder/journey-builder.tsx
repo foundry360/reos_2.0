@@ -7,9 +7,7 @@ import Link from "next/link";
 import {
   Background,
   BackgroundVariant,
-  ConnectionLineType,
   Controls,
-  MarkerType,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -26,6 +24,7 @@ import { formatStableDateTime } from "@/components/shell/relative-time";
 import { saveJourneyAction, setJourneyStatusAction } from "@/lib/journeys/journey-actions";
 import { journeyNodeTypeDefinition } from "@/lib/journeys/journey-node-types";
 import {
+  connectionLabel,
   nextJourneyStatus,
   type JourneyDefinition,
   type JourneyNodeType,
@@ -42,25 +41,20 @@ import {
   type JourneyFlowEdge,
   type JourneyFlowNode,
 } from "./canvas-mapping";
+import { JourneyConnectionLine, JourneyEdge } from "./journey-edge";
 import { JourneyNodeView } from "./journey-node-view";
+import { JOURNEY_NODE_COLORS } from "../journey-node-icon";
 import { NodePicker } from "./node-picker";
-import { PropertiesPanel } from "./properties-panel";
+import { PropertiesPanel, type NodePatch } from "./properties-panel";
+import { isTriggerEventType } from "@/lib/journeys/runtime/contracts";
+import { stepKeys } from "@/lib/journeys/runtime/graph";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
 const NODE_TYPES = { journey: JourneyNodeView };
+const EDGE_TYPES = { journey: JourneyEdge };
 
-const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = {
-  type: "smoothstep",
-  markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
-};
-
-const MINIMAP_COLORS: Record<JourneyNodeType, string> = {
-  trigger: "var(--brand)",
-  ai: "var(--contact-link)",
-  condition: "var(--brand-light)",
-  action: "var(--brand-accent)",
-};
+const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = { type: "journey" };
 
 const BANNER_MS = 3500;
 
@@ -85,15 +79,20 @@ function IconBack() {
   );
 }
 
-export function JourneyBuilder({ journey }: { journey: JourneyDefinition }) {
+interface JourneyBuilderProps {
+  journey: JourneyDefinition;
+  agentOptions: { id: string; label: string }[];
+}
+
+export function JourneyBuilder(props: JourneyBuilderProps) {
   return (
     <ReactFlowProvider>
-      <JourneyBuilderCanvas journey={journey} />
+      <JourneyBuilderCanvas {...props} />
     </ReactFlowProvider>
   );
 }
 
-function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
+function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
   const reactFlow = useReactFlow<JourneyFlowNode, JourneyFlowEdge>();
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -120,6 +119,17 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
   const selectedNodes = nodes.filter((node) => node.selected);
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const lifecycle = nextJourneyStatus(status);
+
+  const stepOptions = useMemo(() => {
+    const keys = stepKeys(nodes.map((node) => ({ id: node.id, name: node.data.name })));
+    return nodes
+      .filter((node) => node.data.nodeType === "ai" || node.data.nodeType === "action")
+      .map((node) => ({ nodeId: node.id, key: keys.get(node.id)!, label: node.data.name || node.data.nodeType }));
+  }, [nodes]);
+  const triggerEvent = useMemo(() => {
+    const event = nodes.find((node) => node.data.nodeType === "trigger")?.data.config.event;
+    return isTriggerEventType(event) ? event : null;
+  }, [nodes]);
 
   useEffect(() => {
     if (!banner) return;
@@ -227,13 +237,24 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
       connectionRejectionReason(currentGraph(), {
         sourceNodeId: connection.source,
         targetNodeId: connection.target,
+        sourceHandle: connection.sourceHandle ?? null,
       }) === null,
     [currentGraph],
   );
 
   const onConnect = useCallback(
     (connection: Connection) => {
-      setEdges((current) => addEdge({ ...connection, id: crypto.randomUUID() }, current));
+      setEdges((current) =>
+        addEdge(
+          {
+            ...connection,
+            id: crypto.randomUUID(),
+            type: "journey",
+            label: connectionLabel(connection.sourceHandle),
+          },
+          current,
+        ),
+      );
     },
     [setEdges],
   );
@@ -261,11 +282,11 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
             y: bounds.top + bounds.height / 2,
           })
         : { x: 0, y: 0 };
-      const offset = (reactFlow.getNodes().length % 6) * 24;
+      const offset = (reactFlow.getNodes().length % 6) * 32;
       const node: JourneyFlowNode = {
         id: crypto.randomUUID(),
         type: "journey",
-        position: { x: center.x - 120 + offset, y: center.y - 50 + offset },
+        position: { x: center.x - 28 + offset, y: center.y - 28 + offset },
         selected: true,
         data: {
           nodeType: type,
@@ -285,7 +306,7 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
   );
 
   const updateNode = useCallback(
-    (id: string, patch: { name?: string; description?: string }) => {
+    (id: string, patch: NodePatch) => {
       setNodes((current) =>
         current.map((node) => (node.id === id ? { ...node, data: { ...node.data, ...patch } } : node)),
       );
@@ -331,6 +352,9 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
             <span className={styles.saveStateDot} aria-hidden />
             {saveStateLabel}
           </span>
+          <Link href={`/marketing/journeys/${journey.id}/runs`} className={`${shell.btnSecondary} ${shell.btnPill}`}>
+            Runs
+          </Link>
           <button
             type="button"
             className={`${shell.btnSecondary} ${shell.btnPill}`}
@@ -369,7 +393,7 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
                 <p className={styles.canvasEmptyTitle}>Start your journey</p>
                 <p className={styles.canvasEmptyText}>
                   Every journey begins with a Trigger, the event that starts it. Add one, then
-                  connect AI, Condition, and Action steps below it.
+                  connect AI, Condition, and Action steps to its right.
                 </p>
                 <button
                   type="button"
@@ -386,13 +410,14 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
             nodes={nodes}
             edges={edges}
             nodeTypes={NODE_TYPES}
+            edgeTypes={EDGE_TYPES}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onConnectEnd={onConnectEnd}
             isValidConnection={isValidConnection}
             defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
-            connectionLineType={ConnectionLineType.SmoothStep}
+            connectionLineComponent={JourneyConnectionLine}
             deleteKeyCode={["Backspace", "Delete"]}
             snapToGrid
             snapGrid={[16, 16]}
@@ -408,7 +433,7 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
               pannable
               zoomable
               position="bottom-right"
-              nodeColor={(node) => MINIMAP_COLORS[node.data.nodeType]}
+              nodeColor={(node) => JOURNEY_NODE_COLORS[node.data.nodeType]}
               nodeBorderRadius={6}
             />
           </ReactFlow>
@@ -428,6 +453,10 @@ function JourneyBuilderCanvas({ journey }: { journey: JourneyDefinition }) {
           onNodeChange={updateNode}
           onDeleteNode={deleteNode}
           hiddenOnSmall={selectedNodes.length === 0}
+          agentOptions={agentOptions}
+          stepOptions={stepOptions}
+          triggerEvent={triggerEvent}
+          runsHref={`/marketing/journeys/${journey.id}/runs`}
         />
       </div>
     </div>

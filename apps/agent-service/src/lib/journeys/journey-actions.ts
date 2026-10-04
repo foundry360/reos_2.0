@@ -11,6 +11,7 @@ import {
   saveJourney,
   setJourneyStatus,
 } from "./journey-repository";
+import { cancelJourneyRun } from "./journey-run-repository";
 import { JOURNEY_TEMPLATES, isJourneyTemplateId } from "./journey-templates";
 import {
   isJourneyNodeType,
@@ -23,6 +24,7 @@ import {
   validateJourneyGraph,
   validateJourneyName,
 } from "./journey-validation";
+import { validateNodeConfig } from "./runtime/contracts";
 
 export interface JourneyActionResult {
   ok: boolean;
@@ -68,10 +70,7 @@ function parseGraphInput(input: unknown): JourneyGraph | null {
     const node = entry as Record<string, unknown>;
     if (!isJourneyNodeType(node.type)) return null;
     const position = (node.position ?? {}) as Record<string, unknown>;
-    const config =
-      node.config && typeof node.config === "object" && !Array.isArray(node.config)
-        ? (node.config as Record<string, unknown>)
-        : {};
+    const { config } = validateNodeConfig(node.type, node.config, "draft");
     nodes.push({
       id: text(node.id),
       type: node.type,
@@ -195,6 +194,17 @@ export async function duplicateJourneyAction(journeyId: string): Promise<Journey
 
   revalidateJourneys();
   return { ok: true, id: result.value };
+}
+
+export async function cancelJourneyRunAction(runId: string): Promise<JourneyActionResult> {
+  const context = await requireContext();
+  if ("error" in context) return { ok: false, error: context.error };
+
+  const result = await cancelJourneyRun(context.tenantId, text(runId));
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath(`${JOURNEYS_PATH}/${result.value.journeyId}/runs`);
+  return { ok: true };
 }
 
 export async function deleteJourneyAction(journeyId: string): Promise<JourneyActionResult> {

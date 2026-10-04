@@ -13,6 +13,7 @@ import { appendToThread, getThread } from "@/lib/conversation-store";
 import { appendMessage, getRecentMessages, updateContactFields } from "@/lib/db/contacts";
 import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
 import { isSupabaseConfigured } from "@/lib/env";
+import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
 import { getContactPropertyInterest } from "@/lib/meta/post-context";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AgentBackend, RecordedTurn, ToolEvent } from "@/lib/agent/backend";
@@ -33,8 +34,8 @@ export function liveBackend(tenantId: string): AgentBackend {
       const now = new Date();
       return loadReosBusyIntervals(tenantId, now, lookaheadEnd(now));
     },
-    book: (params) =>
-      bookReosConsultSlot({
+    book: async (params) => {
+      const result = await bookReosConsultSlot({
         tenantId,
         contactId: params.contactId,
         start: params.start.toISOString(),
@@ -42,7 +43,20 @@ export function liveBackend(tenantId: string): AgentBackend {
         attendeeEmail: params.attendeeEmail,
         leadName: params.leadName,
         summary: params.title,
-      }),
+      });
+      if (result.ok) {
+        emitJourneyEvent({
+          tenantId,
+          type: "appointment.booked",
+          sourceId: result.appointmentId,
+          contactId: result.contactId,
+          entityType: "appointment",
+          entityId: result.appointmentId,
+          payload: { start: result.start, end: result.end, booked_by: "agent" },
+        });
+      }
+      return result;
+    },
     reschedule: (params) =>
       rescheduleReosAppointment({
         tenantId,
@@ -67,7 +81,18 @@ export function liveBackend(tenantId: string): AgentBackend {
     },
     appendMessage: async ({ threadKey, contactId, channel, direction, body, playbook, contextLabel }) => {
       if (persisted(contactId)) {
-        await appendMessage({ tenantId, contactId, channel, direction, body, playbook, contextLabel });
+        const messageId = await appendMessage({ tenantId, contactId, channel, direction, body, playbook, contextLabel });
+        if (direction === "inbound" && messageId) {
+          emitJourneyEvent({
+            tenantId,
+            type: "message.received",
+            sourceId: messageId,
+            contactId,
+            entityType: "message",
+            entityId: messageId,
+            payload: { channel, body: body.slice(0, 1000) },
+          });
+        }
         return;
       }
       appendToThread(tenantId, threadKey, {

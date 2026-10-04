@@ -1,8 +1,10 @@
 import type { Edge, Node } from "@xyflow/react";
-import type {
-  JourneyGraph,
-  JourneyNodeConfig,
-  JourneyNodeType,
+import {
+  CONDITION_HANDLES,
+  connectionLabel,
+  type JourneyGraph,
+  type JourneyNodeConfig,
+  type JourneyNodeType,
 } from "@/lib/journeys/journey-types";
 
 /** React Flow keeps canvas state; the journey model is derived from it on save. */
@@ -31,13 +33,21 @@ export function toFlowNodes(graph: JourneyGraph): JourneyFlowNode[] {
 }
 
 export function toFlowEdges(graph: JourneyGraph): JourneyFlowEdge[] {
-  return graph.connections.map((connection) => ({
-    id: connection.id,
-    source: connection.sourceNodeId,
-    target: connection.targetNodeId,
-    sourceHandle: connection.sourceHandle,
-    targetHandle: connection.targetHandle,
-  }));
+  const conditionIds = new Set(graph.nodes.filter((n) => n.type === "condition").map((n) => n.id));
+  return graph.connections.map((connection) => {
+    // Journeys saved before conditions had Yes/No exits treat their single exit as Yes.
+    const sourceHandle =
+      connection.sourceHandle ?? (conditionIds.has(connection.sourceNodeId) ? CONDITION_HANDLES.yes : null);
+    return {
+      id: connection.id,
+      type: "journey",
+      source: connection.sourceNodeId,
+      target: connection.targetNodeId,
+      sourceHandle,
+      targetHandle: connection.targetHandle,
+      label: connectionLabel(sourceHandle),
+    };
+  });
 }
 
 export function toJourneyGraph(nodes: JourneyFlowNode[], edges: JourneyFlowEdge[]): JourneyGraph {

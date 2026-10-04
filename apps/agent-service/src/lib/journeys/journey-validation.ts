@@ -1,5 +1,7 @@
 import { journeyNodeTypeDefinition } from "./journey-node-types";
+import { activationIssues } from "./runtime/graph";
 import {
+  connectionLabel,
   isJourneyNodeType,
   type JourneyConnection,
   type JourneyGraph,
@@ -35,9 +37,10 @@ export function validateJourneyDescription(description: string): string | null {
  */
 export function connectionRejectionReason(
   graph: JourneyGraph,
-  connection: Pick<JourneyConnection, "sourceNodeId" | "targetNodeId">,
+  connection: Pick<JourneyConnection, "sourceNodeId" | "targetNodeId"> &
+    Partial<Pick<JourneyConnection, "sourceHandle">>,
 ): string | null {
-  const { sourceNodeId, targetNodeId } = connection;
+  const { sourceNodeId, targetNodeId, sourceHandle } = connection;
   if (sourceNodeId === targetNodeId) return "A node cannot connect to itself.";
 
   const source = graph.nodes.find((node) => node.id === sourceNodeId);
@@ -56,6 +59,13 @@ export function connectionRejectionReason(
       existing.sourceNodeId === sourceNodeId && existing.targetNodeId === targetNodeId,
   );
   if (duplicate) return "These nodes are already connected.";
+
+  if (source.type === "condition" && sourceHandle) {
+    const branchTaken = graph.connections.some(
+      (existing) => existing.sourceNodeId === sourceNodeId && existing.sourceHandle === sourceHandle,
+    );
+    if (branchTaken) return `The ${connectionLabel(sourceHandle) ?? sourceHandle} path is already connected.`;
+  }
 
   return null;
 }
@@ -98,10 +108,15 @@ export function validateJourneyGraph(graph: JourneyGraph): string | null {
   return null;
 }
 
-/** Minimum shape required before a journey can be activated. */
+/**
+ * Everything that must hold before a journey can run (valid node configs, a
+ * reachable path from a trigger, branches only on conditions, no loops).
+ * Returns a single message listing the first few problems.
+ */
 export function activationBlocker(graph: JourneyGraph): string | null {
-  if (!graph.nodes.some((node) => node.type === "trigger")) {
-    return "Add a Trigger node before activating this journey.";
-  }
-  return null;
+  const issues = activationIssues(graph);
+  if (issues.length === 0) return null;
+  const shown = issues.slice(0, 3).map((issue) => issue.message);
+  const more = issues.length > shown.length ? ` (+${issues.length - shown.length} more)` : "";
+  return `${shown.join(" ")}${more}`;
 }

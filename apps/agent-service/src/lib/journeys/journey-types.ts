@@ -21,6 +21,15 @@ export interface JourneyNode {
   config: JourneyNodeConfig;
 }
 
+/** Condition nodes branch through two named exits, stored as the connection's source handle. */
+export const CONDITION_HANDLES = { yes: "yes", no: "no" } as const;
+
+export function connectionLabel(sourceHandle: string | null | undefined): string | undefined {
+  if (sourceHandle === CONDITION_HANDLES.yes) return "Yes";
+  if (sourceHandle === CONDITION_HANDLES.no) return "No";
+  return undefined;
+}
+
 export interface JourneyConnection {
   id: string;
   sourceNodeId: string;

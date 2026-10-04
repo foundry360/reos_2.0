@@ -7,8 +7,12 @@ import {
   JOURNEY_NODE_DESCRIPTION_MAX,
   JOURNEY_NODE_NAME_MAX,
 } from "@/lib/journeys/journey-validation";
+import Link from "next/link";
+import type { JourneyNodeConfig } from "@/lib/journeys/journey-types";
+import type { TriggerEventType } from "@/lib/journeys/runtime/contracts";
 import { JourneyNodeIcon } from "../journey-node-icon";
 import type { JourneyFlowNode } from "./canvas-mapping";
+import { NodeConfigForm, type StepOption } from "./node-config-form";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
@@ -20,10 +24,16 @@ interface PropertiesPanelProps {
   nodeCount: number;
   connectionCount: number;
   onJourneyChange: (patch: { name?: string; description?: string }) => void;
-  onNodeChange: (id: string, patch: { name?: string; description?: string }) => void;
+  onNodeChange: (id: string, patch: NodePatch) => void;
   onDeleteNode: (id: string) => void;
   hiddenOnSmall: boolean;
+  agentOptions: { id: string; label: string }[];
+  stepOptions: Array<StepOption & { nodeId: string }>;
+  triggerEvent: TriggerEventType | null;
+  runsHref: string;
 }
+
+export type NodePatch = { name?: string; description?: string; config?: JourneyNodeConfig };
 
 export function PropertiesPanel({
   selectedNode,
@@ -36,6 +46,10 @@ export function PropertiesPanel({
   onNodeChange,
   onDeleteNode,
   hiddenOnSmall,
+  agentOptions,
+  stepOptions,
+  triggerEvent,
+  runsHref,
 }: PropertiesPanelProps) {
   const className = `${styles.panel} ${hiddenOnSmall ? styles.panelHidden : ""}`;
 
@@ -93,10 +107,16 @@ export function PropertiesPanel({
               }
             />
           </div>
-          <p className={styles.panelNote}>
-            {definition.label} settings will be configurable in a future release. For now, use the
-            name and description to document what this step should do.
-          </p>
+          <NodeConfigForm
+            key={selectedNode.id}
+            nodeId={selectedNode.id}
+            nodeType={selectedNode.data.nodeType}
+            config={selectedNode.data.config}
+            onChange={(config) => onNodeChange(selectedNode.id, { config })}
+            agentOptions={agentOptions}
+            stepOptions={stepOptions.filter((option) => option.nodeId !== selectedNode.id)}
+            triggerEvent={triggerEvent}
+          />
         </div>
         <div className={styles.panelFooter}>
           <button
@@ -157,9 +177,13 @@ export function PropertiesPanel({
           </div>
         </div>
         <p className={styles.panelNote}>
-          Drag from the bottom handle of one node to the top of another to connect them. Press
-          Delete to remove a selected node or connection.
+          Hover a step and drag from the dot on its right edge to the left edge of the next step.
+          Conditions exit right for Yes and down for No. Press Delete to remove a selected step or
+          connection.
         </p>
+        <Link href={runsHref} className={`${shell.btnSecondary} ${shell.btnPill} ${styles.panelDeleteBtn}`}>
+          View run history
+        </Link>
       </div>
     </aside>
   );

@@ -1,5 +1,10 @@
 import { journeyNodeTypeDefinition } from "./journey-node-types";
-import type { JourneyGraph, JourneyNode, JourneyNodeType } from "./journey-types";
+import {
+  CONDITION_HANDLES,
+  type JourneyGraph,
+  type JourneyNode,
+  type JourneyNodeType,
+} from "./journey-types";
 
 export type JourneyTemplateId = "blank" | "new_lead_qualification";
 
@@ -15,19 +20,20 @@ function templateNode(
   type: JourneyNodeType,
   name: string,
   description: string,
-  y: number,
+  x: number,
+  config?: JourneyNode["config"],
 ): JourneyNode {
   return {
     id: newId(),
     type,
     name,
     description,
-    position: { x: 0, y },
-    config: journeyNodeTypeDefinition(type).defaultConfig(),
+    position: { x, y: 0 },
+    config: config ?? journeyNodeTypeDefinition(type).defaultConfig(),
   };
 }
 
-/** Links each node to the next, top to bottom. */
+/** Links each node to the next, left to right; a condition continues down its Yes path. */
 function chain(newId: () => string, nodes: JourneyNode[]): JourneyGraph {
   return {
     nodes,
@@ -35,7 +41,7 @@ function chain(newId: () => string, nodes: JourneyNode[]): JourneyGraph {
       id: newId(),
       sourceNodeId: nodes[index].id,
       targetNodeId: node.id,
-      sourceHandle: null,
+      sourceHandle: nodes[index].type === "condition" ? CONDITION_HANDLES.yes : null,
       targetHandle: null,
     })),
   };
@@ -51,13 +57,29 @@ export const JOURNEY_TEMPLATES: Record<JourneyTemplateId, JourneyTemplate> = {
   new_lead_qualification: {
     id: "new_lead_qualification",
     name: "New Lead Qualification",
-    description: "Trigger → AI → Condition → Action example to explore the builder.",
+    description: "Trigger → AI → Condition → Action example, ready to activate.",
     buildGraph: (newId) =>
       chain(newId, [
-        templateNode(newId, "trigger", "New lead created", "Starts when a new lead enters REOS.", 0),
-        templateNode(newId, "ai", "Qualify lead", "Assess intent, timeline, and budget.", 170),
-        templateNode(newId, "condition", "Is qualified?", "Route qualified leads to an agent.", 340),
-        templateNode(newId, "action", "Assign to agent", "Hand the lead to the right agent.", 510),
+        templateNode(newId, "trigger", "New lead created", "Starts when a new lead enters REOS.", 0, {
+          event: "lead.created",
+          filters: [],
+        }),
+        templateNode(newId, "ai", "Qualify lead", "Assess intent, timeline, and budget.", 208, {
+          goal: "Assess the lead's intent, timeline, and budget.",
+          instructions: "",
+          agent: "default",
+        }),
+        templateNode(newId, "condition", "Is qualified?", "Route qualified leads to an agent.", 416, {
+          field: "lead.lead_status",
+          operator: "equals",
+          value: "Qualified",
+        }),
+        templateNode(newId, "action", "Notify agent", "Tell the lead's agent to follow up.", 624, {
+          action: "notify_team",
+          title: "Qualified lead: {{full_name}}",
+          body: "A journey flagged this lead as qualified.",
+          recipients: "assigned_agent",
+        }),
       ]),
   },
 };
