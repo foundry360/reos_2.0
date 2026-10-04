@@ -2,6 +2,8 @@
 
 Runbook for invoking the Journey worker every minute from Supabase.
 
+**Status (2026-10-04):** Supabase pg_cron is the production Journey scheduler. Job `reos-journey-worker` runs `* * * * *`, is active, and returns HTTP 200. The temporary daily Vercel Journey cron has been removed from `apps/agent-service/vercel.json`. See [section 10](#10-production-validation-completed) for what was validated.
+
 **Nothing here is applied automatically.** No migration, deploy, or application code in this repo enables the extensions, creates the Vault secrets, or schedules the job. Every Supabase step below is done by hand, in the order given.
 
 ## 1. Architecture
@@ -23,7 +25,8 @@ Supabase pg_cron  ('reos-journey-worker', every minute)
 - Overlapping calls are safe. Each run is executed only by the caller that wins its database claim/lease.
 - A pass stops starting new runs after about 50 seconds and returns immediately when nothing is due.
 - The request body is ignored. GET and POST behave the same. No Vercel-specific headers are needed.
-- During migration, the existing daily Vercel cron (`/api/cron/journeys`, `0 13 * * *` in `apps/agent-service/vercel.json`) stays as a fallback. The billing cron (`/api/cron/close-billing-cycles`) is unrelated and stays permanently.
+- `/api/cron/journeys` on Vercel remains the worker endpoint, but Vercel no longer schedules it. Supabase `reos-journey-worker` is the only scheduler; there's no Vercel Journey cron fallback.
+- The billing cron (`/api/cron/close-billing-cycles`, `0 6 1 * *` in `apps/agent-service/vercel.json`) is independent and stays scheduled by Vercel.
 
 ## 2. Environment variable
 
@@ -129,7 +132,7 @@ where name in ('reos_journey_cron_url', 'reos_journey_cron_secret');
 
 Never select `decrypted_secret` (or `secret`) when checking or troubleshooting, and never paste its output anywhere.
 
-Rotating the secret: update Vercel `CRON_SECRET` and redeploy, then update the Vault secret (UI, or `vault.update_secret` with the secret's `id` from `vault.secrets`). Expect 401s in `net._http_response` between the two updates. The daily Vercel cron is unaffected because Vercel reads the new env value.
+Rotating the secret: update Vercel `CRON_SECRET` and redeploy, then update the Vault secret (UI, or `vault.update_secret` with the secret's `id` from `vault.secrets`). Expect 401s in `net._http_response` between the two updates. Journey waits and retries don't resume during that window; they're picked up on the first successful call afterwards, so update Vault right after the deploy.
 
 ## 7. Check for an existing job (D)
 
@@ -226,7 +229,20 @@ limit 20;
 
 A healthy worker shows `status_code = 200` and `timed_out = false`. pg_net keeps responses for about 6 hours. The response body holds only counts (found, claimed, skipped, failed, etc.), never secrets or lead data.
 
-## 10. Production migration procedure
+## 10. Production validation (completed)
+
+Validated in production on 2026-10-04:
+
+- **HTTP endpoint:** `reos-journey-worker` fires every minute and `net._http_response` shows HTTP 200 from `https://www.getreos.app/api/cron/journeys`.
+- **Live wait/resume:** a production journey with a short wait resumed at minute-level timing.
+- **Retries:** a transient step failure retried after about 1 minute, then about 5 minutes.
+- **Maximum three attempts:** after the third failed attempt the run was marked `failed`, with no further attempts.
+- **Concurrent workers:** with 5 workers executing the same run at once, exactly one claimed it and the action ran once.
+- **Lease takeover/fencing:** a worker that stalled past its lease couldn't write after another worker claimed the run. Recovery didn't repeat the non-repeatable action.
+
+The temporary Vercel Journey cron was then removed from `apps/agent-service/vercel.json`. The billing cron was left unchanged.
+
+### Setup procedure (reference: rebuilding the scheduler)
 
 1. **Set the secret in Vercel.** Configure `CRON_SECRET` in Vercel → Production.
 2. **Deploy.** Deploy the application normally.
@@ -246,7 +262,7 @@ A healthy worker shows `status_code = 200` and `timed_out = false`. pg_net keeps
 7. **Check that no `reos-journey-worker` exists** (section 7).
 8. **Create the job** (section 8).
 9. **Let it run.** Wait 3–5 minutes, then verify `cron.job` and `cron.job_run_details`, and confirm `net._http_response` shows `200` with no timeouts (section 9).
-10. **Test a short wait.** Activate a test journey: `Trigger → Wait 2 minutes → Action`, using a test lead and a harmless action such as a task or team notification. Trigger it, then confirm the run resumes about 2 minutes later, not at the next 13:00 UTC daily cron:
+10. **Test a short wait.** Activate a test journey: `Trigger → Wait 2 minutes → Action`, using a test lead and a harmless action such as a task or team notification. Trigger it, then confirm the run resumes about 2 minutes later:
 
     ```sql
     select id, status, resume_at, completed_at, updated_at
@@ -262,23 +278,14 @@ A healthy worker shows `status_code = 200` and `timed_out = false`. pg_net keeps
     ```
 
     Expect `waiting` with `resume_at ≈ trigger time + 2 min`, then `completed` within about a minute of `resume_at`.
-11. **Test a retry.** Use a test journey whose step fails with `error_kind = 'transient'`. The engine retries transient failures after about 1 minute, then about 5 minutes, and fails the run after 3 attempts. With the queries above, confirm that `resume_at` advances and `attempt_count` increases on that schedule, not at the daily cron.
-12. **Check lease behavior.** While the per-minute job and the daily Vercel cron both exist, confirm each step in `journey_run_steps` runs once per attempt (no duplicate actions) and no run stays `running` with an expired `locked_until`.
-
-### Don't remove the Vercel Journey cron until
-
-1. Supabase pg_cron is firing (`cron.job_run_details`).
-2. pg_net is successfully reaching Vercel (`net._http_response` has rows, no `error_msg`).
-3. Vercel returns HTTP 200.
-4. A Journey wait resumes at minute-level timing.
-5. A retryable Journey failure retries correctly.
-6. Journey lease behavior stays correct under the new scheduler.
-
-Only then remove the `/api/cron/journeys` entry from `apps/agent-service/vercel.json`, in a separate change. Leave `/api/cron/close-billing-cycles` untouched.
+11. **Test a retry.** Use a test journey whose step fails with `error_kind = 'transient'`. The engine retries transient failures after about 1 minute, then about 5 minutes, and fails the run after 3 attempts. With the queries above, confirm that `resume_at` advances and `attempt_count` increases on that schedule.
+12. **Check lease behavior.** Confirm each step in `journey_run_steps` runs once per attempt (no duplicate actions), and no run stays `running` with an expired `locked_until`.
 
 ## 11. Rollback
 
-Rollback only touches the scheduler; the application and the Vercel cron stay as they are.
+Rollback only touches the Supabase job; the application, `vercel.json`, and the billing cron stay as they are.
+
+While the job is paused, nothing resumes Journey waits or retries. Due runs aren't lost: they stay due and are picked up by the first successful worker call after the job is re-enabled. If needed during an outage, run a pass by hand with the authenticated call in step 3 of the setup procedure (section 10).
 
 1. Pause or remove the Supabase job:
 
@@ -293,9 +300,8 @@ Rollback only touches the scheduler; the application and the Vercel cron stay as
    select cron.unschedule('reos-journey-worker');
    ```
 
-2. Leave the Vercel Journey cron in place. Runs keep resuming daily.
-3. Investigate the Supabase, pg_net, and Vault configuration (section 12).
-4. Re-enable the job (`active := true`) or re-create it only after an authenticated manual call (step 3 of section 10) returns 200.
+2. Investigate the Supabase, pg_net, and Vault configuration (section 12).
+3. Re-enable the job (`active := true`) or re-create it (sections 7–8) only after an authenticated manual call (step 3 of the setup procedure) returns 200.
 
 Don't change Journey runtime code as part of scheduler troubleshooting unless an actual code defect is found.
 

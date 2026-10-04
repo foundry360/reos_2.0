@@ -4,10 +4,6 @@
     {
       "path": "/api/cron/close-billing-cycles",
       "schedule": "0 6 1 * *"
-    },
-    {
-      "path": "/api/cron/journeys",
-      "schedule": "0 13 * * *"
     }
   ]
 }
