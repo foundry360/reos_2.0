@@ -112,13 +112,21 @@ export async function deliverMessageToContact(
     if (!sent.ok) return { ok: false, error: sent.error, kind: "transient" };
   }
 
-  const messageId = await appendMessage({
-    tenantId,
-    contactId: contact.id,
-    channel,
-    direction: "outbound",
-    body,
-  });
+  // The provider accepted the message, so this is a successful send even if logging it
+  // fails (messageId null, as appendMessage already returns for database errors).
+  // Reporting it as failed would get it sent again.
+  let messageId: string | null = null;
+  try {
+    messageId = await appendMessage({
+      tenantId,
+      contactId: contact.id,
+      channel,
+      direction: "outbound",
+      body,
+    });
+  } catch (error) {
+    console.error("Append message error:", error instanceof Error ? error.message : error);
+  }
 
   return { ok: true, messageId, recordType: contact.record_type ?? null };
 }

@@ -13,6 +13,7 @@ import type {
   RunRecord,
   RunState,
   StepPatch,
+  StepStatus,
 } from "./engine";
 
 const RUN_COLUMNS =
@@ -214,6 +215,29 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
       return data && data.length > 0 ? "updated" : "lease_lost";
     },
 
+    async retryFailedRun(tenantId, runId, expectedNodeId, context, resumeAt) {
+      const { data, error } = await db
+        .from("journey_runs")
+        .update({
+          status: "waiting",
+          resume_at: resumeAt,
+          completed_at: null,
+          locked_until: null,
+          error: null,
+          context,
+        })
+        .eq("tenant_id", tenantId)
+        .eq("id", runId)
+        .eq("status", "failed")
+        .eq("current_node_id", expectedNodeId)
+        .select("id");
+      if (error) {
+        if (runInsertConflict(error) === "active_run") return "active_run";
+        fail("retryFailedRun", error);
+      }
+      return data && data.length > 0 ? "retried" : "not_failed";
+    },
+
     async loadSnapshot(journeyId, version) {
       const { data, error } = await db
         .from("journey_versions")
@@ -268,6 +292,17 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
       if (patch.completedAt !== undefined) row.completed_at = patch.completedAt;
       const { error } = await db.from("journey_run_steps").update(row).eq("id", stepId);
       if (error) fail("updateStep", error);
+    },
+
+    async loadStep(tenantId, stepId) {
+      const { data, error } = await db
+        .from("journey_run_steps")
+        .select("status, output")
+        .eq("id", stepId)
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (error) fail("loadStep", error);
+      return data ? { status: data.status as StepStatus, output: (data.output ?? {}) as Record<string, unknown> } : null;
     },
 
     async loadEntities(tenantId, contactId): Promise<LoadedEntities> {

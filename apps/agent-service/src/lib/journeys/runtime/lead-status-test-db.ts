@@ -6,7 +6,9 @@
  * runs them: one transaction per request, request.jwt.claims and request.headers
  * set locally, and the request's role switched in.
  *
- * Supports only what the tests use: PATCH with eq/neq/in/is filters, GET, and RPC.
+ * Supports only what the tests use: GET, POST (insert), PATCH, and DELETE
+ * (with an exact count) with eq/neq/in/cs/is/not.is.null filters, order and limit, single-object responses,
+ * RPC, and the auth admin "get user" endpoint backed by `authUsers`.
  */
 
 import { readFileSync } from "node:fs";
@@ -77,6 +79,15 @@ export interface TestDb {
   /** A supabase-js client whose requests run against PGlite as `role` (and `userId` for authenticated). */
   client(role: RequestRole, userId?: string): SupabaseClient;
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
+  /** The bridge itself, for clients that use the global fetch (route http://postgrest.test requests here). */
+  fetch: typeof fetch;
+  /** Users the auth admin "get user" endpoint returns, by id. Cleared by reset(). */
+  authUsers: Map<string, { email: string }>;
+}
+
+export interface TestDbOptions {
+  /** Extra test-only schema, applied after the stand-in and migrations. */
+  schema?: string;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -95,7 +106,13 @@ function parseFilter(column: string, raw: string, params: unknown[]): string {
     params.push(value);
     return `${col} ${operator === "eq" ? "=" : "<>"} $${params.length}`;
   }
+  if (operator === "cs") {
+    // Array contains; the value is a Postgres array literal such as {manual}.
+    params.push(value);
+    return `${col} @> $${params.length}`;
+  }
   if (operator === "is" && value === "null") return `${col} is null`;
+  if (operator === "not" && value === "is.null") return `${col} is not null`;
   if (operator === "in") {
     const items = value.replace(/^\(|\)$/g, "").split(",").map((item) => item.replace(/^"|"$/g, ""));
     const placeholders = items.map((item) => {
@@ -111,6 +128,32 @@ function selectList(select: string | null): string {
   if (!select || select === "*") return "*";
   return select.split(",").map((column) => identifier(column.trim())).join(", ");
 }
+
+/** order=col.asc|desc[.nullsfirst|.nullslast], comma-separated. */
+function orderBy(raw: string | null): string {
+  if (!raw) return "";
+  const terms = raw.split(",").map((term) => {
+    const [column, direction, nulls] = term.split(".");
+    const dir = direction === "desc" ? " desc" : " asc";
+    const nullsSql = nulls === "nullsfirst" ? " nulls first" : nulls === "nullslast" ? " nulls last" : "";
+    return `${identifier(column)}${dir}${nullsSql}`;
+  });
+  return ` order by ${terms.join(", ")}`;
+}
+
+function limitSql(raw: string | null): string {
+  if (raw === null) return "";
+  const limit = Number(raw);
+  if (!Number.isInteger(limit) || limit < 0) throw new Error(`Unsupported limit: ${raw}`);
+  return ` limit ${limit}`;
+}
+
+/** jsonb columns take objects and arrays as JSON text. */
+function insertValue(value: unknown): unknown {
+  return value !== null && typeof value === "object" ? JSON.stringify(value) : value;
+}
+
+const NOT_FILTERS = new Set(["select", "columns", "order", "limit"]);
 
 function authFromKey(key: string): { role: RequestRole; sub?: string } {
   const [role, sub] = key.split(":");
@@ -141,10 +184,32 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-function postgrestFetch(pg: PGlite): typeof fetch {
+/** Rows as PostgREST returns them: an array, or one object when the client asked for one. */
+function rowsResponse(request: Request, rows: unknown[], status = 200): Response {
+  if (!(request.headers.get("accept") ?? "").startsWith("application/vnd.pgrst.object+json")) return json(status, rows);
+  if (rows.length === 1) return json(status, rows[0]);
+  return json(406, {
+    code: "PGRST116",
+    details: `The result contains ${rows.length} rows`,
+    hint: null,
+    message: "JSON object requested, multiple (or no) rows returned",
+  });
+}
+
+function postgrestFetch(pg: PGlite, authUsers: Map<string, { email: string }>): typeof fetch {
   return async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
+
+    const authUser = /^\/auth\/v1\/admin\/users\/([^/]+)$/.exec(url.pathname);
+    if (authUser && request.method === "GET") {
+      const user = authUsers.get(decodeURIComponent(authUser[1]));
+      return user
+        ? json(200, { id: authUser[1], aud: "authenticated", role: "authenticated", email: user.email })
+        : json(404, { code: 404, error_code: "user_not_found", msg: "User not found" });
+    }
+    if (!url.pathname.startsWith("/rest/v1/")) return json(404, { message: `Unsupported path ${url.pathname}` });
+
     const auth = authFromKey(request.headers.get("apikey") ?? "");
     const headers: Record<string, string> = {};
     request.headers.forEach((value, name) => {
@@ -171,15 +236,35 @@ function postgrestFetch(pg: PGlite): typeof fetch {
       const whereSql = () => {
         const where: string[] = [];
         url.searchParams.forEach((value, name) => {
-          if (name !== "select" && name !== "columns") where.push(parseFilter(name, value, params));
+          if (!NOT_FILTERS.has(name)) where.push(parseFilter(name, value, params));
         });
         return where.length ? ` where ${where.join(" and ")}` : "";
       };
 
       if (request.method === "GET") {
-        const sql = `select ${selectList(url.searchParams.get("select"))} from public.${table}${whereSql()}`;
+        const sql =
+          `select ${selectList(url.searchParams.get("select"))} from public.${table}${whereSql()}` +
+          `${orderBy(url.searchParams.get("order"))}${limitSql(url.searchParams.get("limit"))}`;
         const result = await inRequest(pg, auth, headers, (tx) => tx.query(sql, params));
-        return json(200, result.rows);
+        return rowsResponse(request, result.rows);
+      }
+
+      if (request.method === "POST") {
+        const rows = (Array.isArray(body) ? body : [body]) as Array<Record<string, unknown>>;
+        const returning = wantsRows ? ` returning ${selectList(url.searchParams.get("select"))}` : "";
+        const inserted = await inRequest(pg, auth, headers, async (tx) => {
+          const out: unknown[] = [];
+          for (const row of rows) {
+            const columns = Object.keys(row).map(identifier);
+            const values = columns.map((column) => insertValue(row[column]));
+            const sql = columns.length
+              ? `insert into public.${table} (${columns.join(", ")}) values (${columns.map((_, index) => `$${index + 1}`).join(", ")})${returning}`
+              : `insert into public.${table} default values${returning}`;
+            out.push(...(await tx.query(sql, values)).rows);
+          }
+          return out;
+        });
+        return wantsRows ? rowsResponse(request, inserted, 201) : json(201, undefined);
       }
 
       if (request.method === "PATCH") {
@@ -190,26 +275,47 @@ function postgrestFetch(pg: PGlite): typeof fetch {
         const returning = wantsRows ? ` returning ${selectList(url.searchParams.get("select"))}` : "";
         const sql = `update public.${table} set ${sets.join(", ")}${whereSql()}${returning}`;
         const result = await inRequest(pg, auth, headers, (tx) => tx.query(sql, params));
-        return wantsRows ? json(200, result.rows) : json(204, undefined);
+        return wantsRows ? rowsResponse(request, result.rows) : json(204, undefined);
+      }
+
+      if (request.method === "DELETE") {
+        const returning = wantsRows ? ` returning ${selectList(url.searchParams.get("select"))}` : "";
+        const sql = `delete from public.${table}${whereSql()}${returning}`;
+        const result = await inRequest(pg, auth, headers, (tx) => tx.query(sql, params));
+        if (wantsRows) return rowsResponse(request, result.rows);
+        const counted = (request.headers.get("prefer") ?? "").includes("count=exact");
+        return new Response(null, {
+          status: 204,
+          headers: counted ? { "content-range": `*/${result.affectedRows ?? 0}` } : {},
+        });
       }
 
       return json(405, { message: `Unsupported method ${request.method}` });
     } catch (error) {
-      return json(400, { message: error instanceof Error ? error.message : String(error) });
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : undefined;
+      return json(400, { message: error instanceof Error ? error.message : String(error), ...(code ? { code } : {}) });
     }
   };
 }
 
-export async function createTestDb(): Promise<TestDb> {
+export async function createTestDb(options: TestDbOptions = {}): Promise<TestDb> {
   const pg = new PGlite();
   await pg.exec(SUPABASE_STAND_IN);
   for (const migration of MIGRATIONS) await pg.exec(readFileSync(migration, "utf8"));
-  const fetchImpl = postgrestFetch(pg);
+  if (options.schema) await pg.exec(options.schema);
+  const authUsers = new Map<string, { email: string }>();
+  const fetchImpl = postgrestFetch(pg, authUsers);
+  const tables = (
+    await pg.query<{ name: string }>("select format('public.%I', tablename) as name from pg_tables where schemaname = 'public'")
+  ).rows.map((row) => row.name);
 
   return {
     pg,
+    fetch: fetchImpl,
+    authUsers,
     async reset() {
-      await pg.exec("truncate public.lead_status_events, public.journey_runs, public.contacts, public.tenants, public.test_memberships cascade");
+      authUsers.clear();
+      await pg.exec(`truncate ${tables.join(", ")} cascade`);
     },
     client(role, userId) {
       const key = userId ? `${role}:${userId}` : role;

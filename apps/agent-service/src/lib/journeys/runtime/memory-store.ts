@@ -15,6 +15,8 @@ import type {
   NewStep,
   RunPatch,
   RunRecord,
+  RunRetryWriteResult,
+  RunState,
   RunWriteResult,
   StepPatch,
 } from "./engine.ts";
@@ -149,6 +151,37 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     return "updated";
   }
 
+  async retryFailedRun(
+    tenantId: string,
+    runId: string,
+    expectedNodeId: string,
+    context: RunState,
+    resumeAt: string,
+  ): Promise<RunRetryWriteResult> {
+    const run = this.runs.get(runId);
+    if (!run || run.tenantId !== tenantId || run.status !== "failed" || run.currentNodeId !== expectedNodeId) {
+      return "not_failed";
+    }
+    // Mirrors journey_runs_one_active_per_contact_idx (migration 056).
+    const active = [...this.runs.values()].some(
+      (other) =>
+        other.id !== run.id &&
+        run.contactId !== null &&
+        other.tenantId === run.tenantId &&
+        other.journeyId === run.journeyId &&
+        other.contactId === run.contactId &&
+        ACTIVE_STATUSES.includes(other.status),
+    );
+    if (active) return "active_run";
+    run.status = "waiting";
+    run.resumeAt = resumeAt;
+    run.completedAt = null;
+    run.lockedUntil = null;
+    run.error = null;
+    run.context = structuredClone(context);
+    return "retried";
+  }
+
   async loadSnapshot(journeyId: string, version: number) {
     const snapshot = this.journeys.get(journeyId)?.versions.get(version);
     return snapshot ? structuredClone(snapshot) : null;
@@ -168,6 +201,11 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
   async updateStep(stepId: string, patch: StepPatch) {
     const step = this.steps.find((entry) => entry.id === stepId);
     if (step) Object.assign(step, structuredClone(patch));
+  }
+
+  async loadStep(tenantId: string, stepId: string) {
+    const step = this.steps.find((entry) => entry.id === stepId && entry.tenantId === tenantId);
+    return step ? { status: step.status, output: structuredClone(step.output ?? {}) } : null;
   }
 
   async loadEntities(tenantId: string, contactId: string | null): Promise<LoadedEntities> {

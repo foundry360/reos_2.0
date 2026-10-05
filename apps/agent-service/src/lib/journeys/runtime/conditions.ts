@@ -1,5 +1,6 @@
 import {
   STEP_FIELD_PATTERN,
+  type ConditionLogic,
   type ConditionRule,
   type ConditionValue,
 } from "./contracts.ts";
@@ -90,4 +91,12 @@ export function evaluateCondition(rule: ConditionRule, context: ExecutionContext
 
 export function evaluateAll(rules: ConditionRule[], context: ExecutionContext): boolean {
   return rules.every((rule) => evaluateCondition(rule, context));
+}
+
+/** A Condition step's rules. No rules is false for either logic, never vacuously true. */
+export function evaluateRules(logic: ConditionLogic, rules: ConditionRule[], context: ExecutionContext): boolean {
+  if (rules.length === 0) return false;
+  return logic === "any"
+    ? rules.some((rule) => evaluateCondition(rule, context) === true)
+    : rules.every((rule) => evaluateCondition(rule, context) === true);
 }

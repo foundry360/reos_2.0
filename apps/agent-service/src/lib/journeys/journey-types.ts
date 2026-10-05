@@ -3,7 +3,7 @@
  * will evaluate it against events. Nothing here executes.
  */
 
-export const JOURNEY_STATUSES = ["draft", "active", "paused"] as const;
+export const JOURNEY_STATUSES = ["draft", "active", "paused", "archived"] as const;
 export type JourneyStatus = (typeof JOURNEY_STATUSES)[number];
 
 export const JOURNEY_NODE_TYPES = ["trigger", "ai", "condition", "action"] as const;
@@ -75,24 +75,28 @@ export const JOURNEY_STATUS_LABELS: Record<JourneyStatus, string> = {
   draft: "Draft",
   active: "Active",
   paused: "Paused",
+  archived: "Archived",
 };
 
+/** Archived never runs; Restore returns it to draft, from where it is activated normally. */
 const ALLOWED_TRANSITIONS: Record<JourneyStatus, readonly JourneyStatus[]> = {
-  draft: ["active"],
-  active: ["paused"],
-  paused: ["active"],
+  draft: ["active", "archived"],
+  active: ["paused", "archived"],
+  paused: ["active", "archived"],
+  archived: ["draft"],
 };
 
 export function canTransitionJourney(from: JourneyStatus, to: JourneyStatus): boolean {
   return ALLOWED_TRANSITIONS[from].includes(to);
 }
 
-/** The single lifecycle action offered for a status (Activate / Pause / Resume). */
+/** The single lifecycle action offered for a status (Activate / Pause / Resume / Restore). Archive is offered separately. */
 export function nextJourneyStatus(status: JourneyStatus): {
   status: JourneyStatus;
   label: string;
 } {
   if (status === "active") return { status: "paused", label: "Pause" };
   if (status === "paused") return { status: "active", label: "Resume" };
+  if (status === "archived") return { status: "draft", label: "Restore" };
   return { status: "active", label: "Activate" };
 }

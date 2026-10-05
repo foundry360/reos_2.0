@@ -690,12 +690,12 @@ describe("lease ownership", () => {
 
     assert.equal((await executeRun(deps, runId)).status, "not_claimed", "B's lease blocks a third worker");
 
-    // B dies too; once its lease expires the normal crash recovery takes over.
+    // B dies too; once its lease expires recovery takes over. A recorded the SMS step as
+    // completed before losing the lease, so recovery continues after it instead of resending.
     advance(LEASE_MS + 1);
     const resumed = await resumeDueRuns(deps);
-    assert.equal(resumed.outcomes[0].status, "failed");
-    assert.match(onlyRun().error ?? "", /interrupted/);
-    assert.deepEqual(actions.names(), ["send_sms"], "the SMS is never sent twice");
+    assert.equal(resumed.outcomes[0].status, "completed");
+    assert.deepEqual(actions.names(), ["send_sms", "create_task", "notify_team"], "the SMS is never sent twice");
   });
 
   it("finishes the current node but runs nothing after a cancellation", async () => {

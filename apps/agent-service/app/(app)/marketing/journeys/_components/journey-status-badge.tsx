@@ -6,6 +6,7 @@ const STATUS_CLASS: Record<JourneyStatus, string> = {
   draft: styles.badgeDraft,
   active: styles.badgeJourneyActive,
   paused: styles.badgeJourneyPaused,
+  archived: styles.badgeRunMuted,
 };
 
 export function JourneyStatusBadge({ status }: { status: JourneyStatus }) {

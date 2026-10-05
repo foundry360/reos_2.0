@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CancelRunButton } from "../../_components/cancel-run-button";
 import { JourneyStatusBadge } from "../../_components/journey-status-badge";
+import { RetryRunButton } from "../../_components/retry-run-button";
 import { EmptyState } from "@/components/shell/empty-state";
 import { PageHeading } from "@/components/shell/page-heading";
 import { formatStableDateTime } from "@/components/shell/format-date";
@@ -14,6 +15,7 @@ import {
   type JourneyRunStep,
 } from "@/lib/journeys/journey-run-repository";
 import { TRIGGER_EVENTS, isTriggerEventType } from "@/lib/journeys/runtime/contracts";
+import { retryBlockReason } from "@/lib/journeys/runtime/run-retry";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../../_components/journeys.module.css";
@@ -130,6 +132,11 @@ export default async function JourneyRunsPage({ params }: PageProps) {
               {runs.value.map((run) => {
                 const status = RUN_STATUS[run.status] ?? RUN_STATUS.running;
                 const runSteps = steps?.ok ? (steps.value.get(run.id) ?? []) : [];
+                const canRetry =
+                  journey.ok &&
+                  journey.value !== null &&
+                  steps?.ok === true &&
+                  retryBlockReason(run, runSteps.at(-1) ?? null, journey.value.status) === null;
                 const trigger = isTriggerEventType(run.triggerEvent)
                   ? TRIGGER_EVENTS[run.triggerEvent].label
                   : run.triggerEvent;
@@ -182,6 +189,7 @@ export default async function JourneyRunsPage({ params }: PageProps) {
                       {["running", "waiting", "paused"].includes(run.status) ? (
                         <CancelRunButton runId={run.id} />
                       ) : null}
+                      {canRetry ? <RetryRunButton runId={run.id} version={run.journeyVersion} /> : null}
                     </td>
                   </tr>
                 );

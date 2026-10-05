@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ACTION_TYPES,
   AI_OUTPUT_TYPES,
@@ -10,12 +10,14 @@ import {
   EMPTY_STEP_REFERENCE,
   IMPLEMENTED_TRIGGER_EVENTS,
   MAX_AI_OUTPUT_FIELDS,
+  MAX_CONDITION_RULES,
   NOTIFY_RECIPIENTS,
   STEP_FIELD_DRAFT,
   TEMPLATE_TOKENS,
   TRIGGER_EVENTS,
   UPDATE_LEAD_FIELDS,
   WAIT_UNITS,
+  isConditionLogic,
   isTriggerEventType,
   operatorsForField,
   stepReferenceDraft,
@@ -23,6 +25,7 @@ import {
   updateStepReferenceDraft,
   validateNodeConfig,
   type AIOutputField,
+  type ConditionLogic,
   type ConditionRule,
   type FieldDefinition,
   type StepReferenceDraft,
@@ -278,6 +281,116 @@ function RuleEditor({
   );
 }
 
+function toRule(raw: unknown): ConditionRule {
+  const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    field: str(input.field),
+    operator: (input.operator as ConditionRule["operator"]) ?? "equals",
+    value: (input.value as ConditionRule["value"]) ?? null,
+  };
+}
+
+const EMPTY_RULE: ConditionRule = { field: "", operator: "equals", value: null };
+
+/** One rule saves flat (the legacy shape); two or more save as { logic, rules }. */
+function ConditionEditor({
+  idPrefix,
+  config,
+  onChange,
+  stepOptions,
+  triggerEvent,
+}: {
+  idPrefix: string;
+  config: JourneyNodeConfig;
+  onChange: (config: JourneyNodeConfig) => void;
+  stepOptions: StepOption[];
+  triggerEvent: TriggerEventType | null;
+}) {
+  const multi = Array.isArray(config.rules);
+  const rules = multi ? (config.rules as unknown[]).map(toRule) : [toRule(config)];
+  const logic: ConditionLogic = isConditionLogic(config.logic) ? config.logic : "all";
+
+  // Stable row keys: RuleEditor keeps a half-built step reference in local state, so rows can't be keyed by index.
+  const rowKeys = useRef<number[]>([]);
+  const nextKey = useRef(0);
+  while (rowKeys.current.length < rules.length) rowKeys.current.push(nextKey.current++);
+  if (rowKeys.current.length > rules.length) rowKeys.current.length = rules.length;
+
+  const save = (nextRules: ConditionRule[], nextLogic: ConditionLogic = logic) =>
+    onChange(nextRules.length === 1 ? { ...nextRules[0] } : { logic: nextLogic, rules: nextRules });
+  const remove = (index: number) => {
+    rowKeys.current.splice(index, 1);
+    save(rules.filter((_, i) => i !== index));
+  };
+  const addRule =
+    rules.length < MAX_CONDITION_RULES ? (
+      <button
+        type="button"
+        className={`${shell.btnSecondary} ${shell.btnPill}`}
+        onClick={() => save([...rules, { ...EMPTY_RULE }])}
+      >
+        Add rule
+      </button>
+    ) : null;
+  const hint = <p className={shell.fieldHint}>True continues on the Yes path (right); false on the No path (bottom).</p>;
+
+  if (rules.length <= 1) {
+    return (
+      <>
+        <RuleEditor
+          idPrefix={idPrefix}
+          rule={rules[0] ?? { ...EMPTY_RULE }}
+          onChange={(next) => onChange({ ...next })}
+          stepOptions={stepOptions}
+          triggerEvent={triggerEvent}
+          allowSteps
+        />
+        {addRule}
+        {hint}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className={shell.field}>
+        <label className={shell.label} htmlFor={`${idPrefix}-logic`}>
+          Match
+        </label>
+        <DropdownSelect
+          id={`${idPrefix}-logic`}
+          value={logic}
+          onChange={(next) => save(rules, next === "any" ? "any" : "all")}
+          options={[
+            { value: "all", label: "ALL rules" },
+            { value: "any", label: "ANY rule" },
+          ]}
+        />
+      </div>
+      {rules.map((rule, index) => (
+        <div key={rowKeys.current[index]} className={styles.configGroup}>
+          <div className={styles.configGroupHeader}>
+            <span>{index === 0 ? "If" : logic === "any" ? "Or" : "And"}</span>
+            <button type="button" className={styles.configLink} onClick={() => remove(index)}>
+              Remove
+            </button>
+          </div>
+          <RuleEditor
+            idPrefix={`${idPrefix}-${rowKeys.current[index]}`}
+            rule={rule}
+            onChange={(next) => save(rules.map((entry, i) => (i === index ? next : entry)))}
+            stepOptions={stepOptions}
+            triggerEvent={triggerEvent}
+            allowSteps
+          />
+        </div>
+      ))}
+      {addRule}
+      {hint}
+    </>
+  );
+}
+
 /** Output field names must work as condition paths, so typing is nudged into snake_case. */
 function outputFieldName(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 60);
@@ -479,23 +592,14 @@ export function NodeConfigForm({
       </>
     );
   } else if (nodeType === "condition") {
-    const rule: ConditionRule = {
-      field: str(config.field),
-      operator: (config.operator as ConditionRule["operator"]) ?? "equals",
-      value: (config.value as ConditionRule["value"]) ?? null,
-    };
     body = (
-      <>
-        <RuleEditor
-          idPrefix={id("rule")}
-          rule={rule}
-          onChange={(next) => onChange({ ...next })}
-          stepOptions={stepOptions}
-          triggerEvent={triggerEvent}
-          allowSteps
-        />
-        <p className={shell.fieldHint}>True continues on the Yes path (right); false on the No path (bottom).</p>
-      </>
+      <ConditionEditor
+        idPrefix={id("rule")}
+        config={config}
+        onChange={onChange}
+        stepOptions={stepOptions}
+        triggerEvent={triggerEvent}
+      />
     );
   } else if (nodeType === "ai") {
     body = (
@@ -550,6 +654,14 @@ export function NodeConfigForm({
 
         {action === "send_sms" ? (
           <TextField id={id("body")} label="Message" value={config.body} onChange={(b) => set({ body: b })} multiline hint={`${TOKEN_HINT} Leads who opted out of SMS or have no mobile number fail this step.`} />
+        ) : null}
+
+        {action === "send_messenger" ? (
+          <TextField id={id("body")} label="Message" value={config.body} onChange={(b) => set({ body: b })} multiline hint={`${TOKEN_HINT} Only leads who have sent your Page a Messenger message can receive this; commenting on a post doesn't count. Others fail this step.`} />
+        ) : null}
+
+        {action === "send_instagram" ? (
+          <TextField id={id("body")} label="Message" value={config.body} onChange={(b) => set({ body: b })} multiline hint={`${TOKEN_HINT} Only leads who have sent your Instagram account a direct message can receive this; commenting on a post doesn't count. Others fail this step.`} />
         ) : null}
 
         {action === "send_email" ? (

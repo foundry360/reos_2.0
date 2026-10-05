@@ -208,6 +208,8 @@ export const WAIT_LIMITS: Record<WaitUnit, number> = { minutes: 60 * 24 * 90, ho
 
 export const ACTION_TYPES = {
   send_sms: { label: "Send SMS", description: "Text the lead from your primary REOS number." },
+  send_messenger: { label: "Send Messenger", description: "Message the lead from your connected Facebook Page." },
+  send_instagram: { label: "Send Instagram", description: "Message the lead from your connected Instagram account." },
   send_email: { label: "Send email", description: "Email the lead from REOS on behalf of their agent." },
   assign_lead: { label: "Assign lead", description: "Assign the lead to a team member." },
   create_task: { label: "Create task", description: "Create a task linked to the lead." },
@@ -226,6 +228,8 @@ export const NOTIFY_RECIPIENTS = ["assigned_agent", "all_members"] as const;
 
 export type ActionConfig =
   | { action: "send_sms"; body: string }
+  | { action: "send_messenger"; body: string }
+  | { action: "send_instagram"; body: string }
   | { action: "send_email"; subject: string; body: string }
   | { action: "assign_lead"; agentUserId: string }
   | { action: "create_task"; title: string; notes: string; dueInDays: number | null }
@@ -279,7 +283,39 @@ export function aiOutputSchema(config: Partial<AIConfig>): Array<AIOutputField &
   return usable;
 }
 
-export type ConditionConfig = ConditionRule;
+export const CONDITION_LOGICS = ["all", "any"] as const;
+export type ConditionLogic = (typeof CONDITION_LOGICS)[number];
+/** Same limit as trigger filters. */
+export const MAX_CONDITION_RULES = 10;
+
+export function isConditionLogic(value: unknown): value is ConditionLogic {
+  return CONDITION_LOGICS.includes(value as ConditionLogic);
+}
+
+/** Two or more rules. A single rule is always stored in the flat ConditionRule shape. */
+export interface MultiRuleCondition {
+  logic: ConditionLogic;
+  rules: ConditionRule[];
+}
+
+export type ConditionConfig = ConditionRule | MultiRuleCondition;
+
+/** True when the config uses the rule-list shape; a present `rules` key wins over top-level rule keys. */
+function isMultiRuleConfig(config: Record<string, unknown>): boolean {
+  return Object.hasOwn(config, "rules") && config.rules !== undefined;
+}
+
+/**
+ * The rules a condition config holds and how they combine. A flat config is one
+ * rule; a malformed rule list yields no rules, which evaluates false.
+ */
+export function conditionRules(config: Record<string, unknown>): { logic: ConditionLogic; rules: ConditionRule[] } {
+  if (!isMultiRuleConfig(config)) return { logic: "all", rules: [config as unknown as ConditionRule] };
+  const rules = Array.isArray(config.rules)
+    ? (config.rules.filter((rule) => rule && typeof rule === "object" && !Array.isArray(rule)) as ConditionRule[])
+    : [];
+  return { logic: config.logic === "any" ? "any" : "all", rules };
+}
 
 export const SMS_MAX = 1000;
 export const EMAIL_SUBJECT_MAX = 200;
@@ -358,12 +394,39 @@ function validateTrigger(raw: Record<string, unknown>, mode: ValidationMode): Co
   return { config: { event: (event ?? "") as TriggerEventType, filters }, errors };
 }
 
+const EMPTY_RULE: ConditionRule = { field: "", operator: "equals", value: null };
+
 function validateCondition(raw: Record<string, unknown>, mode: ValidationMode): ConfigValidation<ConditionConfig> {
-  const parsed = parseRule(raw, mode, "Condition");
-  return {
-    config: parsed.rule ?? { field: "", operator: "equals", value: null },
-    errors: parsed.errors,
-  };
+  if (!isMultiRuleConfig(raw)) {
+    const parsed = parseRule(raw, mode, "Condition");
+    return { config: parsed.rule ?? { ...EMPTY_RULE }, errors: parsed.errors };
+  }
+
+  const errors: string[] = [];
+  const strict = mode === "strict";
+  if (strict && !isConditionLogic(raw.logic)) errors.push("Condition: choose whether all or any rules must match.");
+  const logic: ConditionLogic = isConditionLogic(raw.logic) ? raw.logic : "all";
+  if (strict && !Array.isArray(raw.rules)) errors.push("Condition: the rule list is malformed.");
+  const entries = Array.isArray(raw.rules) ? raw.rules : [];
+  if (strict && entries.length > MAX_CONDITION_RULES) errors.push(`Condition: use at most ${MAX_CONDITION_RULES} rules.`);
+  if (strict && entries.length === 0 && Array.isArray(raw.rules)) errors.push("Condition: add at least one rule.");
+
+  const rules: ConditionRule[] = [];
+  entries.slice(0, MAX_CONDITION_RULES).forEach((entry, index) => {
+    const label = `Rule ${index + 1}`;
+    // Dropped, not blanked: an empty rule would evaluate true.
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      if (strict) errors.push(`${label} is malformed.`);
+      return;
+    }
+    const parsed = parseRule(entry, mode, label);
+    errors.push(...parsed.errors);
+    rules.push(parsed.rule ?? { ...EMPTY_RULE });
+  });
+
+  // One rule keeps the legacy flat shape; zero stays a list so it evaluates false rather than as an empty rule.
+  if (rules.length === 1) return { config: rules[0], errors };
+  return { config: { logic, rules }, errors };
 }
 
 function validateAI(raw: Record<string, unknown>, mode: ValidationMode): ConfigValidation<AIConfig> {
@@ -419,6 +482,12 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
     case "send_sms": {
       const body = str(raw.body, SMS_MAX);
       need(Boolean(body.trim()), "Write the SMS message.");
+      return { config: { action, body }, errors };
+    }
+    case "send_messenger":
+    case "send_instagram": {
+      const body = str(raw.body, SMS_MAX);
+      need(Boolean(body.trim()), action === "send_messenger" ? "Write the Messenger message." : "Write the Instagram message.");
       return { config: { action, body }, errors };
     }
     case "send_email": {

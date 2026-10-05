@@ -6,9 +6,11 @@ import { isValidEmailAddress } from "@/lib/email/email-utils";
 import { recordOutboundEmail } from "@/lib/email/record-outbound-email";
 import { sendResendMessage } from "@/lib/email/resend";
 import { deliverMessageToContact } from "@/lib/messaging/deliver-message";
-import { notifyTenantMembers } from "@/lib/notifications/create-notification";
+import { notifyMembers } from "@/lib/notifications/notify-members";
 import { renderTemplate, type ActionConfig } from "./contracts";
 import { JourneyStepError, type ActionExecutor, type ActionInput, type ActionResult } from "./engine";
+import { executeNotifyTeam } from "./notify-team";
+import { executeSendMessage } from "./send-message";
 import { executeUpdateLead, type LeadUpdateStore } from "./update-lead";
 
 function requireContact(input: ActionInput): { contactId: string; lead: Record<string, unknown> } {
@@ -83,6 +85,15 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
           if (!sent.ok) throw new JourneyStepError(sent.error, sent.kind);
           return { status: "completed", output: { message_id: sent.messageId, channel: "sms", body } };
         }
+
+        case "send_messenger":
+        case "send_instagram":
+          return executeSendMessage(
+            action.action === "send_messenger" ? "messenger" : "instagram",
+            action,
+            input,
+            (message) => deliverMessageToContact(db, message),
+          );
 
         case "send_email": {
           const { contactId, lead } = requireContact(input);
@@ -189,24 +200,11 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
         case "update_lead":
           return executeUpdateLead(action, input, leadUpdates);
 
-        case "notify_team": {
-          const { contactId, lead } = requireContact(input);
-          let userIds: string[] | undefined;
-          if (action.recipients === "assigned_agent") {
-            const agentUserId = await resolveAssignedAgentUserId({ tenantId: input.tenantId, contactId });
-            if (!agentUserId) throw new JourneyStepError("The lead has no assigned agent to notify.", "config");
-            userIds = [agentUserId];
-          }
-          const notified = await notifyTenantMembers({
-            tenantId: input.tenantId,
-            userIds,
-            category: "leads",
-            title: renderTemplate(action.title, names(lead)).trim(),
-            body: action.body ? renderTemplate(action.body, names(lead)).trim() : null,
-            href: `/leads/${contactId}`,
+        case "notify_team":
+          return executeNotifyTeam(action, input, {
+            assignedAgentUserId: (tenantId, contactId) => resolveAssignedAgentUserId({ tenantId, contactId }),
+            notify: (notification) => notifyMembers(db, notification),
           });
-          return { status: "completed", output: { notified } };
-        }
       }
     },
   };

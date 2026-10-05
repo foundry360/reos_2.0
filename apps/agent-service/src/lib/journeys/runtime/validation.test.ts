@@ -82,6 +82,21 @@ describe("node config validation", () => {
       "Write the SMS message.",
     ]);
     assert.equal(validateNodeConfig("action", { action: "send_sms", body: "" }, "draft").errors.length, 0);
+    for (const [action, message] of [
+      ["send_messenger", "Write the Messenger message."],
+      ["send_instagram", "Write the Instagram message."],
+    ] as const) {
+      assert.deepEqual(validateNodeConfig("action", { action, body: "Hi {{first_name}}", pageId: "p1", channel: "sms" }, "strict"), {
+        config: { action, body: "Hi {{first_name}}" },
+        errors: [],
+      });
+      assert.deepEqual(validateNodeConfig("action", { action, body: "   " }, "strict").errors, [message]);
+      assert.deepEqual(validateNodeConfig("action", { action }, "draft"), { config: { action, body: "" }, errors: [] });
+      assert.equal((validateNodeConfig("action", { action, body: "x".repeat(5000) }, "draft").config.body as string).length, 1000);
+    }
+    assert.deepEqual(validateNodeConfig("action", { action: "send_facebook_comment", body: "Hi" }, "strict").errors, [
+      "Choose what this action does.",
+    ]);
     const wait = validateNodeConfig("action", { action: "wait", duration: "3", unit: "hours" }, "strict");
     assert.deepEqual(wait.config, { action: "wait", duration: 3, unit: "hours" });
     assert.ok(validateNodeConfig("action", { action: "wait", duration: 0, unit: "days" }, "strict").errors.length);

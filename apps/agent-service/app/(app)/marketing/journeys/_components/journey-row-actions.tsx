@@ -52,7 +52,7 @@ export function JourneyRowActions({ journey, onError }: JourneyRowActionsProps) 
 
   return (
     <>
-      <RowActionsMenu ariaLabel={`Actions for ${journey.name}`} disabled={pending} estimatedHeight={176}>
+      <RowActionsMenu ariaLabel={`Actions for ${journey.name}`} disabled={pending} estimatedHeight={216}>
         <button
           type="button"
           className={shell.dropdownItem}
@@ -79,6 +79,19 @@ export function JourneyRowActions({ journey, onError }: JourneyRowActionsProps) 
         >
           {lifecycle.label}
         </button>
+        {journey.status !== "archived" ? (
+          <button
+            type="button"
+            className={shell.dropdownItem}
+            role="menuitem"
+            onClick={() => {
+              if (!window.confirm("Archive this journey? Active runs are cancelled; run history is kept.")) return;
+              run(() => setJourneyStatusAction({ journeyId: journey.id, status: "archived" }));
+            }}
+          >
+            Archive
+          </button>
+        ) : null}
         <button
           type="button"
           className={`${shell.dropdownItem} ${shell.dropdownItemDanger}`}
@@ -108,7 +121,8 @@ export function JourneyRowActions({ journey, onError }: JourneyRowActionsProps) 
                     Delete {journey.name}?
                   </h2>
                   <p className={shell.modalSubtitle}>
-                    This permanently removes the journey and its canvas. This cannot be undone.
+                    Only journeys that have never run can be deleted. A journey with run history can be
+                    archived instead, which keeps its runs.
                   </p>
                 </div>
                 <button

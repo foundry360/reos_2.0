@@ -11,7 +11,7 @@ import {
   saveJourney,
   setJourneyStatus,
 } from "./journey-repository";
-import { cancelJourneyRun, createManualEnrollmentLookups } from "./journey-run-repository";
+import { cancelJourneyRun, createManualEnrollmentLookups, retryFailedJourneyRun } from "./journey-run-repository";
 import { emitJourneyEvent } from "./emit-journey-event";
 import { enrollContactInJourney } from "./runtime/manual-enrollment";
 import { JOURNEY_TEMPLATES, isJourneyTemplateId } from "./journey-templates";
@@ -203,6 +203,18 @@ export async function cancelJourneyRunAction(runId: string): Promise<JourneyActi
   if ("error" in context) return { ok: false, error: context.error };
 
   const result = await cancelJourneyRun(context.tenantId, text(runId));
+  if (!result.ok) return { ok: false, error: result.error };
+
+  revalidatePath(`${JOURNEYS_PATH}/${result.value.journeyId}/runs`);
+  return { ok: true };
+}
+
+/** Re-runs the step a failed run stopped at; the worker continues the run from there. */
+export async function retryJourneyRunAction(runId: string): Promise<JourneyActionResult> {
+  const context = await requireContext();
+  if ("error" in context) return { ok: false, error: context.error };
+
+  const result = await retryFailedJourneyRun(context.tenantId, text(runId));
   if (!result.ok) return { ok: false, error: result.error };
 
   revalidatePath(`${JOURNEYS_PATH}/${result.value.journeyId}/runs`);

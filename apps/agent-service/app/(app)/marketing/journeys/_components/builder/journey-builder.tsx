@@ -29,6 +29,7 @@ import {
   nextJourneyStatus,
   type JourneyDefinition,
   type JourneyNodeType,
+  type JourneyStatus,
 } from "@/lib/journeys/journey-types";
 import {
   connectionRejectionReason,
@@ -59,6 +60,13 @@ const EDGE_TYPES = { journey: JourneyEdge };
 const DEFAULT_EDGE_OPTIONS: DefaultEdgeOptions = { type: "journey" };
 
 const BANNER_MS = 3500;
+
+const STATUS_BANNER: Record<JourneyStatus, string> = {
+  active: "Journey activated",
+  paused: "Journey paused",
+  draft: "Journey restored to draft",
+  archived: "Journey archived",
+};
 
 function snapshotOf(
   name: string,
@@ -199,7 +207,8 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
   saveRef.current = save;
 
   async function changeStatus() {
-    if (dirty && !(await save())) return;
+    // An archived journey can't be saved; Restore doesn't need the canvas saved first.
+    if (dirty && status !== "archived" && !(await save())) return;
     setStatusPending(true);
     const result = await setJourneyStatusAction({ journeyId: journey.id, status: lifecycle.status });
     setStatusPending(false);
@@ -208,7 +217,7 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
       return;
     }
     setStatus(result.status);
-    setBanner(result.status === "active" ? "Journey activated" : "Journey paused");
+    setBanner(STATUS_BANNER[result.status]);
   }
 
   useEffect(() => {
@@ -377,7 +386,7 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
             className={`${shell.btnSecondary} ${shell.btnPill}`}
             onClick={() => void changeStatus()}
             disabled={statusPending || saving}
-            title={dirty ? "Saves your changes first" : undefined}
+            title={dirty && status !== "archived" ? "Saves your changes first" : undefined}
           >
             {statusPending ? "Updating…" : lifecycle.label}
           </button>

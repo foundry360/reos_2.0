@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import type { JourneyAIExecutor } from "./ai.ts";
-import { dispatchJourneyEvent, type ActionExecutor, type ActionInput, type EngineDeps } from "./engine.ts";
+import {
+  dispatchJourneyEvent,
+  LEASE_MS,
+  MAX_ATTEMPTS,
+  RETRY_BACKOFF_MS,
+  type ActionExecutor,
+  type ActionInput,
+  type EngineDeps,
+} from "./engine.ts";
 import type { JourneySnapshot, SnapshotNode } from "./graph.ts";
 import { MemoryJourneyStore } from "./memory-store.ts";
 import {
@@ -293,5 +301,305 @@ describe("worker pass", () => {
     assert.equal(response.body.claimed, 1);
     assert.equal(run().status, "completed");
     assert.deepEqual(actions.calls.map((call) => call.action), ["send_sms"]);
+  });
+});
+
+/**
+ * The production path end to end: the event emitter's dispatchJourneyEvent
+ * starts and runs the journey inline until the wait, and the cron route's
+ * worker handler resumes it when due. Only the CRM/SMS executor is a stand-in.
+ */
+describe("canonical journey: trigger → task → wait → SMS → completed", () => {
+  const CONTACT = "contact-1";
+  const JOURNEY = "j-new-lead";
+
+  /** Trigger (new lead) → Create task → Wait 1 day → Text */
+  function newLeadFollowUp(secondAction: SnapshotNode["config"] = { action: "send_sms", body: "Checking in" }): JourneySnapshot {
+    return {
+      nodes: [
+        node("t", "trigger", "New lead", { event: "lead.created", filters: [] }),
+        node("task", "action", "Call task", { action: "create_task", title: "Call the new lead", notes: "", dueInDays: 1 }),
+        node("w", "action", "Wait", { action: "wait", duration: 1, unit: "days" }),
+        node("sms", "action", "Text", secondAction),
+      ],
+      connections: [link("t", "task"), link("task", "w"), link("w", "sms")],
+    };
+  }
+
+  const leadCreated = (sourceId = CONTACT) => ({
+    tenantId: TENANT,
+    type: "lead.created" as const,
+    sourceId,
+    contactId: CONTACT,
+    entityType: "contact",
+    entityId: CONTACT,
+    payload: {},
+  });
+
+  let executed: Array<{ action: string; runId: string; nodeId: string; contactId: string | null }>;
+
+  beforeEach(() => {
+    store.contacts.set(CONTACT, { tenantId: TENANT, lead: { first_name: "Ana", record_type: "lead" } });
+    store.saveJourney(TENANT, JOURNEY, newLeadFollowUp());
+    // Same event, but its filter doesn't match this lead.
+    store.saveJourney(TENANT, "j-filtered", {
+      nodes: [
+        node("ft", "trigger", "New lead named Bob", { event: "lead.created", filters: [{ field: "lead.first_name", operator: "equals", value: "Bob" }] }),
+        node("fs", "action", "Text", { action: "send_sms", body: "Hi Bob" }),
+      ],
+      connections: [link("ft", "fs")],
+    });
+    // Listens for a different event.
+    store.saveJourney(TENANT, "j-other-event", {
+      nodes: [
+        node("ot", "trigger", "Reply", { event: "message.received", filters: [] }),
+        node("os", "action", "Text", { action: "send_sms", body: "Thanks" }),
+      ],
+      connections: [link("ot", "os")],
+    });
+    executed = [];
+    const record = actions.execute.bind(actions);
+    actions.execute = async (action, input) => {
+      executed.push({ action: action.action, runId: input.runId, nodeId: input.nodeId, contactId: input.contactId });
+      return record(action, input);
+    };
+  });
+
+  it("starts once, waits, resumes the same run, runs each action once, and completes", async () => {
+    // Trigger: only the intended journey starts, for this contact, exactly once.
+    const outcomes = await dispatchJourneyEvent(deps, leadCreated());
+    assert.deepEqual(
+      outcomes.map(({ journeyId, result }) => ({ journeyId, result })),
+      [
+        { journeyId: JOURNEY, result: "started" },
+        { journeyId: "j-filtered", result: "filtered" },
+      ],
+    );
+    assert.equal(store.runs.size, 1);
+    const runId = outcomes[0].runId!;
+    const run = () => store.runs.get(runId)!;
+    assert.equal(run().journeyId, JOURNEY);
+    assert.equal(run().contactId, CONTACT);
+    assert.equal(run().journeyVersion, 1);
+    assert.equal(run().idempotencyKey, `lead.created:${CONTACT}:${JOURNEY}:v1`);
+
+    // First action ran inline, once, and its step is recorded as completed.
+    assert.deepEqual(executed, [{ action: "create_task", runId, nodeId: "task", contactId: CONTACT }]);
+    const steps = () => store.stepsFor(runId).map(({ nodeId, status, attemptCount }) => ({ nodeId, status, attemptCount }));
+    assert.deepEqual(steps(), [
+      { nodeId: "t", status: "completed", attemptCount: undefined },
+      { nodeId: "task", status: "completed", attemptCount: 1 },
+      { nodeId: "w", status: "running", attemptCount: undefined },
+    ]);
+
+    // Wait: the run is parked on the wait step, not completed, and released for the worker.
+    const resumeAt = new Date(clock.getTime() + 24 * 60 * 60_000).toISOString();
+    assert.equal(outcomes[0].execution?.status, "waiting");
+    assert.equal(run().status, "waiting");
+    assert.equal(run().currentNodeId, "w");
+    assert.equal(run().resumeAt, resumeAt);
+    assert.equal(run().completedAt, null);
+    assert.equal(run().lockedUntil, null);
+    assert.equal(run().context.inFlight, undefined);
+    assert.equal(run().context.waitingStepId, store.stepsFor(runId)[2].id);
+
+    // While waiting: the active run blocks a redelivery and any other start for the contact,
+    // including under a newer journey version, which doesn't touch the pinned run.
+    assert.deepEqual((await dispatchJourneyEvent(deps, leadCreated())).map((outcome) => outcome.result), ["already_active", "filtered"]);
+    store.saveJourney(TENANT, JOURNEY, newLeadFollowUp({ action: "send_email", subject: "Hi", body: "v2" }));
+    assert.deepEqual((await dispatchJourneyEvent(deps, leadCreated())).map((outcome) => outcome.result), ["already_active", "filtered"]);
+    assert.equal(store.runs.size, 1);
+    assert.equal(executed.length, 1);
+
+    // Not due yet: the worker finds nothing and the second action doesn't run.
+    clock = new Date(clock.getTime() + 23 * 60 * 60_000);
+    assert.equal((await invoke()).body.found, 0);
+    assert.equal(run().status, "waiting");
+    assert.equal(executed.length, 1);
+
+    // Resume through the cron worker: same run, first action not repeated, second action once (from v1).
+    clock = new Date(clock.getTime() + 61 * 60_000);
+    const response = await invoke();
+    assert.equal(response.status, 200);
+    assert.equal(response.body.found, 1);
+    assert.equal(response.body.claimed, 1);
+    assert.deepEqual(response.body.statuses, { completed: 1 });
+    assert.equal(store.runs.size, 1);
+    assert.deepEqual(executed, [
+      { action: "create_task", runId, nodeId: "task", contactId: CONTACT },
+      { action: "send_sms", runId, nodeId: "sms", contactId: CONTACT },
+    ]);
+
+    // Completion.
+    assert.equal(run().status, "completed");
+    assert.equal(run().currentNodeId, null);
+    assert.equal(run().resumeAt, null);
+    assert.equal(run().lockedUntil, null);
+    assert.equal(run().error, null);
+    assert.ok(run().completedAt);
+    assert.deepEqual(steps(), [
+      { nodeId: "t", status: "completed", attemptCount: undefined },
+      { nodeId: "task", status: "completed", attemptCount: 1 },
+      { nodeId: "w", status: "completed", attemptCount: undefined },
+      { nodeId: "sms", status: "completed", attemptCount: 1 },
+    ]);
+    assert.deepEqual(Object.keys(run().context.steps), ["new_lead", "call_task", "wait", "text"]);
+
+    // A later worker pass has nothing to do.
+    assert.equal((await invoke()).body.found, 0);
+    assert.equal(executed.length, 2);
+  });
+
+  it("a redelivered trigger after completion is a duplicate, not a second run", async () => {
+    await dispatchJourneyEvent(deps, leadCreated());
+    clock = new Date(clock.getTime() + 24 * 60 * 60_000);
+    await invoke();
+    assert.equal([...store.runs.values()][0].status, "completed");
+
+    const redelivered = await dispatchJourneyEvent(deps, leadCreated());
+    assert.deepEqual(redelivered.map((outcome) => outcome.result), ["duplicate", "filtered"]);
+    assert.equal(store.runs.size, 1);
+    assert.deepEqual(executed.map((call) => call.action), ["create_task", "send_sms"]);
+  });
+
+  describe("an SMS that was sent is never sent again because recording it failed", () => {
+    const smsSends = () => executed.filter((call) => call.action === "send_sms").length;
+    const theRun = () => [...store.runs.values()][0];
+    const smsSteps = () => store.steps.filter((step) => step.nodeId === "sms");
+
+    /** Fails the first SMS step success write. */
+    function failSmsStepRecordingOnce() {
+      const updateStep = store.updateStep.bind(store);
+      let pending = true;
+      store.updateStep = async (stepId, patch) => {
+        const step = store.steps.find((entry) => entry.id === stepId);
+        if (pending && step?.nodeId === "sms" && patch.status === "completed") {
+          pending = false;
+          throw new Error("connection reset");
+        }
+        return updateStep(stepId, patch);
+      };
+    }
+
+    /** Fails the first run write after the SMS went out. */
+    function failRunWriteAfterSmsOnce() {
+      const updateRun = store.updateRun.bind(store);
+      let pending = true;
+      store.updateRun = async (runId, lease, patch) => {
+        if (pending && smsSends() > 0) {
+          pending = false;
+          throw new Error("connection reset");
+        }
+        return updateRun(runId, lease, patch);
+      };
+    }
+
+    /** Starts the journey, then runs the worker when the wait ends. */
+    async function reachTheSms() {
+      await dispatchJourneyEvent(deps, leadCreated());
+      clock = new Date(clock.getTime() + 24 * 60 * 60_000);
+      return invoke();
+    }
+
+    /** A later worker pass, after the bookkeeping-failed pass's lease expired. */
+    async function nextPass() {
+      clock = new Date(clock.getTime() + LEASE_MS + 60_000);
+      return invoke();
+    }
+
+    it("recovers when the SMS step's success can't be recorded", async () => {
+      failSmsStepRecordingOnce();
+
+      const failedPass = await reachTheSms();
+      assert.equal(failedPass.body.errors, 1, "the bookkeeping failure surfaces as an error");
+      assert.equal(smsSends(), 1);
+      assert.equal(theRun().status, "running");
+      assert.equal(theRun().context.inFlight?.outcome?.status, "completed", "the outcome is kept on the run");
+      assert.equal(smsSteps()[0].status, "running");
+
+      const recovery = await nextPass();
+      assert.deepEqual(recovery.body.statuses, { completed: 1 });
+      assert.equal(smsSends(), 1, "the SMS isn't sent again");
+      assert.equal(theRun().status, "completed");
+      assert.equal(theRun().context.inFlight, undefined);
+      assert.deepEqual(smsSteps().map(({ status, attemptCount }) => ({ status, attemptCount })), [{ status: "completed", attemptCount: 1 }]);
+      assert.deepEqual(smsSteps()[0].output, { ok: true });
+      assert.deepEqual(theRun().context.steps.text, { output: { ok: true } });
+    });
+
+    it("recovers when the run can't be advanced after the SMS step was recorded", async () => {
+      failRunWriteAfterSmsOnce();
+
+      const failedPass = await reachTheSms();
+      assert.equal(failedPass.body.errors, 1);
+      assert.equal(smsSends(), 1);
+      assert.equal(smsSteps()[0].status, "completed");
+      assert.equal(theRun().currentNodeId, "sms");
+      assert.ok(theRun().context.inFlight);
+
+      const recovery = await nextPass();
+      assert.deepEqual(recovery.body.statuses, { completed: 1 });
+      assert.equal(smsSends(), 1, "the SMS isn't sent again");
+      assert.equal(theRun().status, "completed");
+      assert.deepEqual(smsSteps().map(({ status }) => status), ["completed"]);
+      assert.deepEqual(theRun().context.steps.text, { output: { ok: true } });
+    });
+
+    it("if neither the step nor the run can record the send, it still isn't sent again", async () => {
+      failSmsStepRecordingOnce();
+      failRunWriteAfterSmsOnce();
+
+      await reachTheSms();
+      assert.equal(smsSends(), 1);
+
+      await nextPass();
+      assert.equal(smsSends(), 1, "an unknown outcome isn't retried (existing interrupted-step rule)");
+      assert.equal(theRun().status, "failed");
+      assert.match(theRun().error ?? "", /interrupted/);
+    });
+  });
+
+  describe("an SMS that actually failed is still retried", () => {
+    const smsAttempts = () => executed.filter((call) => call.action === "send_sms").length;
+    const theRun = () => [...store.runs.values()][0];
+
+    it("retries a transient provider failure and completes", async () => {
+      actions.onExecute = (input) => {
+        if (input.nodeId === "sms" && smsAttempts() === 1) throw new Error("provider timeout");
+      };
+      await dispatchJourneyEvent(deps, leadCreated());
+      clock = new Date(clock.getTime() + 24 * 60 * 60_000);
+      await invoke();
+      assert.equal(smsAttempts(), 1);
+      assert.equal(theRun().status, "waiting");
+      assert.equal(theRun().resumeAt, new Date(clock.getTime() + RETRY_BACKOFF_MS[0]).toISOString());
+
+      clock = new Date(clock.getTime() + RETRY_BACKOFF_MS[0]);
+      await invoke();
+      assert.equal(smsAttempts(), 2, "the failed send is attempted again");
+      assert.equal(theRun().status, "completed");
+      assert.deepEqual(
+        store.steps.filter((step) => step.nodeId === "sms").map(({ status, attemptCount, errorKind }) => ({ status, attemptCount, errorKind })),
+        [
+          { status: "failed", attemptCount: 1, errorKind: "transient" },
+          { status: "completed", attemptCount: 2, errorKind: undefined },
+        ],
+      );
+    });
+
+    it("stops after the existing maximum number of attempts", async () => {
+      actions.onExecute = (input) => {
+        if (input.nodeId === "sms") throw new Error("provider timeout");
+      };
+      await dispatchJourneyEvent(deps, leadCreated());
+      clock = new Date(clock.getTime() + 24 * 60 * 60_000);
+      for (let pass = 0; pass < MAX_ATTEMPTS + 2; pass++) {
+        await invoke();
+        clock = new Date(clock.getTime() + 31 * 60_000);
+      }
+      assert.equal(smsAttempts(), MAX_ATTEMPTS);
+      assert.equal(theRun().status, "failed");
+      assert.equal(theRun().error, "provider timeout");
+    });
   });
 });

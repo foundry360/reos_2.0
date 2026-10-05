@@ -1,12 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import {
-  DEFAULT_NOTIFICATION_PREFERENCES,
-  NOTIFICATION_CATEGORY_META,
-  type NotificationCategory,
-  type NotificationPreferences,
-} from "./types";
+import type { NotificationCategory } from "./types";
 import { getNotificationPreferences } from "./notifications";
+import { notifyMembers, prefEnabled, type NotifyMembersInput } from "./notify-members";
 
 export type CreateNotificationInput = {
   userId: string;
@@ -16,32 +12,6 @@ export type CreateNotificationInput = {
   body?: string | null;
   href?: string | null;
 };
-
-function prefEnabled(
-  category: NotificationCategory,
-  prefs: NotificationPreferences,
-): boolean {
-  const meta = NOTIFICATION_CATEGORY_META.find((item) => item.id === category);
-  if (!meta) return false;
-  return prefs[meta.prefKey];
-}
-
-function mapPreferences(row: {
-  tasks_in_app: boolean;
-  leads_in_app: boolean;
-  opportunities_in_app: boolean;
-  messages_in_app: boolean;
-  system_in_app: boolean;
-} | null): NotificationPreferences {
-  if (!row) return { ...DEFAULT_NOTIFICATION_PREFERENCES };
-  return {
-    tasksInApp: row.tasks_in_app,
-    leadsInApp: row.leads_in_app,
-    opportunitiesInApp: row.opportunities_in_app,
-    messagesInApp: row.messages_in_app,
-    systemInApp: row.system_in_app,
-  };
-}
 
 /** Best-effort insert via the signed-in user session; never throws into CRM flows. */
 export async function createUserNotification(
@@ -77,72 +47,17 @@ export async function createUserNotification(
  * category preference. Uses the service role so webhook / intake / automation
  * paths work without a user session. Returns how many notifications were created.
  */
-export async function notifyTenantMembers(input: {
-  tenantId: string;
-  /** Limit to these users; they must still be members of the tenant. */
-  userIds?: string[];
-  category: NotificationCategory;
-  title: string;
-  body?: string | null;
-  href?: string | null;
-}): Promise<number> {
+export async function notifyTenantMembers(input: NotifyMembersInput): Promise<number> {
   const db = getSupabaseAdmin();
   if (!db) return 0;
 
   try {
-    let query = db.from("memberships").select("user_id").eq("tenant_id", input.tenantId);
-    if (input.userIds) query = query.in("user_id", input.userIds);
-    const { data: members, error: membersError } = await query;
-
-    if (membersError) {
-      console.error("notifyTenantMembers members failed:", membersError.message);
-      return 0;
+    const result = await notifyMembers(db, input);
+    if (result.status === "failed") {
+      const missing = result.operation === "insert" && /user_notifications|schema cache|relation/i.test(result.error);
+      if (!missing) console.error(`notifyTenantMembers ${result.operation} failed:`, result.error);
     }
-
-    const userIds = [
-      ...new Set(
-        (members ?? [])
-          .map((row) => row.user_id?.trim())
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
-    if (userIds.length === 0) return 0;
-
-    const { data: prefRows } = await db
-      .from("notification_preferences")
-      .select(
-        "user_id, tasks_in_app, leads_in_app, opportunities_in_app, messages_in_app, system_in_app",
-      )
-      .in("user_id", userIds);
-
-    const prefsByUser = new Map(
-      (prefRows ?? []).map((row) => [row.user_id as string, mapPreferences(row)]),
-    );
-
-    const rows = userIds
-      .filter((userId) =>
-        prefEnabled(input.category, prefsByUser.get(userId) ?? DEFAULT_NOTIFICATION_PREFERENCES),
-      )
-      .map((userId) => ({
-        user_id: userId,
-        tenant_id: input.tenantId,
-        category: input.category,
-        title: input.title,
-        body: input.body?.trim() || null,
-        href: input.href?.trim() || null,
-      }));
-
-    if (rows.length === 0) return 0;
-
-    const { error } = await db.from("user_notifications").insert(rows);
-    if (error) {
-      const missing = /user_notifications|schema cache|relation/i.test(error.message);
-      if (!missing) {
-        console.error("notifyTenantMembers insert failed:", error.message);
-      }
-      return 0;
-    }
-    return rows.length;
+    return result.status === "notified" ? result.count : 0;
   } catch (error) {
     console.error("notifyTenantMembers failed:", error);
     return 0;

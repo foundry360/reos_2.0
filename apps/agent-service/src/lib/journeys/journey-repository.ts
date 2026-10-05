@@ -12,7 +12,7 @@ import {
   type JourneySummary,
 } from "./journey-types";
 import { activationBlocker } from "./journey-validation";
-import { ACTIVE_STATUSES, resumePausedRuns } from "./journey-run-repository";
+import { ACTIVE_STATUSES, cancelActiveJourneyRuns, resumePausedRuns } from "./journey-run-repository";
 import {
   manualEnrollmentOptions,
   type ManualEnrollmentJourneyOption,
@@ -49,6 +49,7 @@ interface ConnectionRow {
 }
 
 const JOURNEY_COLUMNS = "id, name, description, status, version, created_at, updated_at";
+const FOREIGN_KEY_VIOLATION = "23503";
 
 function toStatus(value: string): JourneyStatus {
   return isJourneyStatus(value) ? value : "draft";
@@ -355,6 +356,7 @@ export async function saveJourney(params: {
     .eq("id", params.journeyId)
     .maybeSingle();
   if (!owned) return { ok: false, error: "Journey not found." };
+  if (owned.status === "archived") return { ok: false, error: "Restore this journey to edit it." };
 
   // New runs start on whatever is saved, so an active journey must stay runnable.
   if (owned.status === "active") {
@@ -396,6 +398,11 @@ export async function setJourneyStatus(params: {
 
   const from = current.value.status;
   if (from === params.status) {
+    // Archiving again finishes a cancellation that failed the first time.
+    if (from === "archived") {
+      const cancelled = await cancelActiveJourneyRuns(params.tenantId, params.journeyId);
+      if (!cancelled.ok) return cancelled;
+    }
     return { ok: true, value: { status: from, updatedAt: current.value.updatedAt } };
   }
   if (!canTransitionJourney(from, params.status)) {
@@ -423,6 +430,27 @@ export async function setJourneyStatus(params: {
   if (error || !data) {
     if (error) console.error("setJourneyStatus failed:", error.message);
     return { ok: false, error: "Could not update the journey status. Refresh and try again." };
+  }
+
+  if (params.status === "archived") {
+    // Archived first, so no new run starts while the active ones are cancelled.
+    const cancelled = await cancelActiveJourneyRuns(params.tenantId, params.journeyId);
+    if (!cancelled.ok) {
+      const { error: revertError } = await supabase
+        .from("journeys")
+        .update({ status: from })
+        .eq("tenant_id", params.tenantId)
+        .eq("id", params.journeyId)
+        .eq("status", "archived");
+      if (revertError) {
+        console.error("setJourneyStatus archive revert failed:", revertError.message);
+        return {
+          ok: false,
+          error: "The journey was archived, but some of its active runs couldn't be cancelled. Archive it again to finish.",
+        };
+      }
+      return { ok: false, error: "Could not cancel the journey's active runs, so it wasn't archived. Try again." };
+    }
   }
 
   if (params.status === "active") {
@@ -479,6 +507,10 @@ export async function deleteJourney(
     .eq("id", journeyId);
 
   if (error) {
+    // journey_runs references the journey with ON DELETE NO ACTION (migration 058).
+    if (error.code === FOREIGN_KEY_VIOLATION) {
+      return { ok: false, error: "This journey has run history, so it can't be deleted. Archive it instead." };
+    }
     console.error("deleteJourney failed:", error.message);
     return { ok: false, error: "Could not delete the journey." };
   }

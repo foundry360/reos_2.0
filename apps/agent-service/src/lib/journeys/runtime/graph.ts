@@ -17,6 +17,7 @@ import {
 import {
   AI_TEXT_KEY,
   aiOutputSchema,
+  conditionRules,
   nodeReferenceKey,
   STEP_FIELD_PATTERN,
   stepKey,
@@ -167,8 +168,24 @@ export function resolveStepReference(
   return key && key !== match[1] ? { ...rule, field: `steps.${key}.output.${match[2]}` } : rule;
 }
 
-function stepReferenceIssue(graph: JourneyGraph | JourneySnapshot, condition: SnapshotNode | JourneyNode): string | null {
-  const match = STEP_FIELD_PATTERN.exec(typeof condition.config.field === "string" ? condition.config.field : "");
+/** Reference problems in every rule of a condition; rule-list conditions name the rule. */
+function stepReferenceIssues(graph: JourneyGraph | JourneySnapshot, condition: SnapshotNode | JourneyNode): string[] {
+  const config = condition.config as Record<string, unknown>;
+  const multi = Object.hasOwn(config, "rules") && config.rules !== undefined;
+  const issues: string[] = [];
+  conditionRules(config).rules.forEach((rule, index) => {
+    const problem = stepReferenceIssue(graph, condition, rule.field);
+    if (problem) issues.push(multi ? `Rule ${index + 1}: ${problem}` : problem);
+  });
+  return issues;
+}
+
+function stepReferenceIssue(
+  graph: JourneyGraph | JourneySnapshot,
+  condition: SnapshotNode | JourneyNode,
+  ruleField: unknown,
+): string | null {
+  const match = STEP_FIELD_PATTERN.exec(typeof ruleField === "string" ? ruleField : "");
   if (!match) return null;
   const [, key, field] = match;
   const source = referencedNode(graph.nodes, key);
@@ -211,8 +228,9 @@ export function activationIssues(graph: JourneyGraph | JourneySnapshot): Activat
     const { errors } = validateNodeConfig(node.type, node.config, "strict");
     for (const error of errors) issues.push({ nodeId: node.id, message: `${label(node)}: ${error}` });
     if (node.type === "condition") {
-      const problem = stepReferenceIssue(graph, node);
-      if (problem) issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
+      for (const problem of stepReferenceIssues(graph, node)) {
+        issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
+      }
     }
   }
 

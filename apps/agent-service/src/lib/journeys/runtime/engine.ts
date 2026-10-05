@@ -13,15 +13,15 @@
 import type { JourneyStatus } from "../journey-types.ts";
 import {
   aiOutputSchema,
+  conditionRules,
   LEAD_REPLIED_FIELD,
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
-  type ConditionRule,
   type TriggerConfig,
   type TriggerEventType,
 } from "./contracts.ts";
-import { evaluateAll, evaluateCondition, type ExecutionContext } from "./conditions.ts";
+import { evaluateAll, evaluateRules, type ExecutionContext } from "./conditions.ts";
 import {
   nextNodeId,
   resolveStepReference,
@@ -59,8 +59,19 @@ export interface RunState {
   waitingStepId?: string;
   /** Attempts made so far for the node being retried. */
   attempts?: Record<string, number>;
-  /** Set while a side-effecting step executes; still set on resume means the process died mid-step. */
-  inFlight?: { nodeId: string; stepId: string };
+  /**
+   * Set while a side-effecting step executes; still set on resume means the pass
+   * stopped mid-step. `outcome` is set when the side effect succeeded but its step
+   * couldn't be recorded, so the next pass records it instead of repeating it.
+   */
+  inFlight?: { nodeId: string; stepId: string; outcome?: StepOutcome };
+}
+
+/** A side effect that happened, as recorded on its step. */
+export interface StepOutcome {
+  status: "completed" | "skipped";
+  output: Record<string, unknown>;
+  completedAt: string;
 }
 
 export interface RunRecord {
@@ -132,6 +143,9 @@ export interface StepPatch {
   completedAt?: string | null;
 }
 
+/** "not_failed": no failed run in this tenant stopped at that node. "active_run": the contact already has an active run of the journey. */
+export type RunRetryWriteResult = "retried" | "not_failed" | "active_run";
+
 export type CreateRunResult =
   | { run: RunRecord; created: boolean; alreadyActive?: false }
   | { run: null; created: false; alreadyActive: true };
@@ -165,10 +179,23 @@ export interface JourneyRuntimeStore {
    * run was cancelled or re-claimed; throws on database errors.
    */
   updateRun(runId: string, lease: string, patch: RunPatch): Promise<RunWriteResult>;
+  /**
+   * Manual retry: moves a failed run that stopped at `expectedNodeId` back to
+   * waiting (due at `resumeAt`, unleased, error and completion cleared) with the
+   * given context. One atomic write; the one-active-run rule still applies.
+   */
+  retryFailedRun(
+    tenantId: string,
+    runId: string,
+    expectedNodeId: string,
+    context: RunState,
+    resumeAt: string,
+  ): Promise<RunRetryWriteResult>;
   loadSnapshot(journeyId: string, version: number): Promise<JourneySnapshot | null>;
   journeyStatus(tenantId: string, journeyId: string): Promise<JourneyStatus | null>;
   insertStep(step: NewStep): Promise<string>;
   updateStep(stepId: string, patch: StepPatch): Promise<void>;
+  loadStep(tenantId: string, stepId: string): Promise<{ status: StepStatus; output: Record<string, unknown> } | null>;
   loadEntities(tenantId: string, contactId: string | null): Promise<LoadedEntities>;
   /** Whether the contact sent any inbound message at or after `since`. */
   hasInboundMessageSince(tenantId: string, contactId: string, since: string): Promise<boolean>;
@@ -220,6 +247,12 @@ export const MAX_STEPS_PER_PASS = 50;
  */
 export const MAX_JOURNEY_CAUSATION_DEPTH = 3;
 
+/** Written on a step (and its run) whose side effect may or may not have happened. */
+export const INTERRUPTED_STEP_ERROR = "The step was interrupted and may or may not have completed, so it wasn't retried.";
+
+/** Error on runs cancelled because their journey was archived. */
+export const JOURNEY_ARCHIVED_ERROR = "Journey archived.";
+
 /** Steps that can safely run twice if the process died mid-step. */
 const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead"]);
 
@@ -243,6 +276,12 @@ async function runAINode(executor: JourneyAIExecutor, request: JourneyAIRequest)
   const result = await executor.execute(request);
   if (!result.success) throw new JourneyStepError(result.error, result.retryable ? "transient" : "config");
   return { status: "completed", output: journeyAIStepOutput(result) };
+}
+
+/** The output of a step whose side effect was recorded as finished, if it was. */
+async function recordedOutcome(store: JourneyRuntimeStore, tenantId: string, stepId: string) {
+  const step = await store.loadStep(tenantId, stepId);
+  return step && (step.status === "completed" || step.status === "skipped") ? { output: step.output } : null;
 }
 
 function classify(error: unknown): { message: string; kind: ErrorKind } {
@@ -381,6 +420,8 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
 
   const journeyStatus = await store.journeyStatus(run.tenantId, run.journeyId);
   if (journeyStatus === null) return finish("cancelled", { error: "The journey was deleted." });
+  // Archiving cancels active runs; this catches a run started or resumed around that moment.
+  if (journeyStatus === "archived") return finish("cancelled", { error: JOURNEY_ARCHIVED_ERROR });
   if (journeyStatus === "paused") {
     return finish("paused", { pausedAt: now().toISOString(), resumeAt: null });
   }
@@ -418,15 +459,32 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     if (!(await persist())) return leaseLost();
   }
 
-  // The previous pass died while a side effect was executing.
-  if (run.context.inFlight) {
+  // The previous pass stopped while a side effect was executing or being recorded.
+  const inFlightNode = run.context.inFlight && snapshot.nodes.find((entry) => entry.id === run.context.inFlight!.nodeId);
+  const recovered =
+    run.context.inFlight && inFlightNode
+      ? (run.context.inFlight.outcome ?? (await recordedOutcome(store, run.tenantId, run.context.inFlight.stepId)))
+      : null;
+  if (run.context.inFlight && inFlightNode && recovered) {
+    // The side effect happened; only its bookkeeping is missing. Finish that instead of repeating it.
+    const { nodeId, stepId, outcome } = run.context.inFlight;
+    if (outcome) await store.updateStep(stepId, outcome);
+    recordOutput(inFlightNode, recovered.output);
+    if (state.attempts) delete state.attempts[nodeId];
+    currentNodeId = nextNodeId(snapshot, nodeId);
+    if (!(await persist())) return leaseLost();
+  } else if (run.context.inFlight) {
     const { nodeId, stepId } = run.context.inFlight;
     const node = snapshot.nodes.find((entry) => entry.id === nodeId);
     const action = node?.type === "action" ? String(node.config.action ?? "") : "";
     if (!SAFE_TO_REPEAT.has(action) && node?.type !== "ai") {
-      const message = "The step was interrupted and may or may not have completed, so it wasn't retried.";
-      await store.updateStep(stepId, { status: "failed", error: message, errorKind: "config", completedAt: now().toISOString() });
-      return finish("failed", { error: message, context: state, currentNodeId: nodeId });
+      await store.updateStep(stepId, {
+        status: "failed",
+        error: INTERRUPTED_STEP_ERROR,
+        errorKind: "config",
+        completedAt: now().toISOString(),
+      });
+      return finish("failed", { error: INTERRUPTED_STEP_ERROR, context: state, currentNodeId: nodeId });
     }
     await store.updateStep(stepId, { status: "failed", error: "Interrupted; retrying.", errorKind: "transient", completedAt: now().toISOString() });
   }
@@ -459,17 +517,17 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     }
 
     if (node.type === "condition") {
-      const rule = node.config as unknown as ConditionRule;
-      const resolved = resolveStepReference(rule, snapshot.nodes, keys);
+      const { logic, rules } = conditionRules(node.config);
+      const resolved = rules.map((rule) => resolveStepReference(rule, snapshot.nodes, keys));
       const conditionContext = context();
-      // Checked when the condition runs, so a reply that arrived during a wait counts.
-      if (resolved.field === LEAD_REPLIED_FIELD && run.contactId && conditionContext.lead) {
+      // Checked when the condition runs, so a reply that arrived during a wait counts. One lookup serves every rule.
+      if (resolved.some((rule) => rule.field === LEAD_REPLIED_FIELD) && run.contactId && conditionContext.lead) {
         const replied = await store.hasInboundMessageSince(run.tenantId, run.contactId, run.startedAt);
         conditionContext.lead = { ...conditionContext.lead, [LEAD_REPLIED_FIELD.slice("lead.".length)]: replied };
       }
-      const result = evaluateCondition(resolved, conditionContext);
+      const result = evaluateRules(logic, resolved, conditionContext);
       const output = { result, branch: result ? "yes" : "no" };
-      await store.insertStep({ ...base, status: "completed", input: { ...rule }, output, completedAt: startedAt });
+      await store.insertStep({ ...base, status: "completed", input: { ...node.config }, output, completedAt: startedAt });
       recordOutput(node, output);
       currentNodeId = nextNodeId(snapshot, node.id, result);
       if (!(await persist())) return leaseLost();
@@ -494,7 +552,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     }
 
     // Side-effecting step: action or AI.
-    let entitiesChanged = false;
+    let outcome: StepOutcome;
     const attempt = (state.attempts?.[node.id] ?? 0) + 1;
     const input = { ...node.config };
     const stepId = await store.insertStep({ ...base, status: "running", input, attemptCount: attempt });
@@ -532,12 +590,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
             opportunity: entities.opportunity,
           });
       const output = result.status === "skipped" ? { ...result.output, skipped_reason: result.reason } : result.output;
-      await store.updateStep(stepId, { status: result.status, output, completedAt: now().toISOString() });
-      recordOutput(node, output);
-      if (state.attempts) delete state.attempts[node.id];
-      currentNodeId = nextNodeId(snapshot, node.id);
-      if (!(await persist())) return leaseLost();
-      entitiesChanged = result.status === "completed" && action !== null && CHANGES_ENTITIES.has(action.action);
+      outcome = { status: result.status, output, completedAt: now().toISOString() };
     } catch (error) {
       const { message, kind } = classify(error);
       await store.updateStep(stepId, { status: "failed", error: message, errorKind: kind, completedAt: now().toISOString() });
@@ -552,8 +605,23 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       }
       return finish("failed", { currentNodeId: node.id, context: state, error: message });
     }
-    // Outside the try: the step is already recorded and the run advanced, so a failed reload must not retry it.
-    if (entitiesChanged) entities = await store.loadEntities(run.tenantId, run.contactId);
+
+    // The side effect happened. Failures from here on are bookkeeping failures: they
+    // propagate and are never retried as the action. The step update or, failing that,
+    // the run's in-flight outcome lets the next pass finish without repeating it.
+    try {
+      await store.updateStep(stepId, outcome);
+    } catch (error) {
+      await write({ currentNodeId, context: { ...state, inFlight: { nodeId: node.id, stepId, outcome } } }).catch(() => false);
+      throw error;
+    }
+    recordOutput(node, outcome.output);
+    if (state.attempts) delete state.attempts[node.id];
+    currentNodeId = nextNodeId(snapshot, node.id);
+    if (!(await persist())) return leaseLost();
+    if (outcome.status === "completed" && action !== null && CHANGES_ENTITIES.has(action.action)) {
+      entities = await store.loadEntities(run.tenantId, run.contactId);
+    }
   }
 
   return finish("completed", { currentNodeId: null, context: state, error: null });
