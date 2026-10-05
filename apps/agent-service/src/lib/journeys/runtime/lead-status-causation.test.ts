@@ -15,7 +15,9 @@ import type { JourneyAIExecutor } from "./ai.ts";
 import type { ConditionRule } from "./contracts.ts";
 import {
   dispatchJourneyEvent,
+  JourneyStepError,
   MAX_JOURNEY_CAUSATION_DEPTH,
+  resumeDueRuns,
   type ActionExecutor,
   type EngineDeps,
   type JourneyEvent,
@@ -31,6 +33,7 @@ import {
 } from "./lead-status-outbox.ts";
 import { createTestDb, type TestDb } from "./lead-status-test-db.ts";
 import { MemoryJourneyStore, type MemoryRun } from "./memory-store.ts";
+import { retryJourneyRun, type RunRetryLookups } from "./run-retry.ts";
 import { executeUpdateLead } from "./update-lead.ts";
 
 let db: TestDb;
@@ -44,6 +47,8 @@ let runUuid: Map<string, string>;
 let names: Map<string, string>;
 let tasks: string[];
 let logs: string[];
+/** Journey names whose next Update lead fails (once each) before writing anything. */
+let failNextUpdate: Set<string>;
 
 const ai: JourneyAIExecutor = { execute: async () => ({ success: true, output: {}, text: "" }) };
 const USER = randomUUID();
@@ -64,6 +69,7 @@ beforeEach(async () => {
   names = new Map();
   tasks = [];
   logs = [];
+  failNextUpdate = new Set();
   outbox = createSupabaseLeadStatusOutbox(db.client("service_role"));
 
   const createRun = store.createRun.bind(store);
@@ -84,6 +90,8 @@ beforeEach(async () => {
   const actions: ActionExecutor = {
     async execute(action, input) {
       if (action.action === "update_lead") {
+        const journeyName = names.get(input.nodeId.split(":")[0]) ?? "?";
+        if (failNextUpdate.delete(journeyName)) throw new JourneyStepError("CRM rejected the update.", "config");
         return executeUpdateLead(action, input, {
           async updateFields(tenantId, contactId, patch, runId) {
             const { data, error } = await withStatusOrigin(
@@ -441,5 +449,158 @@ describe("causation metadata integrity", () => {
     assert.equal(runCausationDepth({ triggerEvent: "lead.status_changed", triggerPayload: { causation_depth: 2 } }), 3);
     assert.equal(runCausationDepth({ triggerEvent: "message.received", triggerPayload: { causation_depth: 2 } }), 1);
     assert.equal(runCausationDepth({ triggerEvent: "lead.status_changed", triggerPayload: {} }), 1);
+  });
+});
+
+/** Trigger → Condition(config) → yes steps / no steps. Node ids are `<journey>:<…>`. */
+function conditional(
+  name: string,
+  filters: ConditionRule[],
+  condition: Record<string, unknown>,
+  yes: Record<string, unknown>[],
+  no: Record<string, unknown>[],
+) {
+  const id = randomUUID();
+  names.set(id, name);
+  const step = (prefix: string) => (config: Record<string, unknown>, index: number): SnapshotNode => ({
+    id: `${id}:${prefix}${index}`,
+    type: "action",
+    name: `${prefix}${index}`,
+    description: "",
+    config,
+  });
+  const yesNodes = yes.map(step("y"));
+  const noNodes = no.map(step("n"));
+  const link = (source: string, target: string, sourceHandle: string | null = null) => ({
+    id: `${source}->${target}`,
+    sourceNodeId: source,
+    targetNodeId: target,
+    sourceHandle,
+    targetHandle: null,
+  });
+  const path = (nodes: SnapshotNode[], handle: string) =>
+    nodes.map((node, index) => link(index === 0 ? `${id}:c` : nodes[index - 1].id, node.id, index === 0 ? handle : null));
+  store.saveJourney(tenant, id, {
+    nodes: [
+      { id: `${id}:t`, type: "trigger", name: "Trigger", description: "", config: { event: "lead.status_changed", filters } },
+      { id: `${id}:c`, type: "condition", name: "Check", description: "", config: condition },
+      ...yesNodes,
+      ...noNodes,
+    ],
+    connections: [link(`${id}:t`, `${id}:c`), ...path(yesNodes, "yes"), ...path(noNodes, "no")],
+  });
+  return id;
+}
+
+describe("causation depth with multi-rule conditions", () => {
+  const never: ConditionRule = { field: "lead.lead_status", operator: "equals", value: "Nope" };
+  const isTo = (value: string): ConditionRule => ({ field: "trigger.to_status", operator: "equals", value });
+
+  it("an ANY condition whose Yes path changes status can't extend the chain past the limit", async () => {
+    conditional("A", [to("Working")], { logic: "any", rules: [never, isTo("Working")] }, [setStatus("Qualified")], [task]);
+    conditional("B", [to("Qualified")], { logic: "any", rules: [isTo("Qualified"), never] }, [setStatus("Working")], [task]);
+    const lead = await newLead("New");
+
+    await userSetsStatus(lead, "Working");
+    const summary = await drainAll();
+
+    assert.deepEqual(chain(), ["A d1", "B d2", "A d3"]);
+    assert.equal(summary.depthLimited, 1);
+    assert.deepEqual(tasks, [], "only the Yes branch ran");
+  });
+
+  it("an ALL condition that fails takes No, so its status change never happens and nothing downstream starts", async () => {
+    conditional("A", [to("Working")], { logic: "all", rules: [isTo("Working"), { field: "lead.intent", operator: "equals", value: "Buyer" }] }, [setStatus("Qualified")], [task]);
+    journey("B", [to("Qualified")], [task]);
+    const lead = await newLead("New");
+
+    await userSetsStatus(lead, "Working");
+    const summary = await drainAll();
+
+    assert.deepEqual(chain(), ["A d1"]);
+    assert.deepEqual(tasks, ["A:create_task"]);
+    assert.equal(summary.depthLimited, 0);
+  });
+
+  it("the originating journey stays excluded whatever its condition logic", async () => {
+    // Its trigger matches any change and its ANY condition always passes, so only the exclusion stops a self-loop.
+    conditional("A", [], { logic: "any", rules: [never, { field: "trigger.to_status", operator: "is_not_empty", value: null }] }, [setStatus("Qualified")], [task]);
+    journey("B", [to("Qualified")], [task]);
+    const lead = await newLead("New");
+
+    await userSetsStatus(lead, "Working");
+    await drainAll();
+
+    assert.deepEqual(chain(), ["A d1", "B d2"]);
+    assert.deepEqual(tasks, ["B:create_task"]);
+  });
+});
+
+describe("causation depth across a manual run retry", () => {
+  function retryLookups(): RunRetryLookups {
+    return {
+      async findRun(tenantId, runId) {
+        const run = store.runs.get(runId);
+        if (!run || run.tenantId !== tenantId) return null;
+        return { journeyId: run.journeyId, contactId: run.contactId, status: run.status, currentNodeId: run.currentNodeId, context: structuredClone(run.context) };
+      },
+      async latestStep(tenantId, runId) {
+        const step = store.steps.filter((entry) => entry.runId === runId && entry.tenantId === tenantId).at(-1);
+        return step ? { nodeId: step.nodeId, nodeType: step.nodeType, status: step.status, error: step.error ?? null } : null;
+      },
+      journeyStatus: (tenantId, journeyId) => store.journeyStatus(tenantId, journeyId),
+      hasActiveRun: (tenantId, journeyId, contactId) => store.hasActiveRun(tenantId, journeyId, contactId),
+    };
+  }
+
+  async function retryFailed(journeyName: string) {
+    const run = runs().find((entry) => names.get(entry.journeyId) === journeyName && entry.status === "failed");
+    assert.ok(run, `${journeyName} has a failed run`);
+    assert.equal((await retryJourneyRun(store, retryLookups(), tenant, run.id, new Date())).result, "retried");
+    await resumeDueRuns(deps);
+    return run;
+  }
+
+  it("a retried run keeps its depth: its status change starts the next journey one level deeper, not from 1", async () => {
+    journey("A", [to("Working")], [setStatus("Qualified")]);
+    journey("B", [to("Qualified")], [setStatus("Contacted")]);
+    journey("C", [to("Contacted")], [task]);
+    const lead = await newLead("New");
+    failNextUpdate.add("B");
+
+    await userSetsStatus(lead, "Working");
+    await drainAll();
+    assert.deepEqual(chain(), ["A d1", "B d2"]);
+
+    const retried = await retryFailed("B");
+    await drainAll();
+
+    assert.equal(retried.status, "completed");
+    assert.equal(retried.triggerPayload.causation_depth, 1, "retry doesn't change the recorded depth");
+    assert.deepEqual(chain(), ["A d1", "B d2", "C d3"], "the same B run, no new one");
+  });
+
+  it("retrying a run at the limit doesn't reopen the chain: its change still starts nothing", async () => {
+    journey("A", [to("Working")], [setStatus("Qualified")]);
+    journey("B", [to("Qualified")], [setStatus("Working")]);
+    const lead = await newLead("New");
+
+    await userSetsStatus(lead, "Working");
+    await drain(); // user change → A d1 → Qualified
+    await drain(); // A's change → B d2 → Working
+    failNextUpdate.add("A");
+    await drain(); // B's change → A d3, whose status write fails
+    const deep = runs().at(-1)!;
+    assert.deepEqual(chain(), ["A d1", "B d2", "A d3"]);
+    assert.equal(deep.status, "failed");
+    assert.equal(logs.length, 0, "nothing was depth-limited yet");
+
+    await retryFailed("A");
+    const summary = await drainAll();
+
+    assert.equal(deep.status, "completed");
+    assert.equal(summary.depthLimited, 1, "the retried run's change is at depth 3");
+    assert.ok(logs.some((message) => /causation depth 3 reached the limit of 3/.test(message)));
+    assert.deepEqual(chain(), ["A d1", "B d2", "A d3"], "no B d4 after the retry");
   });
 });
