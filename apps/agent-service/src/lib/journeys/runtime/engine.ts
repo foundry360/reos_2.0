@@ -13,6 +13,7 @@
 import type { JourneyStatus } from "../journey-types.ts";
 import {
   aiOutputSchema,
+  LEAD_REPLIED_FIELD,
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
@@ -21,7 +22,14 @@ import {
   type TriggerEventType,
 } from "./contracts.ts";
 import { evaluateAll, evaluateCondition, type ExecutionContext } from "./conditions.ts";
-import { nextNodeId, stepKeys, triggerNodes, type JourneySnapshot, type SnapshotNode } from "./graph.ts";
+import {
+  nextNodeId,
+  resolveStepReference,
+  stepKeys,
+  triggerNodes,
+  type JourneySnapshot,
+  type SnapshotNode,
+} from "./graph.ts";
 import { journeyAIStepOutput, type JourneyAIExecutor, type JourneyAIRequest } from "./ai.ts";
 
 // ---------- Types ----------
@@ -66,6 +74,7 @@ export interface RunRecord {
   context: RunState;
   error: string | null;
   resumeAt: string | null;
+  startedAt: string;
 }
 
 /** A run this worker leased; `lease` is the locked_until value it holds. */
@@ -152,6 +161,8 @@ export interface JourneyRuntimeStore {
   insertStep(step: NewStep): Promise<string>;
   updateStep(stepId: string, patch: StepPatch): Promise<void>;
   loadEntities(tenantId: string, contactId: string | null): Promise<LoadedEntities>;
+  /** Whether the contact sent any inbound message at or after `since`. */
+  hasInboundMessageSince(tenantId: string, contactId: string, since: string): Promise<boolean>;
   listDueRunIds(now: Date, limit: number): Promise<string[]>;
 }
 
@@ -415,7 +426,14 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
 
     if (node.type === "condition") {
       const rule = node.config as unknown as ConditionRule;
-      const result = evaluateCondition(rule, context());
+      const resolved = resolveStepReference(rule, snapshot.nodes, keys);
+      const conditionContext = context();
+      // Checked when the condition runs, so a reply that arrived during a wait counts.
+      if (resolved.field === LEAD_REPLIED_FIELD && run.contactId && conditionContext.lead) {
+        const replied = await store.hasInboundMessageSince(run.tenantId, run.contactId, run.startedAt);
+        conditionContext.lead = { ...conditionContext.lead, [LEAD_REPLIED_FIELD.slice("lead.".length)]: replied };
+      }
+      const result = evaluateCondition(resolved, conditionContext);
       const output = { result, branch: result ? "yes" : "no" };
       await store.insertStep({ ...base, status: "completed", input: { ...rule }, output, completedAt: startedAt });
       recordOutput(node, output);

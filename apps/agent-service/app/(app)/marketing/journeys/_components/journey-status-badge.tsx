@@ -4,8 +4,8 @@ import styles from "./journeys.module.css";
 
 const STATUS_CLASS: Record<JourneyStatus, string> = {
   draft: styles.badgeDraft,
-  active: shell.badgeActive,
-  paused: shell.badgePaused,
+  active: styles.badgeJourneyActive,
+  paused: styles.badgeJourneyPaused,
 };
 
 export function JourneyStatusBadge({ status }: { status: JourneyStatus }) {

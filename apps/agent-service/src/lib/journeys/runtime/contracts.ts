@@ -80,7 +80,12 @@ export interface FieldDefinition {
   options?: readonly string[];
   /** Only meaningful for these trigger events (undefined = always). */
   events?: readonly TriggerEventType[];
+  /** Needs a running journey, so Condition steps can use it but trigger filters can't. */
+  conditionOnly?: boolean;
 }
+
+/** True when the lead has sent an inbound message since the run started. Resolved when the condition runs. */
+export const LEAD_REPLIED_FIELD = "lead.has_replied_since_journey_start";
 
 const LEAD_STATUSES = ["New", "Working", "Contacted", "Qualified", "Converted"] as const;
 const TEMPERATURES = ["Hot", "Warm", "Cold"] as const;
@@ -112,6 +117,7 @@ export const CONDITION_FIELDS: Record<string, FieldDefinition> = {
   "lead.budget": { label: "Budget", type: "string" },
   "lead.timeline": { label: "Timeline", type: "string" },
   "lead.financing_status": { label: "Financing", type: "string" },
+  [LEAD_REPLIED_FIELD]: { label: "Lead has replied since journey started", type: "boolean", conditionOnly: true },
   "opportunity.stage": { label: "Opportunity stage", type: "enum", options: OPPORTUNITY_STAGES },
   "trigger.channel": {
     label: "Message channel",
@@ -342,6 +348,10 @@ function validateTrigger(raw: Record<string, unknown>, mode: ValidationMode): Co
   rawFilters.forEach((entry, index) => {
     const parsed = parseRule(entry, mode, `Filter ${index + 1}`);
     errors.push(...parsed.errors);
+    const definition = parsed.rule && Object.hasOwn(CONDITION_FIELDS, parsed.rule.field) ? CONDITION_FIELDS[parsed.rule.field] : null;
+    if (mode === "strict" && definition?.conditionOnly) {
+      errors.push(`Filter ${index + 1}: "${definition.label}" can only be used in a Condition step.`);
+    }
     if (parsed.rule) filters.push(parsed.rule);
   });
   return { config: { event: (event ?? "") as TriggerEventType, filters }, errors };
@@ -516,4 +526,56 @@ export function stepKey(name: string, fallback: string): string {
     .replace(/^_+|_+$/g, "")
     .slice(0, 60);
   return key || fallback.replace(/-/g, "_").slice(0, 60);
+}
+
+// ---------- Step-output references ----------
+
+/**
+ * Reference key for new step references: the node's immutable id with dashes
+ * as underscores, so renames and duplicate names never retarget it. Older
+ * references use the name-derived stepKey and still resolve.
+ */
+export function nodeReferenceKey(nodeId: string): string {
+  return nodeId.toLowerCase().replace(/-/g, "_");
+}
+
+/** Condition field while a step reference is half built (step or output field missing). */
+export const STEP_FIELD_DRAFT = "__step__";
+
+export interface StepReferenceDraft {
+  key: string;
+  field: string;
+}
+
+export const EMPTY_STEP_REFERENCE: StepReferenceDraft = { key: "", field: "" };
+
+/** Output field names must fit STEP_FIELD_PATTERN. */
+export function sanitizeOutputField(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 60);
+}
+
+/** The step and field of a complete reference, or null for any other field. */
+export function stepReferenceDraft(field: string): StepReferenceDraft | null {
+  const match = STEP_FIELD_PATTERN.exec(field);
+  return match ? { key: match[1], field: match[2] } : null;
+}
+
+/** The condition field to store: a full reference once both halves exist, otherwise the draft marker. */
+export function stepReferenceField(draft: StepReferenceDraft): string {
+  return draft.key && draft.field ? `steps.${draft.key}.output.${draft.field}` : STEP_FIELD_DRAFT;
+}
+
+/**
+ * Applies one edit to a half-built reference without losing the other half.
+ * Choosing a step whose output fields are known clears a field it doesn't define.
+ */
+export function updateStepReferenceDraft(
+  draft: StepReferenceDraft,
+  patch: Partial<StepReferenceDraft>,
+  knownFields: readonly string[] | null = null,
+): StepReferenceDraft {
+  const key = patch.key ?? draft.key;
+  let field = patch.field !== undefined ? sanitizeOutputField(patch.field) : draft.field;
+  if (patch.key !== undefined && knownFields && !knownFields.includes(field)) field = "";
+  return { key, field };
 }

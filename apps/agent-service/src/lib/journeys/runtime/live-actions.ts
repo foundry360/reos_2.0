@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { applyToolCalls } from "@/lib/apply-tools";
 import { resolveAgentRecipient, resolveAssignedAgentUserId } from "@/lib/calendar/appointment-invites";
 import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
@@ -7,8 +6,9 @@ import { recordOutboundEmail } from "@/lib/email/record-outbound-email";
 import { sendResendMessage } from "@/lib/email/resend";
 import { deliverMessageToContact } from "@/lib/messaging/deliver-message";
 import { notifyTenantMembers } from "@/lib/notifications/create-notification";
-import { renderTemplate, UPDATE_LEAD_FIELDS, type ActionConfig } from "./contracts";
+import { renderTemplate, type ActionConfig } from "./contracts";
 import { JourneyStepError, type ActionExecutor, type ActionInput, type ActionResult } from "./engine";
+import { executeUpdateLead, type LeadUpdateStore } from "./update-lead";
 
 function requireContact(input: ActionInput): { contactId: string; lead: Record<string, unknown> } {
   if (!input.contactId || !input.lead) {
@@ -39,8 +39,36 @@ function textToHtml(text: string): string {
 
 const JOURNEY_LABEL = "Journey";
 
+function createLeadUpdateStore(db: SupabaseClient): LeadUpdateStore {
+  return {
+    async updateFields(tenantId, contactId, patch) {
+      const { data, error } = await db
+        .from("contacts")
+        .update(patch)
+        .eq("id", contactId)
+        .eq("tenant_id", tenantId)
+        .select("id");
+      return { error: error?.message ?? null, matched: (data?.length ?? 0) > 0 };
+    },
+    async convertLeadToClient(tenantId, contactId, contactType) {
+      const { data, error } = await db
+        .from("contacts")
+        .update({ record_type: "contact", contact_type: contactType })
+        .eq("id", contactId)
+        .eq("tenant_id", tenantId)
+        .eq("record_type", "lead")
+        .select("id");
+      return { error: error?.message ?? null, matched: (data?.length ?? 0) > 0 };
+    },
+    async logActivity(tenantId, contactId, body) {
+      await logSystemContactActivity({ tenantId, contactId, activityType: "contact", title: "Lead updated", body });
+    },
+  };
+}
+
 /** Journey actions backed by the same services the CRM UI and lead agent use. */
 export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
+  const leadUpdates = createLeadUpdateStore(db);
   return {
     async execute(action: Exclude<ActionConfig, { action: "wait" }>, input: ActionInput): Promise<ActionResult> {
       switch (action.action) {
@@ -159,26 +187,8 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
           return { status: "completed", output: { task_id: data.id, due_at: dueAt } };
         }
 
-        case "update_lead": {
-          const { contactId } = requireContact(input);
-          const fields = Object.fromEntries(
-            Object.entries(action.fields).filter(([key]) => Object.hasOwn(UPDATE_LEAD_FIELDS, key)),
-          );
-          if (Object.keys(fields).length === 0) {
-            return { status: "skipped", output: {}, reason: "No fields to update." };
-          }
-          await applyToolCalls(contactId, [{ name: "update_contact", args: fields }]);
-          await logSystemContactActivity({
-            tenantId: input.tenantId,
-            contactId,
-            activityType: "contact",
-            title: "Lead updated",
-            body: `${JOURNEY_LABEL} set ${Object.keys(fields)
-              .map((key) => UPDATE_LEAD_FIELDS[key as keyof typeof UPDATE_LEAD_FIELDS].label.toLowerCase())
-              .join(", ")}.`,
-          });
-          return { status: "completed", output: { updated: Object.keys(fields) } };
-        }
+        case "update_lead":
+          return executeUpdateLead(action, input, leadUpdates);
 
         case "notify_team": {
           const { contactId, lead } = requireContact(input);

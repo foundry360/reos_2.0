@@ -1,24 +1,31 @@
 "use client";
 
+import { useState } from "react";
 import {
   ACTION_TYPES,
   AI_OUTPUT_TYPES,
+  AI_TEXT_KEY,
   CONDITION_FIELDS,
   CONDITION_OPERATORS,
+  EMPTY_STEP_REFERENCE,
   IMPLEMENTED_TRIGGER_EVENTS,
   MAX_AI_OUTPUT_FIELDS,
   NOTIFY_RECIPIENTS,
-  STEP_FIELD_PATTERN,
+  STEP_FIELD_DRAFT,
   TEMPLATE_TOKENS,
   TRIGGER_EVENTS,
   UPDATE_LEAD_FIELDS,
   WAIT_UNITS,
   isTriggerEventType,
   operatorsForField,
+  stepReferenceDraft,
+  stepReferenceField,
+  updateStepReferenceDraft,
   validateNodeConfig,
   type AIOutputField,
   type ConditionRule,
   type FieldDefinition,
+  type StepReferenceDraft,
   type TriggerEventType,
 } from "@/lib/journeys/runtime/contracts";
 import type { JourneyNodeConfig, JourneyNodeType } from "@/lib/journeys/journey-types";
@@ -27,8 +34,13 @@ import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
 export interface StepOption {
+  /** Node-id reference key; what new references store. */
   key: string;
+  /** Name-derived key, so references saved before node-id keys still show their step. */
+  legacyKey?: string;
   label: string;
+  /** Output fields the step is known to produce; null means type the field name. */
+  outputs: string[] | null;
 }
 
 interface NodeConfigFormProps {
@@ -37,21 +49,21 @@ interface NodeConfigFormProps {
   config: JourneyNodeConfig;
   onChange: (config: JourneyNodeConfig) => void;
   agentOptions: { id: string; label: string }[];
-  /** Other steps whose output a condition can read. */
+  /** Steps guaranteed to run before this condition, whose output it can read. */
   stepOptions: StepOption[];
   /** The journey's trigger event, so conditions can offer trigger fields. */
   triggerEvent: TriggerEventType | null;
 }
 
-const STEP_FIELD = "__step__";
 const TOKEN_HINT = `Personalize with ${TEMPLATE_TOKENS.map((token) => `{{${token}}}`).join(", ")}.`;
 
 function str(value: unknown): string {
   return typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
 }
 
-function fieldsFor(event: TriggerEventType | null, includeTrigger: boolean) {
+function fieldsFor(event: TriggerEventType | null, includeTrigger: boolean, inCondition: boolean) {
   return Object.entries(CONDITION_FIELDS).filter(([key, def]) => {
+    if (def.conditionOnly && !inCondition) return false;
     if (!key.startsWith("trigger.")) return true;
     return includeTrigger && (!def.events || (event !== null && def.events.includes(event)));
   });
@@ -140,15 +152,24 @@ function RuleEditor({
   triggerEvent: TriggerEventType | null;
   allowSteps: boolean;
 }) {
-  const stepMatch = STEP_FIELD_PATTERN.exec(rule.field);
-  const isStepField = Boolean(stepMatch) || rule.field === STEP_FIELD;
+  const savedReference = stepReferenceDraft(rule.field);
+  const isStepField = Boolean(savedReference) || rule.field === STEP_FIELD_DRAFT;
   const definition = Object.hasOwn(CONDITION_FIELDS, rule.field) ? CONDITION_FIELDS[rule.field] : null;
-  const operators = rule.field && rule.field !== STEP_FIELD ? operatorsForField(rule.field) : [];
+  const operators = rule.field && rule.field !== STEP_FIELD_DRAFT ? operatorsForField(rule.field) : [];
   const needsValue = CONDITION_OPERATORS[rule.operator]?.needsValue ?? true;
 
-  const setStepPath = (key: string, field: string) => {
-    const cleanField = field.toLowerCase().replace(/[^a-z0-9_]/g, "");
-    onChange({ ...rule, field: key && cleanField ? `steps.${key}.output.${cleanField}` : STEP_FIELD });
+  // Holds the half-built reference: the stored field is only a full path once step and output are both set.
+  const [pendingReference, setPendingReference] = useState<StepReferenceDraft>(savedReference ?? EMPTY_STEP_REFERENCE);
+  const reference = savedReference ?? pendingReference;
+  const selectedStep =
+    stepOptions.find((option) => option.key === reference.key || option.legacyKey === reference.key) ?? null;
+
+  const editReference = (patch: Partial<StepReferenceDraft>) => {
+    const knownFields =
+      patch.key !== undefined ? (stepOptions.find((option) => option.key === patch.key)?.outputs ?? null) : null;
+    const next = updateStepReferenceDraft(reference, patch, knownFields);
+    setPendingReference(next);
+    onChange({ ...rule, field: stepReferenceField(next) });
   };
 
   return (
@@ -159,10 +180,11 @@ function RuleEditor({
         </label>
         <DropdownSelect
           id={`${idPrefix}-field`}
-          value={isStepField ? STEP_FIELD : rule.field}
+          value={isStepField ? STEP_FIELD_DRAFT : rule.field}
           placeholder="Choose a field…"
           onChange={(field) => {
-            const allowed = field && field !== STEP_FIELD ? operatorsForField(field) : [];
+            if (field === STEP_FIELD_DRAFT) setPendingReference(EMPTY_STEP_REFERENCE);
+            const allowed = field && field !== STEP_FIELD_DRAFT ? operatorsForField(field) : [];
             onChange({
               field,
               operator: allowed.includes(rule.operator) ? rule.operator : (allowed[0] ?? "equals"),
@@ -170,12 +192,12 @@ function RuleEditor({
             });
           }}
           options={[
-            ...fieldsFor(triggerEvent, true).map(([key, def]) => ({
+            ...fieldsFor(triggerEvent, true, allowSteps).map(([key, def]) => ({
               value: key,
               label: `${key.startsWith("opportunity.") ? "Opportunity: " : key.startsWith("trigger.") ? "Event: " : ""}${def.label}`,
             })),
             ...(allowSteps && stepOptions.length > 0
-              ? [{ value: STEP_FIELD, label: "Output of an earlier step…" }]
+              ? [{ value: STEP_FIELD_DRAFT, label: "Output of an earlier step…" }]
               : []),
           ]}
         />
@@ -189,9 +211,9 @@ function RuleEditor({
             </label>
             <DropdownSelect
               id={`${idPrefix}-step`}
-              value={stepMatch?.[1] ?? ""}
+              value={selectedStep?.key ?? ""}
               placeholder="Choose…"
-              onChange={(key) => setStepPath(key, stepMatch?.[2] ?? "")}
+              onChange={(key) => editReference({ key })}
               options={stepOptions.map((option) => ({ value: option.key, label: option.label }))}
             />
           </div>
@@ -199,13 +221,26 @@ function RuleEditor({
             <label className={shell.label} htmlFor={`${idPrefix}-output`}>
               Output field
             </label>
-            <input
-              id={`${idPrefix}-output`}
-              className={shell.input}
-              placeholder="e.g. result"
-              defaultValue={stepMatch?.[2] ?? ""}
-              onBlur={(event) => setStepPath(stepMatch?.[1] ?? "", event.target.value)}
-            />
+            {selectedStep?.outputs ? (
+              <DropdownSelect
+                id={`${idPrefix}-output`}
+                value={reference.field}
+                placeholder="Choose…"
+                onChange={(field) => editReference({ field })}
+                options={selectedStep.outputs.map((name) => ({
+                  value: name,
+                  label: name === AI_TEXT_KEY ? `${name} (AI explanation)` : name,
+                }))}
+              />
+            ) : (
+              <input
+                id={`${idPrefix}-output`}
+                className={shell.input}
+                placeholder="e.g. result"
+                value={reference.field}
+                onChange={(event) => editReference({ field: event.target.value })}
+              />
+            )}
           </div>
         </div>
       ) : null}

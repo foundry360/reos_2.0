@@ -42,6 +42,9 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
   runs = new Map<string, MemoryRun>();
   steps: MemoryStep[] = [];
   contacts = new Map<string, { tenantId: string; lead: Record<string, unknown>; opportunity?: Record<string, unknown> }>();
+  messages: Array<{ tenantId: string; contactId: string; direction: "inbound" | "outbound"; createdAt: string }> = [];
+  /** Stands in for the database's now() default on journey_runs.started_at. */
+  clock: () => Date = () => new Date();
   private seq = 0;
 
   private id(prefix: string) {
@@ -105,6 +108,7 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
       context: { steps: {} },
       error: null,
       resumeAt: input.resumeAt,
+      startedAt: this.clock().toISOString(),
       idempotencyKey: input.idempotencyKey,
       lockedUntil: null,
       completedAt: null,
@@ -157,6 +161,17 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     const contact = contactId ? this.contacts.get(contactId) : undefined;
     if (!contact || contact.tenantId !== tenantId) return { lead: null, opportunity: null };
     return { lead: structuredClone(contact.lead), opportunity: structuredClone(contact.opportunity ?? null) };
+  }
+
+  async hasInboundMessageSince(tenantId: string, contactId: string, since: string) {
+    const start = new Date(since).getTime();
+    return this.messages.some(
+      (message) =>
+        message.tenantId === tenantId &&
+        message.contactId === contactId &&
+        message.direction === "inbound" &&
+        new Date(message.createdAt).getTime() >= start,
+    );
   }
 
   async listDueRunIds(now: Date, limit: number) {

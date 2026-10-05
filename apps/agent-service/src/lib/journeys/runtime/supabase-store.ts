@@ -15,7 +15,7 @@ import type {
 } from "./engine";
 
 const RUN_COLUMNS =
-  "id, tenant_id, journey_id, journey_version, contact_id, status, current_node_id, trigger_event, trigger_payload, context, error, resume_at";
+  "id, tenant_id, journey_id, journey_version, contact_id, status, current_node_id, trigger_event, trigger_payload, context, error, resume_at, started_at";
 
 const LEAD_COLUMNS =
   "id, first_name, last_name, email, lead_status, lead_temperature, intent, qualification_score, ready_to_book, appt_booked, handoff, opted_out, assigned_agent_id, record_type, target_location, property_type, budget, timeline, financing_status";
@@ -33,6 +33,7 @@ type RunRow = {
   context: RunState | null;
   error: string | null;
   resume_at: string | null;
+  started_at: string;
 };
 
 function toRun(row: RunRow): RunRecord {
@@ -49,6 +50,7 @@ function toRun(row: RunRow): RunRecord {
     context: { steps: {}, ...(row.context ?? {}) },
     error: row.error,
     resumeAt: row.resume_at,
+    startedAt: row.started_at,
   };
 }
 
@@ -291,6 +293,19 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
         lead: { ...(lead as Record<string, unknown>), has_phone: Boolean(phone) },
         opportunity: (opportunity as Record<string, unknown> | null) ?? null,
       };
+    },
+
+    async hasInboundMessageSince(tenantId, contactId, since) {
+      const { data, error } = await db
+        .from("messages")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("contact_id", contactId)
+        .eq("direction", "inbound")
+        .gte("created_at", since)
+        .limit(1);
+      if (error) fail("hasInboundMessageSince", error);
+      return (data?.length ?? 0) > 0;
     },
 
     async listDueRunIds(now, limit) {

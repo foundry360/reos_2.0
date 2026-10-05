@@ -48,8 +48,8 @@ import { JOURNEY_NODE_COLORS } from "../journey-node-icon";
 import { LeaveJourneyModal } from "./leave-journey-modal";
 import { NodePicker } from "./node-picker";
 import { PropertiesPanel, type NodePatch } from "./properties-panel";
-import { isTriggerEventType } from "@/lib/journeys/runtime/contracts";
-import { stepKeys } from "@/lib/journeys/runtime/graph";
+import { isTriggerEventType, nodeReferenceKey } from "@/lib/journeys/runtime/contracts";
+import { knownOutputFields, referenceableSteps, stepKeys } from "@/lib/journeys/runtime/graph";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
@@ -125,12 +125,25 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const lifecycle = nextJourneyStatus(status);
 
+  const selectedConditionId = selectedNode?.data.nodeType === "condition" ? selectedNode.id : null;
   const stepOptions = useMemo(() => {
-    const keys = stepKeys(nodes.map((node) => ({ id: node.id, name: node.data.name })));
-    return nodes
-      .filter((node) => node.data.nodeType === "ai" || node.data.nodeType === "action")
-      .map((node) => ({ nodeId: node.id, key: keys.get(node.id)!, label: node.data.name || node.data.nodeType }));
-  }, [nodes]);
+    if (!selectedConditionId) return [];
+    const graph = toJourneyGraph(nodes, edges);
+    const legacyKeys = stepKeys(graph.nodes);
+    const seen = new Map<string, number>();
+    return referenceableSteps(graph, selectedConditionId).map((node) => {
+      const base = node.name.trim() || journeyNodeTypeDefinition(node.type).label;
+      const count = (seen.get(base) ?? 0) + 1;
+      seen.set(base, count);
+      return {
+        nodeId: node.id,
+        key: nodeReferenceKey(node.id),
+        legacyKey: legacyKeys.get(node.id),
+        label: count > 1 ? `${base} (${count})` : base,
+        outputs: knownOutputFields(node),
+      };
+    });
+  }, [nodes, edges, selectedConditionId]);
   const triggerEvent = useMemo(() => {
     const event = nodes.find((node) => node.data.nodeType === "trigger")?.data.config.event;
     return isTriggerEventType(event) ? event : null;

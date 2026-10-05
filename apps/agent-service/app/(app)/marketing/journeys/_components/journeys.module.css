@@ -51,8 +51,18 @@
 }
 
 .badgeDraft {
-  background: var(--palette-periwinkle-soft);
-  color: var(--palette-periwinkle-text);
+  background: #d97706;
+  color: #ffffff;
+}
+
+.badgeJourneyActive {
+  background: #43bd9c;
+  color: #ffffff;
+}
+
+.badgeJourneyPaused {
+  background: #0284c7;
+  color: #ffffff;
 }
 
 /* ---------- Create modal ---------- */

@@ -14,7 +14,16 @@ import {
   type JourneyGraph,
   type JourneyNode,
 } from "../journey-types.ts";
-import { stepKey, validateNodeConfig } from "./contracts.ts";
+import {
+  AI_TEXT_KEY,
+  aiOutputSchema,
+  nodeReferenceKey,
+  STEP_FIELD_PATTERN,
+  stepKey,
+  validateNodeConfig,
+  type AIConfig,
+  type ConditionRule,
+} from "./contracts.ts";
 
 export interface SnapshotNode {
   id: string;
@@ -67,6 +76,113 @@ export function stepKeys(nodes: Pick<SnapshotNode, "id" | "name">[]): Map<string
   return keys;
 }
 
+type GraphShape = {
+  nodes: Pick<SnapshotNode, "id" | "type">[];
+  connections: Pick<JourneyConnection, "sourceNodeId" | "targetNodeId">[];
+};
+
+/**
+ * Nodes that run before `targetId` on every path from any trigger: removing
+ * one makes the target unreachable. Ancestors that only run on some paths
+ * (one side of a branch, a different trigger) are excluded. Empty when the
+ * target itself is unreachable.
+ */
+export function guaranteedPredecessors(graph: GraphShape, targetId: string): Set<string> {
+  const ids = new Set(graph.nodes.map((node) => node.id));
+  const outgoing = new Map<string, string[]>();
+  for (const connection of graph.connections) {
+    if (!ids.has(connection.sourceNodeId) || !ids.has(connection.targetNodeId)) continue;
+    const list = outgoing.get(connection.sourceNodeId) ?? [];
+    list.push(connection.targetNodeId);
+    outgoing.set(connection.sourceNodeId, list);
+  }
+  const triggers = graph.nodes.filter((node) => node.type === "trigger").map((node) => node.id);
+
+  const reachesTarget = (without: string | null): boolean => {
+    const seen = new Set<string>();
+    const queue = triggers.filter((id) => id !== without);
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      if (id === targetId) return true;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const next of outgoing.get(id) ?? []) if (next !== without) queue.push(next);
+    }
+    return false;
+  };
+
+  const result = new Set<string>();
+  if (!ids.has(targetId) || !reachesTarget(null)) return result;
+  for (const node of graph.nodes) {
+    if (node.id !== targetId && !reachesTarget(node.id)) result.add(node.id);
+  }
+  return result;
+}
+
+/** AI steps and non-wait actions record output a condition can read. */
+export function producesStepOutput(node: Pick<SnapshotNode, "type" | "config">): boolean {
+  return node.type === "ai" || (node.type === "action" && node.config.action !== "wait");
+}
+
+/** Output-producing steps guaranteed to have run before this condition. */
+export function referenceableSteps<T extends Pick<SnapshotNode, "id" | "type" | "config">>(
+  graph: { nodes: T[]; connections: GraphShape["connections"] },
+  conditionId: string,
+): T[] {
+  const before = guaranteedPredecessors(graph, conditionId);
+  return graph.nodes.filter((node) => before.has(node.id) && producesStepOutput(node));
+}
+
+/**
+ * Output fields a step is known to produce, or null when they can't be known
+ * statically (freeform AI steps, actions).
+ */
+export function knownOutputFields(node: Pick<SnapshotNode, "type" | "config">): string[] | null {
+  if (node.type !== "ai") return null;
+  const schema = aiOutputSchema(node.config as Partial<AIConfig>);
+  return schema.length > 0 ? [...schema.map((field) => field.name), AI_TEXT_KEY] : null;
+}
+
+/** The node a reference key points at: a node-id key first, then the legacy name-derived key. */
+export function referencedNode<T extends Pick<SnapshotNode, "id" | "name">>(nodes: T[], key: string): T | null {
+  const byId = nodes.find((node) => nodeReferenceKey(node.id) === key);
+  if (byId) return byId;
+  const keys = stepKeys(nodes);
+  return nodes.find((node) => keys.get(node.id) === key) ?? null;
+}
+
+/**
+ * Points a node-id reference at the step key the run records outputs under.
+ * Legacy name-derived references, and ids not in this snapshot, are unchanged.
+ */
+export function resolveStepReference(
+  rule: ConditionRule,
+  nodes: Pick<SnapshotNode, "id">[],
+  keys: Map<string, string>,
+): ConditionRule {
+  const match = STEP_FIELD_PATTERN.exec(rule.field);
+  if (!match) return rule;
+  const node = nodes.find((entry) => nodeReferenceKey(entry.id) === match[1]);
+  const key = node ? keys.get(node.id) : undefined;
+  return key && key !== match[1] ? { ...rule, field: `steps.${key}.output.${match[2]}` } : rule;
+}
+
+function stepReferenceIssue(graph: JourneyGraph | JourneySnapshot, condition: SnapshotNode | JourneyNode): string | null {
+  const match = STEP_FIELD_PATTERN.exec(typeof condition.config.field === "string" ? condition.config.field : "");
+  if (!match) return null;
+  const [, key, field] = match;
+  const source = referencedNode(graph.nodes, key);
+  if (!source) return "the referenced journey step no longer exists.";
+  if (source.id === condition.id) return "a condition can't reference its own output.";
+  if (!producesStepOutput(source)) return `${label(source)} isn't a step that produces output a condition can use.`;
+  if (!guaranteedPredecessors(graph, condition.id).has(source.id)) {
+    return `${label(source)} doesn't run before this condition on every path.`;
+  }
+  const fields = knownOutputFields(source);
+  if (fields && !fields.includes(field)) return `output field "${field}" isn't defined by ${label(source)}.`;
+  return null;
+}
+
 export interface ActivationIssue {
   nodeId: string | null;
   message: string;
@@ -94,6 +210,10 @@ export function activationIssues(graph: JourneyGraph | JourneySnapshot): Activat
   for (const node of nodes) {
     const { errors } = validateNodeConfig(node.type, node.config, "strict");
     for (const error of errors) issues.push({ nodeId: node.id, message: `${label(node)}: ${error}` });
+    if (node.type === "condition") {
+      const problem = stepReferenceIssue(graph, node);
+      if (problem) issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
+    }
   }
 
   const outgoing = new Map<string, JourneyConnection[]>();
