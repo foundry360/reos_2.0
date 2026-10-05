@@ -15,15 +15,18 @@ import {
   aiOutputSchema,
   conditionRules,
   LEAD_REPLIED_FIELD,
+  MAX_INPUTS_BYTES,
+  parseInputMappings,
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
   type TriggerConfig,
   type TriggerEventType,
 } from "./contracts.ts";
-import { evaluateAll, evaluateRules, type ExecutionContext } from "./conditions.ts";
+import { evaluateAll, evaluateRules, journeyInputs, resolveField, type ExecutionContext } from "./conditions.ts";
 import {
   nextNodeId,
+  resolveStepField,
   resolveStepReference,
   stepKeys,
   triggerNodes,
@@ -428,6 +431,8 @@ export type StartJourneySkipReason =
   | "target_not_found"
   | "target_inactive"
   | "depth_limited"
+  | "inputs_invalid"
+  | "inputs_too_large"
   | "target_not_listening"
   | "trigger_filters_not_matched"
   | "already_active";
@@ -438,17 +443,22 @@ export type StartJourneySkipReason =
  * run per contact, idempotent run creation). The run key is
  * journey.started:<run id>:<node id>:<target journey id>, so repeating the step
  * (retry, interrupted pass, two workers) never starts a second child. The child
- * gets lineage only (origin, origin run and journey, root, depth), never this
- * run's step outputs. A started child is returned in `started` for the caller
- * to execute after this pass; this run doesn't wait for it.
+ * gets lineage (origin, origin run and journey, root, depth) and, when the step
+ * maps any, `inputs`: one value per mapping, read by `resolve` from what this
+ * run can already read. Nothing else of this run crosses over. Inputs are fixed
+ * when the child is created; a repeated step never changes them. A started
+ * child is returned in `started` for the caller to execute after this pass;
+ * this run doesn't wait for it.
  */
 async function startJourney(
   deps: EngineDeps,
   run: RunRecord,
   nodeId: string,
-  targetJourneyId: string,
+  action: Extract<ActionConfig, { action: "start_journey" }>,
+  resolve: (source: string) => unknown,
   started: string[],
 ): Promise<ActionResult> {
+  const targetJourneyId = action.journeyId;
   const skip = (reason: StartJourneySkipReason, extra: Record<string, unknown> = {}): ActionResult => ({
     status: "skipped",
     output: { started: false, target_journey_id: targetJourneyId, ...extra },
@@ -463,6 +473,16 @@ async function startJourney(
 
   const depth = runCausationDepth(run);
   if (isCausationDepthLimited(depth)) return skip("depth_limited", { causation_depth: depth });
+
+  // Snapshots are parsed leniently, so the list is checked strictly again here.
+  const mappings = parseInputMappings(action.inputMappings, "strict");
+  if (mappings.errors.length > 0) return skip("inputs_invalid", { input_errors: mappings.errors });
+  const resolved = journeyInputs(mappings.mappings, resolve);
+  if (!resolved.ok) {
+    return resolved.reason === "inputs_invalid"
+      ? skip("inputs_invalid", { input_errors: resolved.errors })
+      : skip("inputs_too_large", { inputs_bytes: resolved.bytes, max_inputs_bytes: MAX_INPUTS_BYTES });
+  }
 
   const [outcome] = await dispatchJourneyEvent(
     deps,
@@ -480,6 +500,7 @@ async function startJourney(
         origin_journey_id: run.journeyId,
         root_run_id: runRootId(run, run.id),
         causation_depth: depth,
+        ...(mappings.mappings.length > 0 ? { inputs: resolved.inputs } : {}),
       },
     },
     { execute: false },
@@ -725,7 +746,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
             context: context(),
           })
         : action?.action === "start_journey"
-          ? await startJourney(deps, run, node.id, action.journeyId, started)
+          ? await startJourney(deps, run, node.id, action, (source) => resolveField(context(), resolveStepField(source, snapshot.nodes, keys)), started)
           : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
               tenantId: run.tenantId,
               runId: run.id,

@@ -17,10 +17,14 @@ import {
 import {
   AI_TEXT_KEY,
   aiOutputSchema,
+  CONDITION_FIELDS,
   conditionRules,
   nodeReferenceKey,
+  parseInputMappings,
   STEP_FIELD_PATTERN,
   stepKey,
+  TRIGGER_EVENTS,
+  TRIGGER_INPUT_FIELD_PATTERN,
   validateNodeConfig,
   type AIConfig,
   type ConditionRule,
@@ -161,43 +165,82 @@ export function resolveStepReference(
   nodes: Pick<SnapshotNode, "id">[],
   keys: Map<string, string>,
 ): ConditionRule {
-  const match = STEP_FIELD_PATTERN.exec(rule.field);
-  if (!match) return rule;
-  const node = nodes.find((entry) => nodeReferenceKey(entry.id) === match[1]);
-  const key = node ? keys.get(node.id) : undefined;
-  return key && key !== match[1] ? { ...rule, field: `steps.${key}.output.${match[2]}` } : rule;
+  const field = resolveStepField(rule.field, nodes, keys);
+  return field === rule.field ? rule : { ...rule, field };
 }
 
+/** resolveStepReference for a bare field (a Start journey input's source). */
+export function resolveStepField(field: string, nodes: Pick<SnapshotNode, "id">[], keys: Map<string, string>): string {
+  const match = STEP_FIELD_PATTERN.exec(field);
+  if (!match) return field;
+  const node = nodes.find((entry) => nodeReferenceKey(entry.id) === match[1]);
+  const key = node ? keys.get(node.id) : undefined;
+  return key && key !== match[1] ? `steps.${key}.output.${match[2]}` : field;
+}
+
+type GraphLike = JourneyGraph | JourneySnapshot;
+
 /** Reference problems in every rule of a condition; rule-list conditions name the rule. */
-function stepReferenceIssues(graph: JourneyGraph | JourneySnapshot, condition: SnapshotNode | JourneyNode): string[] {
+function stepReferenceIssues(graph: GraphLike, condition: SnapshotNode | JourneyNode): string[] {
   const config = condition.config as Record<string, unknown>;
   const multi = Object.hasOwn(config, "rules") && config.rules !== undefined;
   const issues: string[] = [];
   conditionRules(config).rules.forEach((rule, index) => {
-    const problem = stepReferenceIssue(graph, condition, rule.field);
+    const problem = stepReferenceIssue(graph, condition, rule.field) ?? triggerInputIssue(graph, rule.field);
     if (problem) issues.push(multi ? `Rule ${index + 1}: ${problem}` : problem);
   });
   return issues;
 }
 
 function stepReferenceIssue(
-  graph: JourneyGraph | JourneySnapshot,
-  condition: SnapshotNode | JourneyNode,
+  graph: GraphLike,
+  reader: SnapshotNode | JourneyNode,
   ruleField: unknown,
+  subject: "condition" | "step" = "condition",
 ): string | null {
   const match = STEP_FIELD_PATTERN.exec(typeof ruleField === "string" ? ruleField : "");
   if (!match) return null;
   const [, key, field] = match;
   const source = referencedNode(graph.nodes, key);
   if (!source) return "the referenced journey step no longer exists.";
-  if (source.id === condition.id) return "a condition can't reference its own output.";
-  if (!producesStepOutput(source)) return `${label(source)} isn't a step that produces output a condition can use.`;
-  if (!guaranteedPredecessors(graph, condition.id).has(source.id)) {
-    return `${label(source)} doesn't run before this condition on every path.`;
+  if (source.id === reader.id) return `a ${subject} can't reference its own output.`;
+  if (!producesStepOutput(source)) return `${label(source)} isn't a step that produces output a ${subject} can use.`;
+  if (!guaranteedPredecessors(graph, reader.id).has(source.id)) {
+    return `${label(source)} doesn't run before this ${subject} on every path.`;
   }
   const fields = knownOutputFields(source);
   if (fields && !fields.includes(field)) return `output field "${field}" isn't defined by ${label(source)}.`;
   return null;
+}
+
+function triggerEvents(graph: GraphLike): string[] {
+  return graph.nodes.filter((node) => node.type === "trigger").map((node) => String(node.config.event ?? ""));
+}
+
+/** trigger.inputs.<name> needs a journey.started trigger; nothing else has inputs. */
+function triggerInputIssue(graph: GraphLike, field: unknown): string | null {
+  if (typeof field !== "string" || !TRIGGER_INPUT_FIELD_PATTERN.test(field)) return null;
+  return triggerEvents(graph).includes("journey.started")
+    ? null
+    : `inputs only exist when another journey starts this one ("${TRIGGER_EVENTS["journey.started"].label}" trigger).`;
+}
+
+/** Problems with a Start journey step's input sources that need the whole graph. */
+function inputSourceIssues(graph: GraphLike, node: SnapshotNode | JourneyNode): string[] {
+  const issues: string[] = [];
+  const events = triggerEvents(graph);
+  for (const { target, source } of parseInputMappings((node.config as Record<string, unknown>).inputMappings, "draft").mappings) {
+    if (!source) continue;
+    const definition = Object.hasOwn(CONDITION_FIELDS, source) ? CONDITION_FIELDS[source] : null;
+    const problem =
+      stepReferenceIssue(graph, node, source, "step") ??
+      triggerInputIssue(graph, source) ??
+      (definition?.events && !definition.events.some((event) => events.includes(event))
+        ? `"${definition.label}" isn't part of this journey's trigger event.`
+        : null);
+    if (problem) issues.push(`Input "${target || "?"}": ${problem}`);
+  }
+  return issues;
 }
 
 export interface ActivationIssue {
@@ -236,6 +279,11 @@ export function activationIssues(graph: JourneyGraph | JourneySnapshot, journeyI
     const config = node.config as Record<string, unknown>;
     if (journeyId && node.type === "action" && config.action === "start_journey" && config.journeyId === journeyId) {
       issues.push({ nodeId: node.id, message: `${label(node)}: a journey can't start itself.` });
+    }
+    if (node.type === "action" && config.action === "start_journey") {
+      for (const problem of inputSourceIssues(graph, node)) {
+        issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
+      }
     }
   }
 

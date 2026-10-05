@@ -1,8 +1,12 @@
 import {
+  MAX_INPUTS_BYTES,
   STEP_FIELD_PATTERN,
+  TRIGGER_INPUT_FIELD_PATTERN,
   type ConditionLogic,
   type ConditionRule,
   type ConditionValue,
+  type InputMapping,
+  type InputValue,
 } from "./contracts.ts";
 
 /** Everything a condition can read. Built by the runtime; never from user input. */
@@ -21,6 +25,12 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
     const entry = Object.hasOwn(context.steps, key) ? context.steps[key] : undefined;
     return entry && Object.hasOwn(entry.output, name) ? entry.output[name] : undefined;
   }
+  const input = TRIGGER_INPUT_FIELD_PATTERN.exec(field);
+  if (input) {
+    const inputs = context.trigger.event === "journey.started" ? context.trigger.payload.inputs : undefined;
+    if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) return undefined;
+    return Object.hasOwn(inputs, input[1]) ? (inputs as Record<string, unknown>)[input[1]] : undefined;
+  }
   const dot = field.indexOf(".");
   const scope = field.slice(0, dot);
   const name = field.slice(dot + 1);
@@ -33,6 +43,33 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
           ? context.trigger.payload
           : null;
   return source && Object.hasOwn(source, name) ? source[name] : undefined;
+}
+
+export type JourneyInputsResult =
+  | { ok: true; inputs: Record<string, InputValue> }
+  | { ok: false; reason: "inputs_invalid"; errors: string[] }
+  | { ok: false; reason: "inputs_too_large"; bytes: number };
+
+/**
+ * The inputs a Start journey step passes: exactly one entry per mapping, each
+ * the value `resolve` returns for its source. A missing value is null. Only
+ * text, finite numbers, and yes/no pass; any other value, or a result over
+ * MAX_INPUTS_BYTES, passes nothing.
+ */
+export function journeyInputs(mappings: InputMapping[], resolve: (source: string) => unknown): JourneyInputsResult {
+  const inputs: Record<string, InputValue> = {};
+  const errors: string[] = [];
+  for (const { target, source } of mappings) {
+    const value = resolve(source);
+    if (value === undefined || value === null) inputs[target] = null;
+    else if (typeof value === "string" || typeof value === "boolean") inputs[target] = value;
+    else if (typeof value === "number" && Number.isFinite(value)) inputs[target] = value;
+    else errors.push(`Input "${target}": the value isn't text, a number, or yes/no.`);
+  }
+  if (errors.length > 0) return { ok: false, reason: "inputs_invalid", errors };
+  const bytes = new TextEncoder().encode(JSON.stringify(inputs)).length;
+  if (bytes > MAX_INPUTS_BYTES) return { ok: false, reason: "inputs_too_large", bytes };
+  return { ok: true, inputs };
 }
 
 function isEmpty(value: unknown): boolean {

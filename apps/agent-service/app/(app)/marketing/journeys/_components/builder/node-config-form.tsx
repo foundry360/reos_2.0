@@ -9,17 +9,21 @@ import {
   CONDITION_OPERATORS,
   EMPTY_STEP_REFERENCE,
   IMPLEMENTED_TRIGGER_EVENTS,
+  INPUT_NAME_PATTERN,
   MAX_AI_OUTPUT_FIELDS,
   MAX_CONDITION_RULES,
+  MAX_INPUT_MAPPINGS,
   NOTIFY_RECIPIENTS,
   STEP_FIELD_DRAFT,
   TEMPLATE_TOKENS,
   TRIGGER_EVENTS,
+  TRIGGER_INPUT_FIELD_PATTERN,
   UPDATE_LEAD_FIELDS,
   WAIT_UNITS,
   isConditionLogic,
   isTriggerEventType,
   operatorsForField,
+  sanitizeOutputField,
   stepReferenceDraft,
   stepReferenceField,
   updateStepReferenceDraft,
@@ -28,6 +32,7 @@ import {
   type ConditionLogic,
   type ConditionRule,
   type FieldDefinition,
+  type InputMapping,
   type StepReferenceDraft,
   type TriggerEventType,
 } from "@/lib/journeys/runtime/contracts";
@@ -54,7 +59,7 @@ interface NodeConfigFormProps {
   agentOptions: { id: string; label: string }[];
   /** Other journeys in the workspace a Start journey step can target. */
   journeyOptions: { id: string; label: string }[];
-  /** Steps guaranteed to run before this condition, whose output it can read. */
+  /** Steps guaranteed to run before this condition or Start journey step, whose output it can read. */
   stepOptions: StepOption[];
   /** The journey's trigger event, so conditions can offer trigger fields. */
   triggerEvent: TriggerEventType | null;
@@ -142,71 +147,110 @@ function ValueInput({
   );
 }
 
-function RuleEditor({
+/** Field while a journey input reference is half built (no name yet). */
+const TRIGGER_INPUT_DRAFT = "__input__";
+
+/** A field that isn't fully chosen yet, so it has no operators. */
+function isDraftField(field: string): boolean {
+  return field === STEP_FIELD_DRAFT || field === TRIGGER_INPUT_DRAFT;
+}
+
+/**
+ * Picks a readable field: a lead/opportunity/event field, an earlier step's
+ * output, or (in journeys started by another journey) one of its inputs.
+ * `onSelect` fires when the dropdown changes; `onReference` when the step,
+ * output, or input name of a reference is edited.
+ */
+function FieldSource({
   idPrefix,
-  rule,
-  onChange,
+  field,
+  label,
+  placeholder,
+  onSelect,
+  onReference,
   stepOptions,
   triggerEvent,
   allowSteps,
+  inCondition,
 }: {
   idPrefix: string;
-  rule: ConditionRule;
-  onChange: (rule: ConditionRule) => void;
+  field: string;
+  label: string;
+  placeholder: string;
+  onSelect: (field: string) => void;
+  onReference: (field: string) => void;
   stepOptions: StepOption[];
   triggerEvent: TriggerEventType | null;
   allowSteps: boolean;
+  inCondition: boolean;
 }) {
-  const savedReference = stepReferenceDraft(rule.field);
-  const isStepField = Boolean(savedReference) || rule.field === STEP_FIELD_DRAFT;
-  const definition = Object.hasOwn(CONDITION_FIELDS, rule.field) ? CONDITION_FIELDS[rule.field] : null;
-  const operators = rule.field && rule.field !== STEP_FIELD_DRAFT ? operatorsForField(rule.field) : [];
-  const needsValue = CONDITION_OPERATORS[rule.operator]?.needsValue ?? true;
+  const savedReference = stepReferenceDraft(field);
+  const isStepField = Boolean(savedReference) || field === STEP_FIELD_DRAFT;
+  const savedInput = TRIGGER_INPUT_FIELD_PATTERN.exec(field)?.[1] ?? null;
+  const isInputField = savedInput !== null || field === TRIGGER_INPUT_DRAFT;
+  const allowInputs = triggerEvent === "journey.started";
 
   // Holds the half-built reference: the stored field is only a full path once step and output are both set.
   const [pendingReference, setPendingReference] = useState<StepReferenceDraft>(savedReference ?? EMPTY_STEP_REFERENCE);
   const reference = savedReference ?? pendingReference;
   const selectedStep =
     stepOptions.find((option) => option.key === reference.key || option.legacyKey === reference.key) ?? null;
+  const [pendingInput, setPendingInput] = useState(savedInput ?? "");
 
   const editReference = (patch: Partial<StepReferenceDraft>) => {
     const knownFields =
       patch.key !== undefined ? (stepOptions.find((option) => option.key === patch.key)?.outputs ?? null) : null;
     const next = updateStepReferenceDraft(reference, patch, knownFields);
     setPendingReference(next);
-    onChange({ ...rule, field: stepReferenceField(next) });
+    onReference(stepReferenceField(next));
   };
 
   return (
-    <div className={styles.configRule}>
+    <>
       <div className={shell.field}>
         <label className={shell.label} htmlFor={`${idPrefix}-field`}>
-          Field
+          {label}
         </label>
         <DropdownSelect
           id={`${idPrefix}-field`}
-          value={isStepField ? STEP_FIELD_DRAFT : rule.field}
-          placeholder="Choose a field…"
-          onChange={(field) => {
-            if (field === STEP_FIELD_DRAFT) setPendingReference(EMPTY_STEP_REFERENCE);
-            const allowed = field && field !== STEP_FIELD_DRAFT ? operatorsForField(field) : [];
-            onChange({
-              field,
-              operator: allowed.includes(rule.operator) ? rule.operator : (allowed[0] ?? "equals"),
-              value: null,
-            });
+          value={isStepField ? STEP_FIELD_DRAFT : isInputField ? TRIGGER_INPUT_DRAFT : field}
+          placeholder={placeholder}
+          onChange={(next) => {
+            if (next === STEP_FIELD_DRAFT) setPendingReference(EMPTY_STEP_REFERENCE);
+            if (next === TRIGGER_INPUT_DRAFT) setPendingInput("");
+            onSelect(next);
           }}
           options={[
-            ...fieldsFor(triggerEvent, true, allowSteps).map(([key, def]) => ({
+            ...fieldsFor(triggerEvent, true, inCondition).map(([key, def]) => ({
               value: key,
               label: `${key.startsWith("opportunity.") ? "Opportunity: " : key.startsWith("trigger.") ? "Event: " : ""}${def.label}`,
             })),
             ...(allowSteps && stepOptions.length > 0
               ? [{ value: STEP_FIELD_DRAFT, label: "Output of an earlier step…" }]
               : []),
+            ...(allowInputs ? [{ value: TRIGGER_INPUT_DRAFT, label: "Input from the starting journey…" }] : []),
           ]}
         />
       </div>
+
+      {isInputField ? (
+        <div className={shell.field}>
+          <label className={shell.label} htmlFor={`${idPrefix}-input`}>
+            Input name
+          </label>
+          <input
+            id={`${idPrefix}-input`}
+            className={shell.input}
+            placeholder="e.g. budget"
+            value={savedInput ?? pendingInput}
+            onChange={(event) => {
+              const name = sanitizeOutputField(event.target.value);
+              setPendingInput(name);
+              onReference(INPUT_NAME_PATTERN.test(name) ? `trigger.inputs.${name}` : TRIGGER_INPUT_DRAFT);
+            }}
+          />
+        </div>
+      ) : null}
 
       {isStepField ? (
         <div className={shell.fieldRow}>
@@ -249,6 +293,50 @@ function RuleEditor({
           </div>
         </div>
       ) : null}
+    </>
+  );
+}
+
+function RuleEditor({
+  idPrefix,
+  rule,
+  onChange,
+  stepOptions,
+  triggerEvent,
+  allowSteps,
+}: {
+  idPrefix: string;
+  rule: ConditionRule;
+  onChange: (rule: ConditionRule) => void;
+  stepOptions: StepOption[];
+  triggerEvent: TriggerEventType | null;
+  allowSteps: boolean;
+}) {
+  const definition = Object.hasOwn(CONDITION_FIELDS, rule.field) ? CONDITION_FIELDS[rule.field] : null;
+  const operators = rule.field && !isDraftField(rule.field) ? operatorsForField(rule.field) : [];
+  const needsValue = CONDITION_OPERATORS[rule.operator]?.needsValue ?? true;
+
+  return (
+    <div className={styles.configRule}>
+      <FieldSource
+        idPrefix={idPrefix}
+        field={rule.field}
+        label="Field"
+        placeholder="Choose a field…"
+        onSelect={(field) => {
+          const allowed = field && !isDraftField(field) ? operatorsForField(field) : [];
+          onChange({
+            field,
+            operator: allowed.includes(rule.operator) ? rule.operator : (allowed[0] ?? "equals"),
+            value: null,
+          });
+        }}
+        onReference={(field) => onChange({ ...rule, field })}
+        stepOptions={stepOptions}
+        triggerEvent={triggerEvent}
+        allowSteps={allowSteps}
+        inCondition={allowSteps}
+      />
 
       <div className={shell.field}>
         <label className={shell.label} htmlFor={`${idPrefix}-operator`}>
@@ -390,6 +478,95 @@ function ConditionEditor({
       {addRule}
       {hint}
     </>
+  );
+}
+
+function toMapping(raw: unknown): InputMapping {
+  const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return { target: str(input.target), source: str(input.source) };
+}
+
+/** The values a Start journey step passes; nothing else of this journey reaches the started one. */
+function InputMappingsEditor({
+  idPrefix,
+  mappings,
+  onChange,
+  stepOptions,
+  triggerEvent,
+}: {
+  idPrefix: string;
+  mappings: InputMapping[];
+  onChange: (mappings: InputMapping[]) => void;
+  stepOptions: StepOption[];
+  triggerEvent: TriggerEventType | null;
+}) {
+  // Stable row keys: FieldSource keeps a half-built reference in local state, so rows can't be keyed by index.
+  const rowKeys = useRef<number[]>([]);
+  const nextKey = useRef(0);
+  while (rowKeys.current.length < mappings.length) rowKeys.current.push(nextKey.current++);
+  if (rowKeys.current.length > mappings.length) rowKeys.current.length = mappings.length;
+
+  const update = (index: number, patch: Partial<InputMapping>) =>
+    onChange(mappings.map((mapping, i) => (i === index ? { ...mapping, ...patch } : mapping)));
+  const remove = (index: number) => {
+    rowKeys.current.splice(index, 1);
+    onChange(mappings.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className={shell.field}>
+      <span className={shell.label}>Values to pass</span>
+      {mappings.map((mapping, index) => {
+        const rowId = `${idPrefix}-${rowKeys.current[index]}`;
+        return (
+          <div key={rowKeys.current[index]} className={styles.configGroup}>
+            <div className={styles.configGroupHeader}>
+              <span>{mapping.target || `Input ${index + 1}`}</span>
+              <button type="button" className={styles.configLink} onClick={() => remove(index)}>
+                Remove
+              </button>
+            </div>
+            <div className={shell.field}>
+              <label className={shell.label} htmlFor={`${rowId}-target`}>
+                Name in the started journey
+              </label>
+              <input
+                id={`${rowId}-target`}
+                className={shell.input}
+                value={mapping.target}
+                placeholder="e.g. budget"
+                onChange={(event) => update(index, { target: outputFieldName(event.target.value) })}
+              />
+            </div>
+            <FieldSource
+              idPrefix={rowId}
+              field={mapping.source}
+              label="Value"
+              placeholder="Choose a value…"
+              onSelect={(source) => update(index, { source })}
+              onReference={(source) => update(index, { source })}
+              stepOptions={stepOptions}
+              triggerEvent={triggerEvent}
+              allowSteps
+              inCondition={false}
+            />
+          </div>
+        );
+      })}
+      {mappings.length < MAX_INPUT_MAPPINGS ? (
+        <button
+          type="button"
+          className={`${shell.btnSecondary} ${shell.btnPill}`}
+          onClick={() => onChange([...mappings, { target: "", source: "" }])}
+        >
+          Add value
+        </button>
+      ) : null}
+      <p className={shell.fieldHint}>
+        Only selected values are passed to the started journey. It reads each one by name with &ldquo;Input from the
+        starting journey&rdquo;. A value that&rsquo;s missing when this step runs is passed as empty.
+      </p>
+    </div>
   );
 }
 
@@ -762,22 +939,31 @@ export function NodeConfigForm({
         ) : null}
 
         {action === "start_journey" ? (
-          <div className={shell.field}>
-            <label className={shell.label} htmlFor={id("journey")}>
-              Journey to start
-            </label>
-            <DropdownSelect
-              id={id("journey")}
-              value={str(config.journeyId)}
-              placeholder="Choose a journey…"
-              onChange={(journeyId) => set({ journeyId })}
-              options={journeyOptions.map((journey) => ({ value: journey.id, label: journey.label }))}
+          <>
+            <div className={shell.field}>
+              <label className={shell.label} htmlFor={id("journey")}>
+                Journey to start
+              </label>
+              <DropdownSelect
+                id={id("journey")}
+                value={str(config.journeyId)}
+                placeholder="Choose a journey…"
+                onChange={(journeyId) => set({ journeyId })}
+                options={journeyOptions.map((journey) => ({ value: journey.id, label: journey.label }))}
+              />
+              <p className={shell.fieldHint}>
+                That journey needs the &ldquo;{TRIGGER_EVENTS["journey.started"].label}&rdquo; trigger and must be active.
+                Otherwise, or if the lead is already in it, this step is skipped and this journey continues.
+              </p>
+            </div>
+            <InputMappingsEditor
+              idPrefix={id("input")}
+              mappings={(Array.isArray(config.inputMappings) ? config.inputMappings : []).map(toMapping)}
+              onChange={(inputMappings) => set({ inputMappings })}
+              stepOptions={stepOptions}
+              triggerEvent={triggerEvent}
             />
-            <p className={shell.fieldHint}>
-              That journey needs the &ldquo;{TRIGGER_EVENTS["journey.started"].label}&rdquo; trigger and must be active.
-              Otherwise, or if the lead is already in it, this step is skipped and this journey continues.
-            </p>
-          </div>
+          </>
         ) : null}
 
         {action === "wait" ? (

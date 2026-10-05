@@ -149,13 +149,27 @@ export const CONDITION_FIELDS: Record<string, FieldDefinition> = {
 /** steps.<node key>.output.<field> reads a previous step's recorded output. */
 export const STEP_FIELD_PATTERN = /^steps\.([a-z0-9_]{1,60})\.output\.([a-z0-9_]{1,60})$/;
 
+/** Name of a value a Start journey step passes to the journey it starts. */
+export const INPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,59}$/;
+
+/**
+ * trigger.inputs.<name> reads a value the starting journey passed. Only runs
+ * started by journey.started have inputs; anywhere else it is empty.
+ */
+export const TRIGGER_INPUT_FIELD_PATTERN = /^trigger\.inputs\.([a-z][a-z0-9_]{0,59})$/;
+
+/** Free-form fields: step outputs and journey inputs have no declared type. */
+function isFreeFormField(field: string): boolean {
+  return STEP_FIELD_PATTERN.test(field) || TRIGGER_INPUT_FIELD_PATTERN.test(field);
+}
+
 export function isConditionField(value: unknown): value is string {
-  return typeof value === "string" && (Object.hasOwn(CONDITION_FIELDS, value) || STEP_FIELD_PATTERN.test(value));
+  return typeof value === "string" && (Object.hasOwn(CONDITION_FIELDS, value) || isFreeFormField(value));
 }
 
 export function fieldType(field: string): FieldType | null {
   if (Object.hasOwn(CONDITION_FIELDS, field)) return CONDITION_FIELDS[field].type;
-  return STEP_FIELD_PATTERN.test(field) ? "string" : null;
+  return isFreeFormField(field) ? "string" : null;
 }
 
 export const CONDITION_OPERATORS = {
@@ -177,11 +191,11 @@ export function isConditionOperator(value: unknown): value is ConditionOperator 
   return typeof value === "string" && Object.hasOwn(CONDITION_OPERATORS, value);
 }
 
-/** Step outputs are free-form, so every operator is allowed on them. */
+/** Step outputs and journey inputs are free-form, so every operator is allowed on them. */
 export function operatorsForField(field: string): ConditionOperator[] {
   const type = fieldType(field);
   const all = Object.keys(CONDITION_OPERATORS) as ConditionOperator[];
-  if (!type || STEP_FIELD_PATTERN.test(field)) return all;
+  if (!type || isFreeFormField(field)) return all;
   return all.filter((op) => (CONDITION_OPERATORS[op].types as readonly FieldType[]).includes(type));
 }
 
@@ -235,6 +249,31 @@ export function isJourneyActionType(value: unknown): value is JourneyActionType 
 
 export const NOTIFY_RECIPIENTS = ["assigned_agent", "all_members"] as const;
 
+/**
+ * One value a Start journey step passes to the journey it starts: the value of
+ * `source` (a field a condition could read, other than ones resolved only inside
+ * a Condition step) becomes trigger.inputs.<target> in the started journey.
+ */
+export interface InputMapping {
+  target: string;
+  source: string;
+}
+
+export const MAX_INPUT_MAPPINGS = 10;
+/** Longest stored source: steps.<60>.output.<60> is 134 characters. */
+export const INPUT_SOURCE_MAX = 200;
+/** Limit on the started run's inputs object, as UTF-8 JSON. */
+export const MAX_INPUTS_BYTES = 8192;
+
+/** A passed value. Lead fields, AI outputs, and condition values are all scalars; anything else isn't passed. */
+export type InputValue = string | number | boolean | null;
+
+export function isInputSource(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (Object.hasOwn(CONDITION_FIELDS, value)) return !CONDITION_FIELDS[value].conditionOnly;
+  return isFreeFormField(value);
+}
+
 export type ActionConfig =
   | { action: "send_sms"; body: string }
   | { action: "send_messenger"; body: string }
@@ -244,7 +283,7 @@ export type ActionConfig =
   | { action: "create_task"; title: string; notes: string; dueInDays: number | null }
   | { action: "update_lead"; fields: Partial<Record<UpdateLeadField, string | number | boolean>> }
   | { action: "notify_team"; title: string; body: string; recipients: (typeof NOTIFY_RECIPIENTS)[number] }
-  | { action: "start_journey"; journeyId: string }
+  | { action: "start_journey"; journeyId: string; inputMappings?: InputMapping[] }
   | { action: "wait"; duration: number; unit: WaitUnit };
 
 export interface TriggerConfig {
@@ -399,9 +438,54 @@ function validateTrigger(raw: Record<string, unknown>, mode: ValidationMode): Co
     if (mode === "strict" && definition?.conditionOnly) {
       errors.push(`Filter ${index + 1}: "${definition.label}" can only be used in a Condition step.`);
     }
+    if (mode === "strict" && parsed.rule && TRIGGER_INPUT_FIELD_PATTERN.test(parsed.rule.field) && event !== "journey.started") {
+      errors.push(`Filter ${index + 1}: inputs only exist when another journey starts this one.`);
+    }
     if (parsed.rule) filters.push(parsed.rule);
   });
   return { config: { event: (event ?? "") as TriggerEventType, filters }, errors };
+}
+
+/**
+ * A Start journey step's input list. Drafts keep half-typed rows; strict mode
+ * rejects a malformed list, too many rows, a bad or repeated name, and a
+ * missing or unsupported source. An absent list is no inputs.
+ */
+export function parseInputMappings(raw: unknown, mode: ValidationMode): { mappings: InputMapping[]; errors: string[] } {
+  const errors: string[] = [];
+  const strict = mode === "strict";
+  if (raw === undefined) return { mappings: [], errors };
+  if (!Array.isArray(raw)) {
+    if (strict) errors.push("Inputs: the input list is malformed.");
+    return { mappings: [], errors };
+  }
+  if (strict && raw.length > MAX_INPUT_MAPPINGS) errors.push(`Pass at most ${MAX_INPUT_MAPPINGS} inputs.`);
+
+  const mappings: InputMapping[] = [];
+  raw.slice(0, MAX_INPUT_MAPPINGS).forEach((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      if (strict) errors.push(`Input ${index + 1} is malformed.`);
+      return;
+    }
+    const input = entry as Record<string, unknown>;
+    const target = str(input.target, 60).trim();
+    const source = isInputSource(input.source) && input.source.length <= INPUT_SOURCE_MAX ? input.source : "";
+    mappings.push({ target, source });
+  });
+
+  if (strict) {
+    const seen = new Set<string>();
+    mappings.forEach(({ target, source }, index) => {
+      const label = INPUT_NAME_PATTERN.test(target) ? `Input "${target}"` : `Input ${index + 1}`;
+      if (!target) errors.push(`${label}: enter a name.`);
+      else if (!INPUT_NAME_PATTERN.test(target)) {
+        errors.push(`${label}: use lowercase letters, numbers, and underscores, starting with a letter.`);
+      } else if (seen.has(target)) errors.push(`${label} is used more than once.`);
+      seen.add(target);
+      if (!source) errors.push(`${label}: choose the value to pass.`);
+    });
+  }
+  return { mappings, errors };
 }
 
 const EMPTY_RULE: ConditionRule = { field: "", operator: "equals", value: null };
@@ -546,7 +630,12 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
     case "start_journey": {
       const journeyId = typeof raw.journeyId === "string" && UUID.test(raw.journeyId) ? raw.journeyId : "";
       need(Boolean(journeyId), "Choose the journey to start.");
-      return { config: { action, journeyId }, errors };
+      const inputs = parseInputMappings(raw.inputMappings, mode);
+      errors.push(...inputs.errors);
+      return {
+        config: inputs.mappings.length > 0 ? { action, journeyId, inputMappings: inputs.mappings } : { action, journeyId },
+        errors,
+      };
     }
     case "wait": {
       const unit = WAIT_UNITS.includes(raw.unit as WaitUnit) ? (raw.unit as WaitUnit) : "days";
