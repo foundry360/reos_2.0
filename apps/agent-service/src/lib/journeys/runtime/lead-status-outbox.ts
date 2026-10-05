@@ -20,11 +20,14 @@
  * An event at depth MAX_JOURNEY_CAUSATION_DEPTH starts no runs; it is still
  * recorded and marked dispatched.
  *
+ * A change made by a run found in the workspace also carries origin_journey_id
+ * and root_run_id (see leadStatusLineage); other changes don't have those keys.
+ *
  * Pure module (relative imports only) so it runs under node --test.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MAX_JOURNEY_CAUSATION_DEPTH, type JourneyEvent } from "./engine.ts";
+import { isCausationDepthLimited, MAX_JOURNEY_CAUSATION_DEPTH, type JourneyEvent } from "./engine.ts";
 
 export interface LeadStatusEventRow {
   id: string;
@@ -91,8 +94,30 @@ export function eventCausationDepth(row: LeadStatusEventRow, originRun: OriginRu
   return row.origin === "journey" && originRun ? runCausationDepth(originRun) : 0;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Lineage for a change made by a journey run found in the row's workspace:
+ * the run's journey, and the first run of the chain (the run's own recorded
+ * root, else the run itself). Inherited the same way as depth: only from a run
+ * started by a status change. Observability only; never read for depth,
+ * exclusion, or access. Without a resolved origin run there is no lineage.
+ */
+export function leadStatusLineage(
+  row: LeadStatusEventRow,
+  originRun: OriginRun | null,
+): { origin_journey_id: string; root_run_id: string } | null {
+  if (row.origin !== "journey" || !originRun || !row.origin_run_id) return null;
+  const recorded = originRun.triggerEvent === "lead.status_changed" ? originRun.triggerPayload.root_run_id : undefined;
+  return {
+    origin_journey_id: originRun.journeyId,
+    root_run_id: typeof recorded === "string" && UUID.test(recorded) ? recorded : row.origin_run_id,
+  };
+}
+
 /** `originRun`'s journey is excluded from dispatch: a journey never re-enrolls from its own status change. */
 export function leadStatusJourneyEvent(row: LeadStatusEventRow, originRun: OriginRun | null = null): JourneyEvent {
+  const lineage = leadStatusLineage(row, originRun);
   return {
     tenantId: row.tenant_id,
     type: "lead.status_changed",
@@ -110,6 +135,7 @@ export function leadStatusJourneyEvent(row: LeadStatusEventRow, originRun: Origi
       converted: row.converted,
       changed_at: row.changed_at,
       causation_depth: eventCausationDepth(row, originRun),
+      ...lineage,
     },
     ...(row.origin === "journey" && originRun ? { excludeJourneyId: originRun.journeyId } : {}),
   };
@@ -172,7 +198,7 @@ export async function dispatchLeadStatusEvents(
         const originRun = row.origin === "journey" && row.origin_run_id ? await outbox.originRun(row) : null;
         const event = leadStatusJourneyEvent(row, originRun);
         const depth = event.payload.causation_depth as number;
-        if (depth >= MAX_JOURNEY_CAUSATION_DEPTH) {
+        if (isCausationDepthLimited(depth)) {
           depthLimited = true;
           log(
             `[journeys] lead status event ${row.id} started no journeys: causation depth ${depth} reached the limit of ${MAX_JOURNEY_CAUSATION_DEPTH} (origin run ${row.origin_run_id}).`,

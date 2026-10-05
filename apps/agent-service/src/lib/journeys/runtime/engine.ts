@@ -247,6 +247,15 @@ export const MAX_STEPS_PER_PASS = 50;
  */
 export const MAX_JOURNEY_CAUSATION_DEPTH = 3;
 
+/**
+ * True when a journey-caused event at this depth must start no runs (depth 0–2
+ * dispatch; 3 and up don't). Anything that isn't a non-negative integer is
+ * treated as limited, so a malformed depth can never open the chain.
+ */
+export function isCausationDepthLimited(depth: number): boolean {
+  return !(Number.isInteger(depth) && depth >= 0 && depth < MAX_JOURNEY_CAUSATION_DEPTH);
+}
+
 /** Written on a step (and its run) whose side effect may or may not have happened. */
 export const INTERRUPTED_STEP_ERROR = "The step was interrupted and may or may not have completed, so it wasn't retried.";
 
