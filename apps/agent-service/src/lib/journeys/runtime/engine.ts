@@ -208,6 +208,9 @@ export const MAX_STEPS_PER_PASS = 50;
 /** Steps that can safely run twice if the process died mid-step. */
 const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead"]);
 
+/** Actions that change lead or opportunity data later steps read, so the pass reloads it after they succeed. */
+const CHANGES_ENTITIES = new Set(["update_lead", "assign_lead"]);
+
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
   return `${event.type}:${event.sourceId}:${journeyId}:v${version}`;
 }
@@ -358,7 +361,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
   const state: RunState = { steps: { ...(run.context.steps ?? {}) }, attempts: { ...(run.context.attempts ?? {}) } };
   let currentNodeId = run.currentNodeId;
 
-  const entities = await store.loadEntities(run.tenantId, run.contactId);
+  let entities = await store.loadEntities(run.tenantId, run.contactId);
   const context = (): ExecutionContext => ({
     ...entities,
     trigger: { event: run.triggerEvent, payload: run.triggerPayload },
@@ -460,6 +463,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
     }
 
     // Side-effecting step: action or AI.
+    let entitiesChanged = false;
     const attempt = (state.attempts?.[node.id] ?? 0) + 1;
     const input = { ...node.config };
     const stepId = await store.insertStep({ ...base, status: "running", input, attemptCount: attempt });
@@ -502,6 +506,7 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       if (state.attempts) delete state.attempts[node.id];
       currentNodeId = nextNodeId(snapshot, node.id);
       if (!(await persist())) return leaseLost();
+      entitiesChanged = result.status === "completed" && action !== null && CHANGES_ENTITIES.has(action.action);
     } catch (error) {
       const { message, kind } = classify(error);
       await store.updateStep(stepId, { status: "failed", error: message, errorKind: kind, completedAt: now().toISOString() });
@@ -516,6 +521,8 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       }
       return finish("failed", { currentNodeId: node.id, context: state, error: message });
     }
+    // Outside the try: the step is already recorded and the run advanced, so a failed reload must not retry it.
+    if (entitiesChanged) entities = await store.loadEntities(run.tenantId, run.contactId);
   }
 
   return finish("completed", { currentNodeId: null, context: state, error: null });
