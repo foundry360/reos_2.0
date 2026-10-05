@@ -213,79 +213,86 @@ export function EnrollInJourneyModal({ contactId, enrollment, onClose, onEnrolle
           </button>
         </div>
 
-        <div className={`${styles.modalBody} ${styles.modalBodyScroll}`}>
-          {notice ? (
-            <p className={NOTICE_CLASS[notice.tone]} role={notice.tone === "error" ? "alert" : "status"}>
-              {notice.message}
-            </p>
-          ) : null}
-
-          {loadFailed ? (
-            <p className={styles.error}>Could not load Journeys. Refresh the page and try again.</p>
-          ) : journeys.length === 0 ? (
-            <div className={journeyStyles.enrollJourneyEmpty}>
-              <p className={styles.modalSubtitle}>No Journeys are currently available for manual enrollment.</p>
-              <p className={styles.hint}>
-                Activate a Journey that starts with a Manual enrollment trigger to enroll leads from here.
+        <form
+          className={styles.modalForm}
+          onSubmit={(event) => {
+            event.preventDefault();
+            handleEnroll();
+          }}
+        >
+          <div className={`${styles.modalBody} ${styles.modalBodyScroll}`}>
+            {notice ? (
+              <p className={NOTICE_CLASS[notice.tone]} role={notice.tone === "error" ? "alert" : "status"}>
+                {notice.message}
               </p>
-              <Link href="/marketing/journeys" className={`${styles.btnSecondary} ${styles.btnPill}`}>
-                Open Journey Builder
-              </Link>
-            </div>
-          ) : (
-            <div className={journeyStyles.enrollJourneyList} role="radiogroup" aria-label="Journeys">
-              {journeys.map((journey) => {
-                const active = selectedId === journey.id;
-                return (
-                  <button
-                    key={journey.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    className={`${journeyStyles.templateOption} ${active ? journeyStyles.templateOptionActive : ""}`}
-                    onClick={() => {
-                      setSelectedId(journey.id);
-                      setNotice(null);
-                    }}
-                    disabled={pending || journey.alreadyActive}
-                  >
-                    <span className={journeyStyles.enrollJourneyOptionHeader}>
-                      <span className={journeyStyles.templateOptionTitle}>{journey.name}</span>
-                      {journey.alreadyActive ? (
-                        <span className={`${styles.badge} ${styles.badgeActive}`}>Already active</span>
-                      ) : null}
-                    </span>
-                    {journey.description ? (
-                      <span className={journeyStyles.templateOptionDesc}>{journey.description}</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+            ) : null}
 
-        <div className={styles.modalFooter}>
-          <button
-            type="button"
-            className={`${styles.btnSecondary} ${styles.btnPill}`}
-            onClick={close}
-            disabled={pending}
-          >
-            Cancel
-          </button>
-          {!loadFailed && journeys.length > 0 ? (
+            {loadFailed ? (
+              <p className={styles.error}>Could not load Journeys. Refresh the page and try again.</p>
+            ) : journeys.length === 0 ? (
+              <div className={journeyStyles.enrollJourneyEmpty}>
+                <p className={styles.modalSubtitle}>No Journeys are currently available for manual enrollment.</p>
+                <p className={styles.hint}>
+                  Activate a Journey that starts with a Manual enrollment trigger to enroll leads from here.
+                </p>
+                <Link href="/marketing/journeys" className={`${styles.btnSecondary} ${styles.btnPill}`}>
+                  Open Journey Builder
+                </Link>
+              </div>
+            ) : (
+              <div className={journeyStyles.enrollJourneyList} role="radiogroup" aria-label="Journeys">
+                {journeys.map((journey) => {
+                  const active = selectedId === journey.id;
+                  return (
+                    <button
+                      key={journey.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`${journeyStyles.templateOption} ${active ? journeyStyles.templateOptionActive : ""}`}
+                      onClick={() => {
+                        setSelectedId(journey.id);
+                        setNotice(null);
+                      }}
+                      disabled={pending || journey.alreadyActive}
+                    >
+                      <span className={journeyStyles.enrollJourneyOptionHeader}>
+                        <span className={journeyStyles.templateOptionTitle}>{journey.name}</span>
+                        {journey.alreadyActive ? (
+                          <span className={`${styles.badge} ${styles.badgeActive}`}>Already active</span>
+                        ) : null}
+                      </span>
+                      {journey.description ? (
+                        <span className={journeyStyles.templateOptionDesc}>{journey.description}</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className={styles.modalFooter}>
             <button
               type="button"
-              className={`${styles.btnPrimary} ${styles.btnPill}`}
-              onClick={handleEnroll}
-              disabled={!canSubmit}
-              aria-busy={pending}
+              className={`${styles.btnSecondary} ${styles.btnPill}`}
+              onClick={close}
+              disabled={pending}
             >
-              {pending ? "Enrolling…" : "Enroll"}
+              Cancel
             </button>
-          ) : null}
-        </div>
+            {!loadFailed && journeys.length > 0 ? (
+              <button
+                type="submit"
+                className={`${styles.btnPrimary} ${styles.btnPill}`}
+                disabled={!canSubmit}
+                aria-busy={pending}
+              >
+                {pending ? "Enrolling…" : "Enroll"}
+              </button>
+            ) : null}
+          </div>
+        </form>
       </div>
     </div>,
     document.body,

@@ -112,8 +112,12 @@
 }
 
 .enrollJourneyList .templateOption:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
+  cursor: default;
+  border-color: var(--shell-control-border);
+}
+
+.enrollJourneyList .templateOption:disabled .templateOptionTitle {
+  color: var(--shell-muted);
 }
 
 .enrollJourneyEmpty {
