@@ -55,6 +55,11 @@ export const TRIGGER_EVENTS = {
     description: "A team member enrolls a lead in this journey by hand.",
     implemented: true,
   },
+  "journey.started": {
+    label: "Started by another journey",
+    description: "Another journey's Start journey step starts this journey for the lead.",
+    implemented: true,
+  },
 } as const;
 
 export type TriggerEventType = keyof typeof TRIGGER_EVENTS;
@@ -215,6 +220,10 @@ export const ACTION_TYPES = {
   create_task: { label: "Create task", description: "Create a task linked to the lead." },
   update_lead: { label: "Update lead", description: "Set CRM fields on the lead." },
   notify_team: { label: "Notify team", description: "Send an in-app notification." },
+  start_journey: {
+    label: "Start journey",
+    description: "Start another journey for this lead. This journey continues without waiting for it.",
+  },
   wait: { label: "Wait", description: "Pause the journey, then continue." },
 } as const;
 
@@ -235,6 +244,7 @@ export type ActionConfig =
   | { action: "create_task"; title: string; notes: string; dueInDays: number | null }
   | { action: "update_lead"; fields: Partial<Record<UpdateLeadField, string | number | boolean>> }
   | { action: "notify_team"; title: string; body: string; recipients: (typeof NOTIFY_RECIPIENTS)[number] }
+  | { action: "start_journey"; journeyId: string }
   | { action: "wait"; duration: number; unit: WaitUnit };
 
 export interface TriggerConfig {
@@ -532,6 +542,11 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
         : "assigned_agent";
       need(Boolean(title.trim()), "Enter the notification title.");
       return { config: { action, title, body: str(raw.body, TEXT_MAX), recipients }, errors };
+    }
+    case "start_journey": {
+      const journeyId = typeof raw.journeyId === "string" && UUID.test(raw.journeyId) ? raw.journeyId : "";
+      need(Boolean(journeyId), "Choose the journey to start.");
+      return { config: { action, journeyId }, errors };
     }
     case "wait": {
       const unit = WAIT_UNITS.includes(raw.unit as WaitUnit) ? (raw.unit as WaitUnit) : "days";

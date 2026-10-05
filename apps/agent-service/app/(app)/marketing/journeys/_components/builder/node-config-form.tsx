@@ -52,6 +52,8 @@ interface NodeConfigFormProps {
   config: JourneyNodeConfig;
   onChange: (config: JourneyNodeConfig) => void;
   agentOptions: { id: string; label: string }[];
+  /** Other journeys in the workspace a Start journey step can target. */
+  journeyOptions: { id: string; label: string }[];
   /** Steps guaranteed to run before this condition, whose output it can read. */
   stepOptions: StepOption[];
   /** The journey's trigger event, so conditions can offer trigger fields. */
@@ -531,6 +533,7 @@ export function NodeConfigForm({
   config,
   onChange,
   agentOptions,
+  journeyOptions,
   stepOptions,
   triggerEvent,
 }: NodeConfigFormProps) {
@@ -756,6 +759,25 @@ export function NodeConfigForm({
               />
             </div>
           </>
+        ) : null}
+
+        {action === "start_journey" ? (
+          <div className={shell.field}>
+            <label className={shell.label} htmlFor={id("journey")}>
+              Journey to start
+            </label>
+            <DropdownSelect
+              id={id("journey")}
+              value={str(config.journeyId)}
+              placeholder="Choose a journey…"
+              onChange={(journeyId) => set({ journeyId })}
+              options={journeyOptions.map((journey) => ({ value: journey.id, label: journey.label }))}
+            />
+            <p className={shell.fieldHint}>
+              That journey needs the &ldquo;{TRIGGER_EVENTS["journey.started"].label}&rdquo; trigger and must be active.
+              Otherwise, or if the lead is already in it, this step is skipped and this journey continues.
+            </p>
+          </div>
         ) : null}
 
         {action === "wait" ? (

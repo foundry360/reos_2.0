@@ -28,6 +28,7 @@ interface PropertiesPanelProps {
   onDeleteNode: (id: string) => void;
   hiddenOnSmall: boolean;
   agentOptions: { id: string; label: string }[];
+  journeyOptions: { id: string; label: string }[];
   stepOptions: Array<StepOption & { nodeId: string }>;
   triggerEvent: TriggerEventType | null;
   runsHref: string;
@@ -47,6 +48,7 @@ export function PropertiesPanel({
   onDeleteNode,
   hiddenOnSmall,
   agentOptions,
+  journeyOptions,
   stepOptions,
   triggerEvent,
   runsHref,
@@ -114,6 +116,7 @@ export function PropertiesPanel({
             config={selectedNode.data.config}
             onChange={(config) => onNodeChange(selectedNode.id, { config })}
             agentOptions={agentOptions}
+            journeyOptions={journeyOptions}
             stepOptions={stepOptions.filter((option) => option.nodeId !== selectedNode.id)}
             triggerEvent={triggerEvent}
           />

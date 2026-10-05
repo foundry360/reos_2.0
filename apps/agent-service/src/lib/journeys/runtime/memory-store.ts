@@ -3,6 +3,7 @@
  * (tenant scoping, idempotency, leasing, cancelled-run protection). Used by tests.
  */
 
+import { randomUUID } from "node:crypto";
 import type { JourneyStatus } from "../journey-types.ts";
 import type { TriggerEventType } from "./contracts.ts";
 import type { JourneySnapshot } from "./graph.ts";
@@ -111,7 +112,8 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     );
     if (active) return { run: null, created: false, alreadyActive: true };
     const run: MemoryRun = {
-      id: this.id("run"),
+      // A uuid like journey_runs.id, so lineage (root_run_id) validates the same way.
+      id: randomUUID(),
       tenantId: input.tenantId,
       journeyId: input.journeyId,
       journeyVersion: input.journeyVersion,

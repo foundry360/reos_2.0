@@ -92,6 +92,8 @@ function IconBack() {
 interface JourneyBuilderProps {
   journey: JourneyDefinition;
   agentOptions: { id: string; label: string }[];
+  /** Other journeys in the workspace a Start journey step can target. */
+  journeyOptions: { id: string; label: string }[];
 }
 
 export function JourneyBuilder(props: JourneyBuilderProps) {
@@ -102,7 +104,7 @@ export function JourneyBuilder(props: JourneyBuilderProps) {
   );
 }
 
-function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
+function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: JourneyBuilderProps) {
   const reactFlow = useReactFlow<JourneyFlowNode, JourneyFlowEdge>();
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -480,6 +482,7 @@ function JourneyBuilderCanvas({ journey, agentOptions }: JourneyBuilderProps) {
           onDeleteNode={deleteNode}
           hiddenOnSmall={selectedNodes.length === 0}
           agentOptions={agentOptions}
+          journeyOptions={journeyOptions}
           stepOptions={stepOptions}
           triggerEvent={triggerEvent}
           runsHref={`/marketing/journeys/${journey.id}/runs`}

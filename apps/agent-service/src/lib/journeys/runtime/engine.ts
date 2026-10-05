@@ -241,11 +241,40 @@ export const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000];
 export const LEASE_MS = 2 * 60_000;
 export const MAX_STEPS_PER_PASS = 50;
 /**
- * Longest chain of journey runs linked by status changes. A run started by any
- * event other than a journey-made status change is depth 1; a run started by a
- * status change that a depth-N run made is depth N + 1. No run deeper than this starts.
+ * Longest chain of journey runs linked by journey-caused events (a status change
+ * a run made, or a run's Start journey step). A run started by any other event is
+ * depth 1; a run started by a journey-caused event from a depth-N run is depth
+ * N + 1. No run deeper than this starts.
  */
 export const MAX_JOURNEY_CAUSATION_DEPTH = 3;
+
+/** Events a journey run causes. A run started by one inherits the causing run's depth and root. */
+export const JOURNEY_CAUSED_EVENTS: ReadonlySet<string> = new Set(["lead.status_changed", "journey.started"]);
+
+/**
+ * A run's depth. Only a run started by a journey-caused event inherits depth;
+ * anything else (a person, the agent, an inbound message) is 1. A missing or
+ * malformed recorded depth (runs from before depth existed) counts as 0, so
+ * such a run is 1, the same as a run started by an outside change.
+ */
+export function runCausationDepth(run: Pick<RunRecord, "triggerEvent" | "triggerPayload">): number {
+  if (!JOURNEY_CAUSED_EVENTS.has(run.triggerEvent)) return 1;
+  const recorded = run.triggerPayload.causation_depth;
+  const eventDepth = typeof recorded === "number" && Number.isInteger(recorded) && recorded >= 0 ? recorded : 0;
+  return eventDepth + 1;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The first run of the chain `runId` belongs to: its recorded root_run_id when
+ * it was started by a journey-caused event and the value is a uuid, else the
+ * run itself. Observability only; never read for depth, exclusion, or access.
+ */
+export function runRootId(run: Pick<RunRecord, "triggerEvent" | "triggerPayload">, runId: string): string {
+  const recorded = JOURNEY_CAUSED_EVENTS.has(run.triggerEvent) ? run.triggerPayload.root_run_id : undefined;
+  return typeof recorded === "string" && UUID.test(recorded) ? recorded : runId;
+}
 
 /**
  * True when a journey-caused event at this depth must start no runs (depth 0–2
@@ -262,18 +291,19 @@ export const INTERRUPTED_STEP_ERROR = "The step was interrupted and may or may n
 /** Error on runs cancelled because their journey was archived. */
 export const JOURNEY_ARCHIVED_ERROR = "Journey archived.";
 
-/** Steps that can safely run twice if the process died mid-step. */
-const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead"]);
+/** Steps that can safely run twice if the process died mid-step (Start journey: its run key makes a repeat a no-op). */
+const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead", "start_journey"]);
 
 /** Actions that change lead or opportunity data later steps read, so the pass reloads it after they succeed. */
 const CHANGES_ENTITIES = new Set(["update_lead", "assign_lead"]);
 
 /**
- * Events redelivered by an outbox until acknowledged. Their run key leaves out
- * the journey version, so one event starts a journey at most once even if the
- * journey was saved (new version) between deliveries.
+ * Events that can be delivered more than once (outbox redelivery; a Start
+ * journey step repeated by a retry). Their run key leaves out the journey
+ * version, so one event starts a journey at most once even if the journey was
+ * saved (new version) between deliveries.
  */
-const ONCE_PER_JOURNEY_EVENTS = new Set<string>(["lead.status_changed"]);
+const ONCE_PER_JOURNEY_EVENTS = new Set<string>(["lead.status_changed", "journey.started"]);
 
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
   const key = `${event.type}:${event.sourceId}:${journeyId}`;
@@ -312,9 +342,14 @@ export interface DispatchOutcome {
 /**
  * Starts runs for every active journey listening for this event. Candidates are
  * filtered in the database by tenant + trigger event; trigger filters are
- * evaluated here against freshly loaded CRM data.
+ * evaluated here against freshly loaded CRM data. With `execute: false`, created
+ * runs are left due for the caller (or the worker) to execute.
  */
-export async function dispatchJourneyEvent(deps: EngineDeps, event: JourneyEvent): Promise<DispatchOutcome[]> {
+export async function dispatchJourneyEvent(
+  deps: EngineDeps,
+  event: JourneyEvent,
+  options: { execute?: boolean } = {},
+): Promise<DispatchOutcome[]> {
   const now = deps.now ?? (() => new Date());
   const candidates = (await deps.store.findCandidateJourneys(event.tenantId, event.type)).filter(
     (candidate) =>
@@ -376,10 +411,93 @@ export async function dispatchJourneyEvent(deps: EngineDeps, event: JourneyEvent
       outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: run.id, result: "duplicate" });
       continue;
     }
+    if (options.execute === false) {
+      outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: run.id, result: "started" });
+      continue;
+    }
     const execution = await executeRun(deps, run.id);
     outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: run.id, result: "started", execution });
   }
   return outcomes;
+}
+
+/** Why a Start journey step started nothing. Recorded on the step; never a run failure. */
+export type StartJourneySkipReason =
+  | "self_start"
+  | "no_contact"
+  | "target_not_found"
+  | "target_inactive"
+  | "depth_limited"
+  | "target_not_listening"
+  | "trigger_filters_not_matched"
+  | "already_active";
+
+/**
+ * A Start journey step: a journey.started event targeted at one journey in the
+ * run's workspace, through the normal dispatcher (trigger filters, one active
+ * run per contact, idempotent run creation). The run key is
+ * journey.started:<run id>:<node id>:<target journey id>, so repeating the step
+ * (retry, interrupted pass, two workers) never starts a second child. The child
+ * gets lineage only (origin, origin run and journey, root, depth), never this
+ * run's step outputs. A started child is returned in `started` for the caller
+ * to execute after this pass; this run doesn't wait for it.
+ */
+async function startJourney(
+  deps: EngineDeps,
+  run: RunRecord,
+  nodeId: string,
+  targetJourneyId: string,
+  started: string[],
+): Promise<ActionResult> {
+  const skip = (reason: StartJourneySkipReason, extra: Record<string, unknown> = {}): ActionResult => ({
+    status: "skipped",
+    output: { started: false, target_journey_id: targetJourneyId, ...extra },
+    reason,
+  });
+  if (targetJourneyId === run.journeyId) return skip("self_start");
+  if (!run.contactId) return skip("no_contact");
+
+  const status = await deps.store.journeyStatus(run.tenantId, targetJourneyId);
+  if (status === null) return skip("target_not_found");
+  if (status !== "active") return skip("target_inactive", { target_status: status });
+
+  const depth = runCausationDepth(run);
+  if (isCausationDepthLimited(depth)) return skip("depth_limited", { causation_depth: depth });
+
+  const [outcome] = await dispatchJourneyEvent(
+    deps,
+    {
+      tenantId: run.tenantId,
+      type: "journey.started",
+      sourceId: `${run.id}:${nodeId}`,
+      contactId: run.contactId,
+      entityType: "contact",
+      entityId: run.contactId,
+      journeyId: targetJourneyId,
+      payload: {
+        origin: "journey",
+        origin_run_id: run.id,
+        origin_journey_id: run.journeyId,
+        root_run_id: runRootId(run, run.id),
+        causation_depth: depth,
+      },
+    },
+    { execute: false },
+  );
+  if (!outcome) return skip("target_not_listening");
+  if (outcome.result === "filtered") return skip("trigger_filters_not_matched");
+  if (outcome.result === "already_active") return skip("already_active");
+  if (outcome.result === "started" && outcome.runId) started.push(outcome.runId);
+  return {
+    status: "completed",
+    output: {
+      started: true,
+      target_journey_id: targetJourneyId,
+      run_id: outcome.runId,
+      causation_depth: depth,
+      ...(outcome.result === "duplicate" ? { duplicate: true } : {}),
+    },
+  };
 }
 
 // ---------- Execution ----------
@@ -395,8 +513,24 @@ export interface ExecuteOutcome {
  * wins the lease. Every run write renews the lease and succeeds only while
  * this worker still holds it, so the pass stops at the next step boundary
  * once the run is cancelled or re-claimed, before any further side effect.
+ *
+ * Runs started by this pass's Start journey steps execute after it, outside its
+ * lease. They are already due, so if that fails the worker runs them.
  */
 export async function executeRun(deps: EngineDeps, runId: string): Promise<ExecuteOutcome> {
+  const started: string[] = [];
+  const outcome = await executePass(deps, runId, started);
+  for (const childId of started) {
+    try {
+      await executeRun(deps, childId);
+    } catch (error) {
+      console.error("[journeys] started run failed to execute:", childId, error instanceof Error ? error.message : error);
+    }
+  }
+  return outcome;
+}
+
+async function executePass(deps: EngineDeps, runId: string, started: string[]): Promise<ExecuteOutcome> {
   const { store } = deps;
   const now = deps.now ?? (() => new Date());
   const claimedAt = now();
@@ -590,14 +724,16 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
             outputSchema: aiOutputSchema(ai),
             context: context(),
           })
-        : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
-            tenantId: run.tenantId,
-            runId: run.id,
-            nodeId: node.id,
-            contactId: run.contactId,
-            lead: entities.lead,
-            opportunity: entities.opportunity,
-          });
+        : action?.action === "start_journey"
+          ? await startJourney(deps, run, node.id, action.journeyId, started)
+          : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
+              tenantId: run.tenantId,
+              runId: run.id,
+              nodeId: node.id,
+              contactId: run.contactId,
+              lead: entities.lead,
+              opportunity: entities.opportunity,
+            });
       const output = result.status === "skipped" ? { ...result.output, skipped_reason: result.reason } : result.output;
       outcome = { status: result.status, output, completedAt: now().toISOString() };
     } catch (error) {

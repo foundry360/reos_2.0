@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { JourneyBuilder } from "../_components/builder/journey-builder";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconJourney } from "@/components/shell/sidebar-nav";
-import { getJourneyDefinition } from "@/lib/journeys/journey-repository";
+import { getJourneyDefinition, listJourneys } from "@/lib/journeys/journey-repository";
 import { listAgentOptionsForTenant } from "@/lib/crm/crm-lists";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import shell from "@/components/shell/shell.module.css";
@@ -29,10 +29,17 @@ export default async function JourneyBuilderCanvasPage({ params }: PageProps) {
     );
   }
 
-  const [result, agentOptions] = await Promise.all([
+  const [result, agentOptions, journeys] = await Promise.all([
     getJourneyDefinition(tenantId, id),
     listAgentOptionsForTenant(),
+    listJourneys(tenantId),
   ]);
+  // Targets for Start journey steps; the step itself re-checks status and trigger when it runs.
+  const journeyOptions = journeys.ok
+    ? journeys.value
+        .filter((journey) => journey.id !== id && journey.status !== "archived")
+        .map((journey) => ({ id: journey.id, label: journey.name }))
+    : [];
   if (!result.ok) {
     return (
       <>
@@ -45,5 +52,5 @@ export default async function JourneyBuilderCanvasPage({ params }: PageProps) {
   }
   if (!result.value) notFound();
 
-  return <JourneyBuilder journey={result.value} agentOptions={agentOptions} />;
+  return <JourneyBuilder journey={result.value} agentOptions={agentOptions} journeyOptions={journeyOptions} />;
 }

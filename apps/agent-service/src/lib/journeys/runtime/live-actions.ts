@@ -205,6 +205,9 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
             assignedAgentUserId: (tenantId, contactId) => resolveAssignedAgentUserId({ tenantId, contactId }),
             notify: (notification) => notifyMembers(db, notification),
           });
+
+        case "start_journey":
+          throw new JourneyStepError("Start journey steps are run by the journey engine.", "config");
       }
     },
   };

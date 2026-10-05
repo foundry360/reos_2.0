@@ -16,7 +16,8 @@
  * it creates the run and never changes; requests can't supply it.
  *   event depth 0: the change wasn't made by a journey run (user, AI agent, system, import, merge)
  *   event depth N: the change was made by a run of depth N
- *   run depth: the depth of the event that started it, plus 1 (any other trigger: 1)
+ *   run depth: the depth of the journey-caused event (status change or Start
+ *     journey) that started it, plus 1 (any other trigger: 1); see runCausationDepth
  * An event at depth MAX_JOURNEY_CAUSATION_DEPTH starts no runs; it is still
  * recorded and marked dispatched.
  *
@@ -27,7 +28,13 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isCausationDepthLimited, MAX_JOURNEY_CAUSATION_DEPTH, type JourneyEvent } from "./engine.ts";
+import {
+  isCausationDepthLimited,
+  MAX_JOURNEY_CAUSATION_DEPTH,
+  runCausationDepth,
+  runRootId,
+  type JourneyEvent,
+} from "./engine.ts";
 
 export interface LeadStatusEventRow {
   id: string;
@@ -76,31 +83,18 @@ export interface LeadStatusOutbox {
   originRun(row: LeadStatusEventRow): Promise<OriginRun | null>;
 }
 
-/**
- * A run's depth. Only a run started by a journey-made status change inherits
- * depth; anything else (a person, the agent, an inbound message) is 1. A missing
- * or malformed recorded depth (runs from before depth existed) counts as 0, so
- * such a run is 1, the same as a run started by an outside change.
- */
-export function runCausationDepth(run: Pick<OriginRun, "triggerEvent" | "triggerPayload">): number {
-  if (run.triggerEvent !== "lead.status_changed") return 1;
-  const recorded = run.triggerPayload.causation_depth;
-  const eventDepth = typeof recorded === "number" && Number.isInteger(recorded) && recorded >= 0 ? recorded : 0;
-  return eventDepth + 1;
-}
+export { runCausationDepth };
 
 /** Depth of this status change: 0 unless a journey run in the same workspace made it. */
 export function eventCausationDepth(row: LeadStatusEventRow, originRun: OriginRun | null): number {
   return row.origin === "journey" && originRun ? runCausationDepth(originRun) : 0;
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * Lineage for a change made by a journey run found in the row's workspace:
  * the run's journey, and the first run of the chain (the run's own recorded
  * root, else the run itself). Inherited the same way as depth: only from a run
- * started by a status change. Observability only; never read for depth,
+ * started by a journey-caused event. Observability only; never read for depth,
  * exclusion, or access. Without a resolved origin run there is no lineage.
  */
 export function leadStatusLineage(
@@ -108,11 +102,7 @@ export function leadStatusLineage(
   originRun: OriginRun | null,
 ): { origin_journey_id: string; root_run_id: string } | null {
   if (row.origin !== "journey" || !originRun || !row.origin_run_id) return null;
-  const recorded = originRun.triggerEvent === "lead.status_changed" ? originRun.triggerPayload.root_run_id : undefined;
-  return {
-    origin_journey_id: originRun.journeyId,
-    root_run_id: typeof recorded === "string" && UUID.test(recorded) ? recorded : row.origin_run_id,
-  };
+  return { origin_journey_id: originRun.journeyId, root_run_id: runRootId(originRun, row.origin_run_id) };
 }
 
 /** `originRun`'s journey is excluded from dispatch: a journey never re-enrolls from its own status change. */

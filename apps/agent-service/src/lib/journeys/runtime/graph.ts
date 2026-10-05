@@ -211,9 +211,10 @@ function label(node: Pick<SnapshotNode, "name" | "type">): string {
 
 /**
  * Everything that must hold before a journey can run. Returns every problem so
- * the builder can show them together.
+ * the builder can show them together. With `journeyId`, a Start journey step
+ * that targets this same journey is an issue.
  */
-export function activationIssues(graph: JourneyGraph | JourneySnapshot): ActivationIssue[] {
+export function activationIssues(graph: JourneyGraph | JourneySnapshot, journeyId?: string): ActivationIssue[] {
   const issues: ActivationIssue[] = [];
   const nodes = graph.nodes;
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -231,6 +232,10 @@ export function activationIssues(graph: JourneyGraph | JourneySnapshot): Activat
       for (const problem of stepReferenceIssues(graph, node)) {
         issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
       }
+    }
+    const config = node.config as Record<string, unknown>;
+    if (journeyId && node.type === "action" && config.action === "start_journey" && config.journeyId === journeyId) {
+      issues.push({ nodeId: node.id, message: `${label(node)}: a journey can't start itself.` });
     }
   }
 

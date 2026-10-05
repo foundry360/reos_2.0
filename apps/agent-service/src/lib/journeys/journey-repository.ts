@@ -360,7 +360,7 @@ export async function saveJourney(params: {
 
   // New runs start on whatever is saved, so an active journey must stay runnable.
   if (owned.status === "active") {
-    const blocker = activationBlocker(params.graph);
+    const blocker = activationBlocker(params.graph, params.journeyId);
     if (blocker) return { ok: false, error: `This journey is active, so it can't be saved yet. ${blocker}` };
   }
 
@@ -409,7 +409,7 @@ export async function setJourneyStatus(params: {
     return { ok: false, error: `A ${from} journey cannot move to ${params.status}.` };
   }
   if (params.status === "active") {
-    const blocker = activationBlocker(current.value);
+    const blocker = activationBlocker(current.value, params.journeyId);
     if (blocker) return { ok: false, error: blocker };
   }
 
