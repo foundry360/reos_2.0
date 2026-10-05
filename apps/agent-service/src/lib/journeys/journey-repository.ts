@@ -12,7 +12,11 @@ import {
   type JourneySummary,
 } from "./journey-types";
 import { activationBlocker } from "./journey-validation";
-import { resumePausedRuns } from "./journey-run-repository";
+import { ACTIVE_STATUSES, resumePausedRuns } from "./journey-run-repository";
+import {
+  manualEnrollmentOptions,
+  type ManualEnrollmentJourneyOption,
+} from "./manual-enrollment-options";
 
 export type RepositoryResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -133,6 +137,72 @@ export async function listJourneys(tenantId: string): Promise<RepositoryResult<J
         updatedAt: journey.updated_at,
       };
     }),
+  };
+}
+
+/**
+ * Journeys this contact can be enrolled in by hand, for the lead page's picker.
+ * The enrollment action re-checks everything; this only shapes the list.
+ */
+export async function listManualEnrollmentJourneys(
+  tenantId: string,
+  contactId: string,
+): Promise<RepositoryResult<ManualEnrollmentJourneyOption[]>> {
+  const supabase = await createClient();
+  const { data: journeys, error } = await supabase
+    .from("journeys")
+    .select("id, name, description, status, version")
+    .eq("tenant_id", tenantId)
+    .eq("status", "active");
+  if (error) {
+    console.error("listManualEnrollmentJourneys failed:", error.message);
+    return { ok: false, error: "Could not load journeys." };
+  }
+  const rows = (journeys ?? []) as Array<Pick<JourneyRow, "id" | "name" | "description" | "status" | "version">>;
+  if (rows.length === 0) return { ok: true, value: [] };
+  const ids = rows.map((row) => row.id);
+
+  const [versionsResult, runsResult] = await Promise.all([
+    supabase
+      .from("journey_versions")
+      .select("journey_id, version, trigger_events")
+      .eq("tenant_id", tenantId)
+      .in("journey_id", ids)
+      .contains("trigger_events", ["manual"]),
+    supabase
+      .from("journey_runs")
+      .select("journey_id")
+      .eq("tenant_id", tenantId)
+      .eq("contact_id", contactId)
+      .in("journey_id", ids)
+      .in("status", ACTIVE_STATUSES),
+  ]);
+  if (versionsResult.error) {
+    console.error("listManualEnrollmentJourneys versions failed:", versionsResult.error.message);
+    return { ok: false, error: "Could not load journeys." };
+  }
+  // The "Already active" hint is optional; enrollment still reports it if this read fails.
+  if (runsResult.error) {
+    console.error("listManualEnrollmentJourneys runs failed:", runsResult.error.message);
+  }
+
+  return {
+    ok: true,
+    value: manualEnrollmentOptions(
+      rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description ?? "",
+        status: toStatus(row.status),
+        version: row.version,
+      })),
+      (versionsResult.data ?? []).map((row) => ({
+        journeyId: row.journey_id as string,
+        version: row.version as number,
+        triggerEvents: (row.trigger_events as string[] | null) ?? [],
+      })),
+      (runsResult.data ?? []).map((row) => row.journey_id as string),
+    ),
   };
 }
 

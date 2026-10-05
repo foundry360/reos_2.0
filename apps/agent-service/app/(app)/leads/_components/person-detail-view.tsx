@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import {
   personBasePath,
   personPlural,
@@ -24,6 +24,7 @@ import type {
 } from "../_lib/person-detail-types";
 import { NewActivityModal } from "./new-activity-modal";
 import { NewMeetingModal } from "./new-meeting-modal";
+import { PersonMoreActions, type JourneyEnrollmentChoices } from "./enroll-in-journey";
 import { NewOpportunityModal } from "../../opportunities/_components/new-opportunity-modal";
 import { NewTaskModal } from "../../tasks/_components/new-task-modal";
 import { ExpandableTasksList } from "../../tasks/_components/expandable-tasks-list";
@@ -356,13 +357,23 @@ export function PersonDetailView({
   person,
   agentOptions = [],
   currentUser,
+  journeyEnrollment,
 }: {
   person: PersonDetailData;
   agentOptions?: AgentOption[];
   currentUser?: { displayName: string; avatarUrl: string | null };
+  /** Enables More → Enroll in Journey. */
+  journeyEnrollment?: JourneyEnrollmentChoices;
 }) {
   const [tab, setTab] = useState<DetailTab>("overview");
   const [summaryOpen, setSummaryOpen] = useState(true);
+  const [enrolledMessage, setEnrolledMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!enrolledMessage) return;
+    const timer = window.setTimeout(() => setEnrolledMessage(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [enrolledMessage]);
   const liveQual = useLiveQualification(person.id, {
     intent: person.intent,
     targetLocation: person.targetLocation,
@@ -589,6 +600,18 @@ export function PersonDetailView({
                     </button>
                   );
                 }
+                if (action.id === "more" && journeyEnrollment) {
+                  return (
+                    <PersonMoreActions
+                      key={action.id}
+                      contactId={person.id}
+                      enrollment={journeyEnrollment}
+                      icon={action.icon}
+                      label={action.label}
+                      onEnrolled={setEnrolledMessage}
+                    />
+                  );
+                }
                 return (
                   <button
                     key={action.id}
@@ -603,6 +626,11 @@ export function PersonDetailView({
                 );
               })}
             </div>
+            {enrolledMessage ? (
+              <p className={styles.success} role="status" style={{ margin: "0.85rem 0 0" }}>
+                {enrolledMessage}
+              </p>
+            ) : null}
           </section>
 
           <PersonAboutCard

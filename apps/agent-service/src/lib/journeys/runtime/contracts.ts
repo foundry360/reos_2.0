@@ -51,8 +51,8 @@ export const TRIGGER_EVENTS = {
   },
   manual: {
     label: "Manual enrollment",
-    description: "Planned: a team member enrolls a lead by hand.",
-    implemented: false,
+    description: "A team member enrolls a lead in this journey by hand.",
+    implemented: true,
   },
 } as const;
 

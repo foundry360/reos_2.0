@@ -64,8 +64,17 @@ describe("node config validation", () => {
 
   it("requires implemented trigger events", () => {
     assert.equal(validateNodeConfig("trigger", { event: "lead.created" }, "strict").errors.length, 0);
-    assert.match(validateNodeConfig("trigger", { event: "manual" }, "strict").errors[0], /isn't available/);
+    assert.match(validateNodeConfig("trigger", { event: "lead.updated" }, "strict").errors[0], /isn't available/);
     assert.match(validateNodeConfig("trigger", {}, "strict").errors[0], /Choose the event/);
+  });
+
+  it("accepts the manual enrollment trigger", () => {
+    const { config, errors } = validateNodeConfig("trigger", { event: "manual", filters: [] }, "strict");
+    assert.deepEqual(errors, []);
+    assert.equal(config.event, "manual");
+    const g = graph();
+    g.nodes[0].config = { event: "manual", filters: [] };
+    assert.deepEqual(activationIssues(g), [], "a journey started by manual enrollment can be activated");
   });
 
   it("validates actions", () => {

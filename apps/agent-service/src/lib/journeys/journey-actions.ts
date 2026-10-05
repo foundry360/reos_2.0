@@ -11,7 +11,9 @@ import {
   saveJourney,
   setJourneyStatus,
 } from "./journey-repository";
-import { cancelJourneyRun } from "./journey-run-repository";
+import { cancelJourneyRun, createManualEnrollmentLookups } from "./journey-run-repository";
+import { emitJourneyEvent } from "./emit-journey-event";
+import { enrollContactInJourney } from "./runtime/manual-enrollment";
 import { JOURNEY_TEMPLATES, isJourneyTemplateId } from "./journey-templates";
 import {
   isJourneyNodeType,
@@ -205,6 +207,67 @@ export async function cancelJourneyRunAction(runId: string): Promise<JourneyActi
 
   revalidatePath(`${JOURNEYS_PATH}/${result.value.journeyId}/runs`);
   return { ok: true };
+}
+
+export type JourneyEnrollmentOutcome =
+  | "enrolled"
+  | "already_active"
+  | "invalid_journey"
+  | "invalid_contact"
+  | "unauthorized"
+  | "failed";
+
+export interface JourneyEnrollmentResult {
+  ok: boolean;
+  result: JourneyEnrollmentOutcome;
+  error?: string;
+}
+
+const INVALID_JOURNEY_MESSAGES = {
+  not_found: "Journey not found.",
+  not_active: "Only active journeys can enroll leads.",
+  no_manual_trigger: "This journey doesn't have a Manual enrollment trigger.",
+} as const;
+
+/**
+ * Enrolls one contact in one active journey that has a Manual enrollment trigger.
+ * Checks run here; the run itself starts through the normal journey event path
+ * after the response (first steps run inline, waits and retries via the worker).
+ */
+export async function enrollContactInJourneyAction(input: {
+  journeyId: string;
+  contactId: string;
+}): Promise<JourneyEnrollmentResult> {
+  const context = await requireContext();
+  if ("error" in context) return { ok: false, result: "unauthorized", error: context.error };
+  if (!context.userId) return { ok: false, result: "unauthorized", error: "Sign in to enroll leads." };
+
+  const journeyId = text(input.journeyId);
+  const contactId = text(input.contactId);
+  if (!journeyId) return { ok: false, result: "invalid_journey", error: INVALID_JOURNEY_MESSAGES.not_found };
+  if (!contactId) return { ok: false, result: "invalid_contact", error: "Lead not found." };
+
+  try {
+    const outcome = await enrollContactInJourney(
+      await createManualEnrollmentLookups(),
+      emitJourneyEvent,
+      { tenantId: context.tenantId, userId: context.userId, journeyId, contactId },
+      randomUUID,
+    );
+    switch (outcome.result) {
+      case "enrolled":
+        return { ok: true, result: "enrolled" };
+      case "already_active":
+        return { ok: false, result: "already_active", error: "This lead is already in this journey." };
+      case "invalid_contact":
+        return { ok: false, result: "invalid_contact", error: "Lead not found." };
+      case "invalid_journey":
+        return { ok: false, result: "invalid_journey", error: INVALID_JOURNEY_MESSAGES[outcome.reason] };
+    }
+  } catch (error) {
+    console.error("enrollContactInJourneyAction failed:", error instanceof Error ? error.message : error);
+    return { ok: false, result: "failed", error: "Could not enroll the lead. Try again." };
+  }
 }
 
 export async function deleteJourneyAction(journeyId: string): Promise<JourneyActionResult> {

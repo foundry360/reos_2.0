@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { RepositoryResult } from "./journey-repository";
+import { isJourneyStatus } from "./journey-types";
+import type { ManualEnrollmentLookups } from "./runtime/manual-enrollment";
 
 export type JourneyRunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "paused";
 export type JourneyStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -32,7 +34,7 @@ export interface JourneyRunStep {
   completedAt: string | null;
 }
 
-const ACTIVE_STATUSES: JourneyRunStatus[] = ["running", "waiting", "paused"];
+export const ACTIVE_STATUSES: JourneyRunStatus[] = ["running", "waiting", "paused"];
 
 /** Run history is read with the signed-in user's client, so RLS limits it to their workspace. */
 export async function listJourneyRuns(
@@ -180,6 +182,63 @@ export async function cancelJourneyRun(
     .eq("run_id", runId)
     .eq("status", "running");
   return { ok: true, value: { journeyId: run.journey_id } };
+}
+
+/**
+ * Manual-enrollment checks, read with the signed-in user's client so RLS keeps
+ * them inside the member's workspace. Database errors throw; callers report a
+ * generic failure.
+ */
+export async function createManualEnrollmentLookups(): Promise<ManualEnrollmentLookups> {
+  const supabase = await createClient();
+  const fail = (operation: string, message: string): never => {
+    throw new Error(`Manual enrollment ${operation} failed: ${message}`);
+  };
+  return {
+    async contactExists(tenantId, contactId) {
+      const { data, error } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("tenant_id", tenantId)
+        .eq("id", contactId)
+        .maybeSingle();
+      if (error) fail("contact lookup", error.message);
+      return Boolean(data);
+    },
+    async findJourney(tenantId, journeyId) {
+      const { data, error } = await supabase
+        .from("journeys")
+        .select("status, version")
+        .eq("tenant_id", tenantId)
+        .eq("id", journeyId)
+        .maybeSingle();
+      if (error) fail("journey lookup", error.message);
+      if (!data || !isJourneyStatus(data.status)) return null;
+      return { status: data.status, version: data.version as number };
+    },
+    async versionTriggerEvents(tenantId, journeyId, version) {
+      const { data, error } = await supabase
+        .from("journey_versions")
+        .select("trigger_events")
+        .eq("tenant_id", tenantId)
+        .eq("journey_id", journeyId)
+        .eq("version", version)
+        .maybeSingle();
+      if (error) fail("version lookup", error.message);
+      return data ? ((data.trigger_events as string[] | null) ?? []) : null;
+    },
+    async hasActiveRun(tenantId, journeyId, contactId) {
+      const { count, error } = await supabase
+        .from("journey_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .eq("journey_id", journeyId)
+        .eq("contact_id", contactId)
+        .in("status", ACTIVE_STATUSES);
+      if (error) fail("active run lookup", error.message);
+      return (count ?? 0) > 0;
+    },
+  };
 }
 
 /** Called after a paused journey is resumed (the caller already verified tenant ownership). */

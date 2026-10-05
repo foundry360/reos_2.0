@@ -35,6 +35,8 @@ export interface JourneyEvent {
   entityType: string;
   entityId: string | null;
   payload: Record<string, unknown>;
+  /** Restricts dispatch to this journey (manual enrollment). Unset: every eligible journey in the tenant. */
+  journeyId?: string;
 }
 
 export type RunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "paused";
@@ -229,7 +231,9 @@ export interface DispatchOutcome {
  */
 export async function dispatchJourneyEvent(deps: EngineDeps, event: JourneyEvent): Promise<DispatchOutcome[]> {
   const now = deps.now ?? (() => new Date());
-  const candidates = await deps.store.findCandidateJourneys(event.tenantId, event.type);
+  const candidates = (await deps.store.findCandidateJourneys(event.tenantId, event.type)).filter(
+    (candidate) => event.journeyId === undefined || candidate.journeyId === event.journeyId,
+  );
   if (candidates.length === 0) return [];
 
   const entities = await deps.store.loadEntities(event.tenantId, event.contactId);
