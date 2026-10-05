@@ -14,6 +14,7 @@ import {
 } from "@/lib/opportunities/create-from-booking";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
+import { withStatusOrigin, type StatusOriginContext } from "@/lib/crm/status-origin";
 
 export interface InboundChannel {
   channel: "sms" | "messenger" | "instagram";
@@ -466,11 +467,13 @@ export async function linkContactDmIdentity(input: {
 export async function updateContactFields(
   contactId: string,
   fields: Record<string, string | number | boolean | null>,
+  origin?: StatusOriginContext,
 ): Promise<boolean> {
   const db = getSupabaseAdmin();
   if (!db) return false;
 
-  const { error } = await db.from("contacts").update(fields).eq("id", contactId);
+  const query = db.from("contacts").update(fields).eq("id", contactId);
+  const { error } = await (origin ? withStatusOrigin(query, origin) : query);
   if (error) {
     console.error("Update contact error:", error);
     return false;

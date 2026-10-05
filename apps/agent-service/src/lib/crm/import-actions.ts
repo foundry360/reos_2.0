@@ -10,6 +10,7 @@ import { parsePhoneForStorage } from "@/lib/phone-display";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { createClient } from "@/lib/supabase/server";
 import { splitFullName, type ImportEntity, type ImportMode } from "@/lib/crm/import-parse";
+import { withStatusOrigin } from "@/lib/crm/status-origin";
 
 const MAX_IMPORT_ROWS = 500;
 
@@ -266,16 +267,19 @@ async function importLeads(
           continue;
         }
 
-        const { error } = await supabase
-          .from("contacts")
-          .update({
-            first_name: firstName || null,
-            last_name: lastName || null,
-            email: email || null,
-            lead_status: status,
-          })
-          .eq("id", existingId)
-          .eq("tenant_id", tenantId);
+        const { error } = await withStatusOrigin(
+          supabase
+            .from("contacts")
+            .update({
+              first_name: firstName || null,
+              last_name: lastName || null,
+              email: email || null,
+              lead_status: status,
+            })
+            .eq("id", existingId)
+            .eq("tenant_id", tenantId),
+          { origin: "import" },
+        );
 
         if (error) {
           result.failed += 1;

@@ -8,7 +8,9 @@
  * client with the default client type. Records that are already clients keep
  * their client type.
  *
- * Does not emit lead.status_changed (same as before this helper existed).
+ * A status change is recorded by the contacts trigger with origin "journey" and
+ * this run's id, and dispatched to other journeys, never back to this run's
+ * journey (see lead-status-outbox.ts).
  *
  * Pure module (relative imports only) so it runs under node --test.
  */
@@ -27,7 +29,8 @@ export interface LeadWriteResult {
 
 /** Workspace-scoped writes used by the Update lead action. */
 export interface LeadUpdateStore {
-  updateFields(tenantId: string, contactId: string, patch: LeadFieldPatch): Promise<LeadWriteResult>;
+  /** `runId` is recorded as the origin of any status change this write makes. */
+  updateFields(tenantId: string, contactId: string, patch: LeadFieldPatch, runId: string): Promise<LeadWriteResult>;
   /** Only flips records that are still leads. */
   convertLeadToClient(tenantId: string, contactId: string, contactType: string): Promise<LeadWriteResult>;
   logActivity(tenantId: string, contactId: string, body: string): Promise<void>;
@@ -64,7 +67,7 @@ export async function executeUpdateLead(
     return { status: "skipped", output: {}, reason: "No fields to update." };
   }
 
-  const written = await store.updateFields(input.tenantId, contactId, patch);
+  const written = await store.updateFields(input.tenantId, contactId, patch, input.runId);
   if (written.error) throw new JourneyStepError(written.error, "transient");
   if (!written.matched) throw new JourneyStepError("This lead no longer exists in this workspace.", "config");
 

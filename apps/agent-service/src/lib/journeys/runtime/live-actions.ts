@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveAgentRecipient, resolveAssignedAgentUserId } from "@/lib/calendar/appointment-invites";
 import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
+import { withStatusOrigin } from "@/lib/crm/status-origin";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
 import { recordOutboundEmail } from "@/lib/email/record-outbound-email";
 import { sendResendMessage } from "@/lib/email/resend";
@@ -41,13 +42,11 @@ const JOURNEY_LABEL = "Journey";
 
 function createLeadUpdateStore(db: SupabaseClient): LeadUpdateStore {
   return {
-    async updateFields(tenantId, contactId, patch) {
-      const { data, error } = await db
-        .from("contacts")
-        .update(patch)
-        .eq("id", contactId)
-        .eq("tenant_id", tenantId)
-        .select("id");
+    async updateFields(tenantId, contactId, patch, runId) {
+      const { data, error } = await withStatusOrigin(
+        db.from("contacts").update(patch).eq("id", contactId).eq("tenant_id", tenantId).select("id"),
+        { origin: "journey", originRunId: runId },
+      );
       return { error: error?.message ?? null, matched: (data?.length ?? 0) > 0 };
     },
     async convertLeadToClient(tenantId, contactId, contactType) {

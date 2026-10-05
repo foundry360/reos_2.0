@@ -161,7 +161,7 @@ export async function applyToolCalls(
   }
 
   if (Object.keys(fields).length > 0) {
-    await updateContactFields(activeContactId, fields);
+    await updateContactFields(activeContactId, fields, { origin: "ai_agent" });
   }
 
   const emailForMerge =

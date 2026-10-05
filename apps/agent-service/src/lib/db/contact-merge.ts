@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { withStatusOrigin } from "@/lib/crm/status-origin";
 
 const MERGE_SELECT =
   "id, tenant_id, first_name, last_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out, record_type, contact_type, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences, created_at";
@@ -275,7 +276,9 @@ export async function mergeContacts(
     }
   }
   if (Object.keys(patch).length > 0) {
-    const { error } = await db.from("contacts").update(patch).eq("id", winnerId);
+    const { error } = await withStatusOrigin(db.from("contacts").update(patch).eq("id", winnerId), {
+      origin: "merge",
+    });
     if (error) console.error("mergeContacts field merge failed:", error);
   }
 

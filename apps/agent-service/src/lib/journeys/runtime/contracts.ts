@@ -21,7 +21,8 @@ export const TRIGGER_EVENTS = {
   },
   "lead.status_changed": {
     label: "Lead status changed",
-    description: "A team member changes a lead's status in REOS.",
+    description:
+      "A lead's status changes, whether a team member, the AI agent, a booking, an import, or another journey changed it.",
     implemented: true,
   },
   "message.received": {

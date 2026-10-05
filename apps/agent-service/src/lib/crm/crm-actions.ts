@@ -45,6 +45,7 @@ import {
 } from "@/lib/calendar/consult-slots";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
 import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
+import { dispatchLeadStatusEventsSoon } from "@/lib/journeys/lead-status-dispatch";
 import { randomUUID } from "node:crypto";
 
 export interface CrmActionResult {
@@ -54,24 +55,7 @@ export interface CrmActionResult {
   kind?: PersonKind;
 }
 
-/** Status changes and task completions can repeat, so each occurrence gets its own id. */
-function emitLeadStatusChanged(
-  tenantId: string,
-  contactId: string,
-  fromStatus: string | null,
-  toStatus: string,
-) {
-  emitJourneyEvent({
-    tenantId,
-    type: "lead.status_changed",
-    sourceId: randomUUID(),
-    contactId,
-    entityType: "contact",
-    entityId: contactId,
-    payload: { from_status: fromStatus ?? "", to_status: toStatus },
-  });
-}
-
+/** Task completions can repeat, so each occurrence gets its own id. */
 function emitTaskCompleted(tenantId: string, taskId: string, contactId: string | null, title: string) {
   if (!contactId) return;
   emitJourneyEvent({
@@ -643,8 +627,9 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
     });
   }
 
+  // The contacts trigger records the change; this only delivers it without waiting for the cron tick.
   if (kind === "lead" && existing.lead_status !== updates.lead_status) {
-    emitLeadStatusChanged(tenant.tenantId, leadId, existing.lead_status, String(updates.lead_status ?? ""));
+    dispatchLeadStatusEventsSoon(tenant.tenantId, leadId);
   }
 
   revalidateAfterPersonUpdate(kind, nextKind, leadId);
@@ -724,7 +709,7 @@ export async function updateLeadStatusAction(
     body: `${formatLeadStatusLabel(existing.lead_status ?? "")} → ${formatLeadStatusLabel(status)}`,
     href: `${personBasePath(nextKind)}/${id}`,
   });
-  emitLeadStatusChanged(tenant.tenantId, id, existing.lead_status, status);
+  dispatchLeadStatusEventsSoon(tenant.tenantId, id);
 
   revalidateAfterPersonUpdate(kind, nextKind, id);
   return { ok: true, id, kind: nextKind };
