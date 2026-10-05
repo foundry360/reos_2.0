@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isJourneyNodeType, isJourneyStatus, type JourneyConnection } from "@/lib/journeys/journey-types";
 import { validateNodeConfig, type TriggerEventType } from "./contracts";
 import type { JourneySnapshot, SnapshotNode } from "./graph";
+import { runInsertConflict } from "./run-insert-conflict";
 import type {
   CandidateJourney,
   JourneyRuntimeStore,
@@ -174,7 +175,9 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
         .select(RUN_COLUMNS)
         .single();
       if (!error && data) return { run: toRun(data as RunRow), created: true };
-      if (error?.code !== "23505") fail("createRun", error);
+      const conflict = runInsertConflict(error);
+      if (conflict === "active_run") return { run: null, created: false, alreadyActive: true };
+      if (conflict !== "idempotency") fail("createRun", error);
 
       const { data: existing, error: existingError } = await db
         .from("journey_runs")

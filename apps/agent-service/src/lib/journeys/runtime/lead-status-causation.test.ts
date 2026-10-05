@@ -174,7 +174,7 @@ async function drain(dispatch: (event: JourneyEvent) => Promise<unknown> = (even
 
 /** Delivers until nothing is pending (each delivery may run journeys that change status again). */
 async function drainAll(): Promise<OutboxDispatchSummary> {
-  const total: OutboxDispatchSummary = { claimed: 0, delivered: 0, depthLimited: 0, failed: 0 };
+  const total: OutboxDispatchSummary = { claimed: 0, delivered: 0, depthLimited: 0, failed: 0, permanentlyFailed: 0 };
   for (let round = 0; round < 20; round++) {
     const summary = await drain();
     if (summary.claimed === 0) return total;
@@ -236,8 +236,8 @@ describe("causation depth", () => {
       ["journey", "Qualified"],
       ["journey", "Converted"],
     ]);
-    assert.ok(rows.every((row) => row.dispatched_at && row.attempt_count === 0 && row.last_error === null));
-    assert.deepEqual(summary, { claimed: 4, delivered: 4, depthLimited: 1, failed: 0 });
+    assert.ok(rows.every((row) => row.dispatched_at && row.attempt_count === 1 && row.last_error === null));
+    assert.deepEqual(summary, { claimed: 4, delivered: 4, depthLimited: 1, failed: 0, permanentlyFailed: 0 });
     assert.equal(logs.length, 1);
     assert.match(logs[0], new RegExp(`${rows[3].id}.*causation depth 3 reached the limit of 3`));
   });
@@ -354,7 +354,7 @@ describe("causation depth", () => {
     const failing = await drain(async () => {
       throw new Error("temporary outage");
     });
-    assert.deepEqual(failing, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
+    assert.deepEqual(failing, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1, permanentlyFailed: 0 });
     const pending = (await outboxRows())[1];
     assert.equal(pending.dispatched_at, null);
     assert.equal(pending.attempt_count, 1);

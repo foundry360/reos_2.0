@@ -56,10 +56,19 @@ export interface OriginRun {
   triggerPayload: Record<string, unknown>;
 }
 
+/**
+ * Delivery attempts per row, counted at claim (so a dispatcher that dies
+ * mid-delivery still uses one up). A row is never claimed after this many.
+ */
+export const MAX_LEAD_STATUS_EVENT_ATTEMPTS = 10;
+
+/** "retry": rescheduled with backoff. "failed": that was the last attempt. "stale": the claim was no longer ours. */
+export type FailOutcome = "retry" | "failed" | "stale";
+
 export interface LeadStatusOutbox {
   claim(options: ClaimOptions): Promise<LeadStatusEventRow[]>;
   complete(row: LeadStatusEventRow): Promise<void>;
-  fail(row: LeadStatusEventRow, error: string): Promise<void>;
+  fail(row: LeadStatusEventRow, error: string): Promise<FailOutcome>;
   /** The run in this row's workspace with id origin_run_id; null if there is none. */
   originRun(row: LeadStatusEventRow): Promise<OriginRun | null>;
 }
@@ -112,6 +121,8 @@ export interface OutboxDispatchSummary {
   /** Delivered rows that started no runs because their causation depth reached the limit. */
   depthLimited: number;
   failed: number;
+  /** Failed rows that had used their last attempt; they are not retried (failed_at is set). */
+  permanentlyFailed: number;
 }
 
 export interface OutboxDispatchOptions extends ClaimOptions {
@@ -135,7 +146,8 @@ function errorMessage(error: unknown): string {
 
 /**
  * Claims and delivers pending rows. A failed row is released with backoff and
- * stays pending; other rows still run. Throws only if claiming itself fails.
+ * stays pending, unless that was its last attempt (it is then permanently
+ * failed); other rows still run. Throws only if claiming itself fails.
  */
 export async function dispatchLeadStatusEvents(
   outbox: LeadStatusOutbox,
@@ -145,7 +157,7 @@ export async function dispatchLeadStatusEvents(
   log: (message: string) => void = (message) => console.log(message),
 ): Promise<OutboxDispatchSummary> {
   const started = clock();
-  const summary: OutboxDispatchSummary = { claimed: 0, delivered: 0, depthLimited: 0, failed: 0 };
+  const summary: OutboxDispatchSummary = { claimed: 0, delivered: 0, depthLimited: 0, failed: 0, permanentlyFailed: 0 };
 
   for (let batch = 0; batch < options.maxBatches; batch++) {
     if (clock() - started >= options.budgetMs) break;
@@ -170,7 +182,12 @@ export async function dispatchLeadStatusEvents(
         }
       } catch (error) {
         summary.failed++;
-        await outbox.fail(row, errorMessage(error)).catch(() => undefined);
+        const message = errorMessage(error);
+        const outcome = await outbox.fail(row, message).catch(() => undefined);
+        if (outcome === "failed") {
+          summary.permanentlyFailed++;
+          log(`[journeys] lead status event ${row.id} permanently failed after ${row.attempt_count} attempts: ${message}`);
+        }
         continue;
       }
       try {
@@ -199,6 +216,7 @@ export function createSupabaseLeadStatusOutbox(db: SupabaseClient): LeadStatusOu
         p_lease_seconds: options.leaseSeconds,
         p_tenant_id: options.tenantId ?? null,
         p_contact_id: options.contactId ?? null,
+        p_max_attempts: MAX_LEAD_STATUS_EVENT_ATTEMPTS,
       });
       if (error) throw new Error(`claim_lead_status_events: ${error.message}`);
       return (data ?? []) as LeadStatusEventRow[];
@@ -211,12 +229,14 @@ export function createSupabaseLeadStatusOutbox(db: SupabaseClient): LeadStatusOu
       if (error) throw new Error(`complete_lead_status_event: ${error.message}`);
     },
     async fail(row, message) {
-      const { error } = await db.rpc("fail_lead_status_event", {
+      const { data, error } = await db.rpc("fail_lead_status_event", {
         p_id: row.id,
         p_claim_token: row.claim_token,
         p_error: message,
+        p_max_attempts: MAX_LEAD_STATUS_EVENT_ATTEMPTS,
       });
       if (error) throw new Error(`fail_lead_status_event: ${error.message}`);
+      return data === "failed" || data === "retry" ? data : "stale";
     },
     async originRun(row) {
       if (!row.origin_run_id) return null;

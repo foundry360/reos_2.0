@@ -132,6 +132,10 @@ export interface StepPatch {
   completedAt?: string | null;
 }
 
+export type CreateRunResult =
+  | { run: RunRecord; created: boolean; alreadyActive?: false }
+  | { run: null; created: false; alreadyActive: true };
+
 export interface CandidateJourney {
   journeyId: string;
   version: number;
@@ -148,8 +152,11 @@ export interface JourneyRuntimeStore {
   /** Active journeys in the tenant whose current version listens for this event. */
   findCandidateJourneys(tenantId: string, event: TriggerEventType): Promise<CandidateJourney[]>;
   hasActiveRun(tenantId: string, journeyId: string, contactId: string): Promise<boolean>;
-  /** Inserts unless (tenant, idempotencyKey) exists. */
-  createRun(run: NewRun): Promise<{ run: RunRecord; created: boolean }>;
+  /**
+   * Inserts unless (tenant, idempotencyKey) exists (returns that run, created
+   * false) or the contact already has an active run of the journey (alreadyActive).
+   */
+  createRun(run: NewRun): Promise<CreateRunResult>;
   /** Atomically leases a running/waiting run that isn't leased; marks it running. */
   claimRun(runId: string, now: Date, leaseUntil: Date): Promise<ClaimedRun | null>;
   /**
@@ -296,7 +303,7 @@ export async function dispatchJourneyEvent(deps: EngineDeps, event: JourneyEvent
       continue;
     }
 
-    const { run, created } = await deps.store.createRun({
+    const result = await deps.store.createRun({
       tenantId: event.tenantId,
       journeyId: candidate.journeyId,
       journeyVersion: candidate.version,
@@ -311,6 +318,12 @@ export async function dispatchJourneyEvent(deps: EngineDeps, event: JourneyEvent
       resumeAt: now().toISOString(),
     });
 
+    // Another event started a run for this contact after the check above.
+    if (result.alreadyActive) {
+      outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: null, result: "already_active" });
+      continue;
+    }
+    const { run, created } = result;
     if (!created) {
       outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: run.id, result: "duplicate" });
       continue;

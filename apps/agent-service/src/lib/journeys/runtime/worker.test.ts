@@ -96,6 +96,7 @@ async function dueRun(contactId: string, journeyId = "j1") {
     idempotencyKey: `${journeyId}:${contactId}`,
     resumeAt: clock.toISOString(),
   });
+  if (!run) throw new Error("dueRun: the contact already has an active run of this journey");
   return run.id;
 }
 

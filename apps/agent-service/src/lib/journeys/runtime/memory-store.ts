@@ -8,6 +8,7 @@ import type { TriggerEventType } from "./contracts.ts";
 import type { JourneySnapshot } from "./graph.ts";
 import type {
   CandidateJourney,
+  CreateRunResult,
   JourneyRuntimeStore,
   LoadedEntities,
   NewRun,
@@ -17,6 +18,8 @@ import type {
   RunWriteResult,
   StepPatch,
 } from "./engine.ts";
+
+const ACTIVE_STATUSES: readonly string[] = ["running", "waiting", "paused"];
 
 export interface MemoryJourney {
   id: string;
@@ -86,15 +89,25 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
         run.tenantId === tenantId &&
         run.journeyId === journeyId &&
         run.contactId === contactId &&
-        ["running", "waiting", "paused"].includes(run.status),
+        ACTIVE_STATUSES.includes(run.status),
     );
   }
 
-  async createRun(input: NewRun) {
+  async createRun(input: NewRun): Promise<CreateRunResult> {
     const existing = [...this.runs.values()].find(
       (run) => run.tenantId === input.tenantId && run.idempotencyKey === input.idempotencyKey,
     );
     if (existing) return { run: structuredClone(existing), created: false };
+    // Mirrors journey_runs_one_active_per_contact_idx (migration 056).
+    const active = [...this.runs.values()].some(
+      (run) =>
+        input.contactId !== null &&
+        run.tenantId === input.tenantId &&
+        run.journeyId === input.journeyId &&
+        run.contactId === input.contactId &&
+        ACTIVE_STATUSES.includes(run.status),
+    );
+    if (active) return { run: null, created: false, alreadyActive: true };
     const run: MemoryRun = {
       id: this.id("run"),
       tenantId: input.tenantId,

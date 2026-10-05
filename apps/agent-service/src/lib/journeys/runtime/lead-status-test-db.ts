@@ -1,7 +1,7 @@
 /**
  * Test-only database for the lead status outbox: PGlite (real Postgres in
- * process) with a minimal stand-in for the Supabase schema, the real migration
- * 055 applied on top, and a tiny PostgREST bridge so real supabase-js queries
+ * process) with a minimal stand-in for the Supabase schema, the real migrations
+ * 055 and 056 applied on top, and a tiny PostgREST bridge so real supabase-js queries
  * (including their request headers and role) run against it the way PostgREST
  * runs them: one transaction per request, request.jwt.claims and request.headers
  * set locally, and the request's role switched in.
@@ -13,7 +13,11 @@ import { readFileSync } from "node:fs";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-const MIGRATION = new URL("../../../../../../supabase/migrations/055_lead_status_events.sql", import.meta.url);
+const MIGRATIONS = [
+  new URL("../../../../../../supabase/migrations/055_lead_status_events.sql", import.meta.url),
+  new URL("../../../../../../supabase/migrations/056_journey_runs_one_active_run.sql", import.meta.url),
+  new URL("../../../../../../supabase/migrations/057_lead_status_events_max_attempts.sql", import.meta.url),
+];
 
 const SUPABASE_STAND_IN = `
 create role anon nologin;
@@ -46,6 +50,9 @@ create table public.journey_runs (
   trigger_event text not null default 'manual',
   trigger_payload jsonb not null default '{}'::jsonb,
   journey_version integer,
+  contact_id uuid references public.contacts (id) on delete set null,
+  status text not null default 'running'
+    check (status in ('running', 'waiting', 'completed', 'failed', 'cancelled', 'paused')),
   idempotency_key text,
   -- Same uniqueness as migration 054; nullable here so tests can insert bare origin runs.
   unique (tenant_id, idempotency_key)
@@ -196,7 +203,7 @@ function postgrestFetch(pg: PGlite): typeof fetch {
 export async function createTestDb(): Promise<TestDb> {
   const pg = new PGlite();
   await pg.exec(SUPABASE_STAND_IN);
-  await pg.exec(readFileSync(MIGRATION, "utf8"));
+  for (const migration of MIGRATIONS) await pg.exec(readFileSync(migration, "utf8"));
   const fetchImpl = postgrestFetch(pg);
 
   return {

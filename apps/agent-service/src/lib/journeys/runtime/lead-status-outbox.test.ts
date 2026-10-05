@@ -16,6 +16,7 @@ import {
   DEFAULT_OUTBOX_OPTIONS,
   dispatchLeadStatusEvents,
   leadStatusJourneyEvent,
+  MAX_LEAD_STATUS_EVENT_ATTEMPTS,
   type LeadStatusEventRow,
   type LeadStatusOutbox,
 } from "./lead-status-outbox.ts";
@@ -27,6 +28,7 @@ interface OutboxRow {
   dispatched_at: Date | null;
   attempt_count: number;
   last_error: string | null;
+  failed_at: Date | null;
   next_attempt_at: Date;
   locked_until: Date | null;
   claim_token: string | null;
@@ -134,7 +136,7 @@ describe("lead status outbox dispatch", () => {
     await setStatus(lead, "Working");
 
     const summary = await drain();
-    assert.deepEqual(summary, { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
+    assert.deepEqual(summary, { claimed: 1, delivered: 1, depthLimited: 0, failed: 0, permanentlyFailed: 0 });
     const [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.equal(row.claim_token, null);
@@ -192,11 +194,13 @@ describe("lead status outbox dispatch", () => {
     await db.query("update public.lead_status_events set locked_until = now() - interval '1 second'");
     const [current] = await outbox.claim({ limit: 1, leaseSeconds: 120 });
 
-    await outbox.fail(stale, "late failure");
+    assert.equal(await outbox.fail(stale, "late failure"), "stale");
     await outbox.complete(stale);
     let [row] = await rows();
     assert.equal(row.dispatched_at, null);
-    assert.equal(row.attempt_count, 0);
+    assert.equal(row.attempt_count, 2, "one per claim; the stale failure changes nothing");
+    assert.equal(row.last_error, null);
+    assert.equal(row.claim_token, current.claim_token);
 
     await outbox.complete(current);
     [row] = await rows();
@@ -211,7 +215,7 @@ describe("lead status outbox dispatch", () => {
     const summary = await drain(async () => {
       throw new Error("database unavailable");
     });
-    assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
+    assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1, permanentlyFailed: 0 });
     let [row] = await rows();
     assert.equal(row.dispatched_at, null);
     assert.equal(row.attempt_count, 1);
@@ -221,11 +225,12 @@ describe("lead status outbox dispatch", () => {
     assert.equal((await drain()).claimed, 0, "not retried before the backoff");
 
     await db.query("update public.lead_status_events set next_attempt_at = now()");
-    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0, permanentlyFailed: 0 });
     [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.equal(row.last_error, null);
-    assert.equal(row.attempt_count, 1);
+    assert.equal(row.attempt_count, 2);
+    assert.equal(row.failed_at, null);
     assert.equal(runs().length, 1);
   });
 
@@ -238,7 +243,7 @@ describe("lead status outbox dispatch", () => {
     const summary = await drain(async (event) => {
       if (event.contactId === a) throw new Error("boom");
     });
-    assert.deepEqual(summary, { claimed: 2, delivered: 1, depthLimited: 0, failed: 1 });
+    assert.deepEqual(summary, { claimed: 2, delivered: 1, depthLimited: 0, failed: 1, permanentlyFailed: 0 });
   });
 
   it("delivers a contact's transitions in the order they happened", async () => {
@@ -253,6 +258,224 @@ describe("lead status outbox dispatch", () => {
       seen.push(`${event.payload.from_status}→${event.payload.to_status}`);
     });
     assert.deepEqual(seen, ["New→Working", "Working→Contacted", "Contacted→Qualified"]);
+  });
+});
+
+describe("lead status outbox bounded retries (migration 057)", () => {
+  const claimOne = () => outbox.claim({ limit: 10, leaseSeconds: 120 });
+  const retryNow = () => db.query("update public.lead_status_events set next_attempt_at = now() where failed_at is null");
+  const expireClaims = () => db.query("update public.lead_status_events set locked_until = now() - interval '1 second'");
+  const setAttempts = (id: string, count: number) =>
+    db.query("update public.lead_status_events set attempt_count = $2 where id = $1", [id, count]);
+  const failing = async () => {
+    throw new Error("database unavailable");
+  };
+
+  async function pendingEvent(): Promise<string> {
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    return (await rows()).at(-1)!.id;
+  }
+
+  async function row(id: string): Promise<OutboxRow> {
+    const [found] = await db.query<OutboxRow>("select * from public.lead_status_events where id = $1", [id]);
+    return found;
+  }
+
+  it("a successful claim counts the attempt", async () => {
+    const id = await pendingEvent();
+    assert.equal((await row(id)).attempt_count, 0);
+    const [claimed] = await claimOne();
+    assert.equal(claimed.attempt_count, 1);
+    assert.equal((await row(id)).attempt_count, 1);
+  });
+
+  it("a reported failure doesn't count the attempt again", async () => {
+    const id = await pendingEvent();
+    const [claimed] = await claimOne();
+    assert.equal(await outbox.fail(claimed, "boom"), "retry");
+    const failed = await row(id);
+    assert.equal(failed.attempt_count, 1);
+    assert.equal(failed.failed_at, null);
+    assert.equal(failed.claim_token, null);
+    assert.equal(failed.locked_until, null);
+  });
+
+  it("retries after 1, 2, 4, 8, 16, 32, 60, 60, 60 minutes, then fails permanently", async () => {
+    const id = await pendingEvent();
+    const delays: number[] = [];
+    for (let attempt = 1; attempt < MAX_LEAD_STATUS_EVENT_ATTEMPTS; attempt++) {
+      const [claimed] = await claimOne();
+      assert.equal(claimed.attempt_count, attempt);
+      assert.equal(await outbox.fail(claimed, `failure ${attempt}`), "retry");
+      const [{ minutes }] = await db.query<{ minutes: number }>(
+        "select round(extract(epoch from next_attempt_at - now()) / 60)::int as minutes from public.lead_status_events where id = $1",
+        [id],
+      );
+      delays.push(minutes);
+      await retryNow();
+    }
+    assert.deepEqual(delays, [1, 2, 4, 8, 16, 32, 60, 60, 60]);
+
+    const [last] = await claimOne();
+    assert.equal(last.attempt_count, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+    assert.equal(await outbox.fail(last, "failure 10"), "failed");
+    assert.ok((await row(id)).failed_at);
+  });
+
+  it("the 10th attempt runs; its failure sets failed_at, keeps last_error, and schedules nothing", async () => {
+    const id = await pendingEvent();
+    await setAttempts(id, MAX_LEAD_STATUS_EVENT_ATTEMPTS - 1);
+    const before = await row(id);
+
+    let attempted = 0;
+    const logs: string[] = [];
+    const summary = await dispatchLeadStatusEvents(
+      outbox,
+      async () => {
+        attempted++;
+        throw new Error("database unavailable");
+      },
+      { ...DEFAULT_OUTBOX_OPTIONS, budgetMs: 60_000 },
+      Date.now,
+      (message) => logs.push(message),
+    );
+
+    assert.equal(attempted, 1);
+    assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1, permanentlyFailed: 1 });
+    assert.deepEqual(logs, [`[journeys] lead status event ${id} permanently failed after 10 attempts: database unavailable`]);
+
+    const failed = await row(id);
+    assert.ok(failed.failed_at);
+    assert.equal(failed.dispatched_at, null);
+    assert.equal(failed.attempt_count, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+    assert.equal(failed.last_error, "database unavailable");
+    assert.equal(failed.next_attempt_at.getTime(), before.next_attempt_at.getTime(), "no retry scheduled");
+    assert.equal(failed.claim_token, null);
+    assert.equal(failed.locked_until, null);
+
+    await db.query("update public.lead_status_events set next_attempt_at = now() - interval '1 day'");
+    assert.equal((await claimOne()).length, 0);
+  });
+
+  it("a row that has used all its attempts is never claimed", async () => {
+    const id = await pendingEvent();
+    await setAttempts(id, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+    assert.equal((await claimOne()).length, 0);
+    assert.equal((await row(id)).attempt_count, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+  });
+
+  it("a dispatcher that keeps dying mid-delivery still exhausts the attempts without fail being called", async () => {
+    const id = await pendingEvent();
+    for (let attempt = 1; attempt <= MAX_LEAD_STATUS_EVENT_ATTEMPTS; attempt++) {
+      const claimed = await claimOne();
+      assert.equal(claimed.length, 1, `claim ${attempt}`);
+      assert.equal(claimed[0].attempt_count, attempt);
+      await expireClaims();
+    }
+    assert.equal((await claimOne()).length, 0);
+    const exhausted = await row(id);
+    assert.equal(exhausted.attempt_count, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+    assert.equal(exhausted.dispatched_at, null);
+  });
+
+  it("a delivery that succeeds before the limit is dispatched, not failed", async () => {
+    statusJourney("j-any");
+    const id = await pendingEvent();
+    assert.deepEqual(await drain(failing), { claimed: 1, delivered: 0, depthLimited: 0, failed: 1, permanentlyFailed: 0 });
+    await setAttempts(id, MAX_LEAD_STATUS_EVENT_ATTEMPTS - 1);
+    await retryNow();
+
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0, permanentlyFailed: 0 });
+    const delivered = await row(id);
+    assert.ok(delivered.dispatched_at);
+    assert.equal(delivered.failed_at, null);
+    assert.equal(delivered.last_error, null);
+    assert.equal(delivered.attempt_count, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+    assert.equal(runs().length, 1);
+  });
+
+  it("a stale claim can't permanently fail a row another dispatcher holds", async () => {
+    const id = await pendingEvent();
+    await setAttempts(id, MAX_LEAD_STATUS_EVENT_ATTEMPTS - 2);
+    const [stale] = await claimOne();
+    await expireClaims();
+    const [current] = await claimOne();
+    assert.equal(current.attempt_count, MAX_LEAD_STATUS_EVENT_ATTEMPTS);
+
+    assert.equal(await outbox.fail(stale, "late failure"), "stale");
+    let held = await row(id);
+    assert.equal(held.failed_at, null);
+    assert.equal(held.last_error, null);
+    assert.equal(held.claim_token, current.claim_token);
+
+    assert.equal(await outbox.fail(current, "real failure"), "failed");
+    held = await row(id);
+    assert.ok(held.failed_at);
+    assert.equal(held.last_error, "real failure");
+  });
+
+  it("a permanently failed row doesn't hold up other rows", async () => {
+    const doomed = await pendingEvent();
+    const healthy = await pendingEvent();
+    await setAttempts(doomed, MAX_LEAD_STATUS_EVENT_ATTEMPTS - 1);
+
+    const summary = await dispatchLeadStatusEvents(
+      outbox,
+      async (event) => {
+        if (event.sourceId === doomed) throw new Error("boom");
+      },
+      { ...DEFAULT_OUTBOX_OPTIONS, budgetMs: 60_000 },
+      Date.now,
+      () => undefined,
+    );
+    assert.deepEqual(summary, { claimed: 2, delivered: 1, depthLimited: 0, failed: 1, permanentlyFailed: 1 });
+    assert.ok((await row(doomed)).failed_at);
+    assert.ok((await row(healthy)).dispatched_at);
+
+    const later = await pendingEvent();
+    const claimed = await claimOne();
+    assert.deepEqual(claimed.map((entry) => entry.id), [later]);
+  });
+
+  it("the documented requeue gives a permanently failed event a fresh set of attempts", async () => {
+    const id = await pendingEvent();
+    await setAttempts(id, MAX_LEAD_STATUS_EVENT_ATTEMPTS - 1);
+    const [last] = await claimOne();
+    assert.equal(await outbox.fail(last, "boom"), "failed");
+
+    await db.query(
+      `update public.lead_status_events
+          set failed_at = null, attempt_count = 0, next_attempt_at = now(),
+              locked_until = null, claim_token = null
+        where id = $1 and dispatched_at is null`,
+      [id],
+    );
+    const [requeued] = await claimOne();
+    assert.equal(requeued.id, id);
+    assert.equal(requeued.attempt_count, 1);
+    assert.equal(requeued.to_status, "Working");
+  });
+
+  it("migration 057: failed_at column, pending index predicate, single function signatures", async () => {
+    const [column] = await db.query<{ data_type: string; is_nullable: string; column_default: string | null }>(
+      "select data_type, is_nullable, column_default from information_schema.columns where table_name = 'lead_status_events' and column_name = 'failed_at'",
+    );
+    assert.deepEqual(column, { data_type: "timestamp with time zone", is_nullable: "YES", column_default: null });
+
+    const [index] = await db.query<{ indexdef: string }>(
+      "select indexdef from pg_indexes where indexname = 'lead_status_events_pending_idx'",
+    );
+    assert.match(index.indexdef, /\(next_attempt_at, created_at\) WHERE \(\(dispatched_at IS NULL\) AND \(failed_at IS NULL\)\)$/);
+
+    const signatures = await db.query<{ signature: string }>(
+      `select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as signature
+         from pg_proc p where p.proname in ('claim_lead_status_events', 'fail_lead_status_event') order by 1`,
+    );
+    assert.deepEqual(signatures.map((entry) => entry.signature), [
+      "claim_lead_status_events(p_limit integer, p_lease_seconds integer, p_tenant_id uuid, p_contact_id uuid, p_max_attempts integer)",
+      "fail_lead_status_event(p_id uuid, p_claim_token uuid, p_error text, p_max_attempts integer)",
+    ]);
   });
 });
 
@@ -650,7 +873,7 @@ describe("journey-originated status changes", () => {
     assert.equal(pending.origin, "journey");
     assert.equal(pending.origin_run_id, runA);
 
-    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0, permanentlyFailed: 0 });
     const [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.equal(row.last_error, null);
@@ -702,14 +925,14 @@ describe("journey-originated status changes", () => {
     const lead = await newLead(tenant, "Working");
     await journeySetsStatus(lead, "Qualified", await runOf(journeyA));
 
-    assert.deepEqual(await drain(async () => { throw new Error("temporary outage"); }), { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
+    assert.deepEqual(await drain(async () => { throw new Error("temporary outage"); }), { claimed: 1, delivered: 0, depthLimited: 0, failed: 1, permanentlyFailed: 0 });
     let [row] = await rows();
     assert.equal(row.dispatched_at, null);
     assert.equal(row.attempt_count, 1);
     assert.deepEqual(runs(), []);
 
     await db.query("update public.lead_status_events set next_attempt_at = now()");
-    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0, permanentlyFailed: 0 });
     [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.deepEqual(startedJourneys(), [journeyB, journeyC].sort());
@@ -722,7 +945,7 @@ describe("journey-originated status changes", () => {
     await db.query("revoke select on public.journey_runs from service_role");
     try {
       const summary = await drain();
-      assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
+      assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1, permanentlyFailed: 0 });
     } finally {
       await db.query("grant select on public.journey_runs to service_role");
     }
