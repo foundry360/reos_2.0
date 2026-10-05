@@ -4,7 +4,7 @@ import { CancelRunButton } from "../../_components/cancel-run-button";
 import { JourneyStatusBadge } from "../../_components/journey-status-badge";
 import { EmptyState } from "@/components/shell/empty-state";
 import { PageHeading } from "@/components/shell/page-heading";
-import { formatStableDateTime } from "@/components/shell/relative-time";
+import { formatStableDateTime } from "@/components/shell/format-date";
 import { IconJourney } from "@/components/shell/sidebar-nav";
 import { getJourneyDefinition } from "@/lib/journeys/journey-repository";
 import {

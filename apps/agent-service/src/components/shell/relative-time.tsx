@@ -2,28 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { formatRelativeTime } from "@/lib/admin/activity-timeline";
+import { formatStableDate, formatStableDateTime } from "./format-date";
 
-/** Stable absolute date for SSR / first paint (matches server + client). */
-export function formatStableDate(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date);
-}
-
-export function formatStableDateTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
+// Server components must import these from ./format-date, not from this client module.
+export { formatStableDate, formatStableDateTime };
 
 /**
  * Renders a locale-stable absolute time on SSR, then switches to relative
