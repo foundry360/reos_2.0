@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { RepositoryResult } from "./journey-repository";
@@ -154,6 +155,27 @@ function toStep(row: {
   };
 }
 
+const CANCELLED_RUN_COLUMNS = "id, trigger_event, origin_run_id:trigger_payload->>origin_run_id";
+type CancelledRun = { id: string; trigger_event: string; origin_run_id: string | null };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A cancelled run started by a Start journey step wakes that step's run if it
+ * is waiting for it, as the engine does when a run finishes. A failure here
+ * only delays the parent until its own recheck.
+ */
+async function wakeWaitingParents(db: SupabaseClient, tenantId: string, runs: CancelledRun[]): Promise<void> {
+  const store = createSupabaseJourneyStore(db);
+  for (const run of runs) {
+    if (run.trigger_event !== "journey.started" || !run.origin_run_id || !UUID.test(run.origin_run_id)) continue;
+    try {
+      await store.wakeWaitingParent(tenantId, run.origin_run_id, run.id, new Date());
+    } catch (error) {
+      console.error("wakeWaitingParents failed:", error instanceof Error ? error.message : error);
+    }
+  }
+}
+
 /**
  * Members can't write runs directly (select-only RLS). Ownership is checked with
  * the user's client first; only then does the service role apply the change.
@@ -177,16 +199,18 @@ export async function cancelJourneyRun(
   const db = getSupabaseAdmin();
   if (!db) return { ok: false, error: "Journey runtime is unavailable." };
   const now = new Date().toISOString();
-  const { error } = await db
+  const { data: cancelled, error } = await db
     .from("journey_runs")
     .update({ status: "cancelled", completed_at: now, resume_at: null, locked_until: null, error: "Cancelled by a team member." })
     .eq("tenant_id", tenantId)
     .eq("id", runId)
-    .in("status", ACTIVE_STATUSES);
+    .in("status", ACTIVE_STATUSES)
+    .select(CANCELLED_RUN_COLUMNS);
   if (error) {
     console.error("cancelJourneyRun failed:", error.message);
     return { ok: false, error: "Could not cancel the run." };
   }
+  await wakeWaitingParents(db, tenantId, (cancelled ?? []) as CancelledRun[]);
   await db
     .from("journey_run_steps")
     .update({ status: "skipped", completed_at: now, error: "Run cancelled." })
@@ -214,11 +238,12 @@ export async function cancelActiveJourneyRuns(
     .eq("tenant_id", tenantId)
     .eq("journey_id", journeyId)
     .in("status", ACTIVE_STATUSES)
-    .select("id");
+    .select(CANCELLED_RUN_COLUMNS);
   if (error) {
     console.error("cancelActiveJourneyRuns failed:", error.message);
     return { ok: false, error: "Could not cancel the journey's active runs." };
   }
+  await wakeWaitingParents(db, tenantId, (runs ?? []) as CancelledRun[]);
   const runIds = (runs ?? []).map((run) => run.id as string);
   if (runIds.length > 0) {
     const { error: stepError } = await db

@@ -283,7 +283,7 @@ export type ActionConfig =
   | { action: "create_task"; title: string; notes: string; dueInDays: number | null }
   | { action: "update_lead"; fields: Partial<Record<UpdateLeadField, string | number | boolean>> }
   | { action: "notify_team"; title: string; body: string; recipients: (typeof NOTIFY_RECIPIENTS)[number] }
-  | { action: "start_journey"; journeyId: string; inputMappings?: InputMapping[] }
+  | { action: "start_journey"; journeyId: string; inputMappings?: InputMapping[]; waitForCompletion?: true }
   | { action: "wait"; duration: number; unit: WaitUnit };
 
 export interface TriggerConfig {
@@ -633,7 +633,12 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
       const inputs = parseInputMappings(raw.inputMappings, mode);
       errors.push(...inputs.errors);
       return {
-        config: inputs.mappings.length > 0 ? { action, journeyId, inputMappings: inputs.mappings } : { action, journeyId },
+        config: {
+          action,
+          journeyId,
+          ...(inputs.mappings.length > 0 ? { inputMappings: inputs.mappings } : {}),
+          ...(raw.waitForCompletion === true ? { waitForCompletion: true as const } : {}),
+        },
         errors,
       };
     }

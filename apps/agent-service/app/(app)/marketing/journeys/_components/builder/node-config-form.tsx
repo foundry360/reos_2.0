@@ -956,6 +956,30 @@ export function NodeConfigForm({
                 Otherwise, or if the lead is already in it, this step is skipped and this journey continues.
               </p>
             </div>
+            <div className={shell.field}>
+              <label className={shell.label} htmlFor={id("wait")}>
+                Then
+              </label>
+              <DropdownSelect
+                id={id("wait")}
+                value={config.waitForCompletion === true ? "wait" : "continue"}
+                onChange={(next) => {
+                  const { waitForCompletion: _previous, ...rest } = config;
+                  onChange(next === "wait" ? { ...rest, waitForCompletion: true } : rest);
+                }}
+                options={[
+                  { value: "continue", label: "Continue right away" },
+                  { value: "wait", label: "Wait for this journey to finish" },
+                ]}
+              />
+              {config.waitForCompletion === true ? (
+                <p className={shell.fieldHint}>
+                  This journey pauses here until the started run completes, fails, or is cancelled, then continues
+                  either way. To branch on how it ended, add a Condition using this step&rsquo;s output field
+                  child_status (completed, failed, or cancelled).
+                </p>
+              ) : null}
+            </div>
             <InputMappingsEditor
               idPrefix={id("input")}
               mappings={(Array.isArray(config.inputMappings) ? config.inputMappings : []).map(toMapping)}

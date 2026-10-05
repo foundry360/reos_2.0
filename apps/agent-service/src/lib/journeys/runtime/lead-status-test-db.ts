@@ -97,8 +97,22 @@ function identifier(value: string): string {
   return value;
 }
 
+const JSON_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** A column, or a PostgREST JSON path on one (col->key->>key). Keys are validated, never interpolated raw. */
+function columnExpr(value: string): string {
+  const parts = value.split(/(->>|->)/);
+  let sql = identifier(parts[0]);
+  for (let i = 1; i < parts.length; i += 2) {
+    const key = parts[i + 1] ?? "";
+    if (!JSON_KEY.test(key)) throw new Error(`Unsupported JSON key: ${key}`);
+    sql += `${parts[i]}'${key}'`;
+  }
+  return sql;
+}
+
 function parseFilter(column: string, raw: string, params: unknown[]): string {
-  const col = identifier(column);
+  const col = columnExpr(column);
   const dot = raw.indexOf(".");
   const operator = raw.slice(0, dot);
   const value = raw.slice(dot + 1);
@@ -126,7 +140,13 @@ function parseFilter(column: string, raw: string, params: unknown[]): string {
 
 function selectList(select: string | null): string {
   if (!select || select === "*") return "*";
-  return select.split(",").map((column) => identifier(column.trim())).join(", ");
+  return select
+    .split(",")
+    .map((entry) => {
+      const [alias, column] = entry.includes(":") ? entry.trim().split(":") : [null, entry.trim()];
+      return alias ? `${columnExpr(column)} as ${identifier(alias)}` : identifier(column);
+    })
+    .join(", ");
 }
 
 /** order=col.asc|desc[.nullsfirst|.nullslast], comma-separated. */

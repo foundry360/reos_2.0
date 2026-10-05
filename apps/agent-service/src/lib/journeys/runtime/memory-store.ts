@@ -240,6 +240,17 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
       .map((run) => run.id);
   }
 
+  async findRunByIdempotencyKey(tenantId: string, idempotencyKey: string) {
+    const run = [...this.runs.values()].find((entry) => entry.tenantId === tenantId && entry.idempotencyKey === idempotencyKey);
+    return run ? { id: run.id, status: run.status } : null;
+  }
+
+  async wakeWaitingParent(tenantId: string, parentRunId: string, childRunId: string, now: Date) {
+    const run = this.runs.get(parentRunId);
+    if (!run || run.tenantId !== tenantId || run.status !== "waiting" || run.context.waitingForChild?.runId !== childRunId) return;
+    run.resumeAt = now.toISOString();
+  }
+
   stepsFor(runId: string) {
     return this.steps.filter((step) => step.runId === runId);
   }

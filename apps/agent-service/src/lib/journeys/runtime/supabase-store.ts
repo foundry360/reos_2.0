@@ -359,5 +359,27 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
       if (error) fail("listDueRunIds", error);
       return (data ?? []).map((row) => row.id as string);
     },
+
+    async findRunByIdempotencyKey(tenantId, idempotencyKey) {
+      const { data, error } = await db
+        .from("journey_runs")
+        .select("id, status")
+        .eq("tenant_id", tenantId)
+        .eq("idempotency_key", idempotencyKey)
+        .maybeSingle();
+      if (error) fail("findRunByIdempotencyKey", error);
+      return data ? { id: data.id as string, status: data.status as RunRecord["status"] } : null;
+    },
+
+    async wakeWaitingParent(tenantId, parentRunId, childRunId, now) {
+      const { error } = await db
+        .from("journey_runs")
+        .update({ resume_at: now.toISOString() })
+        .eq("tenant_id", tenantId)
+        .eq("id", parentRunId)
+        .eq("status", "waiting")
+        .eq("context->waitingForChild->>runId", childRunId);
+      if (error) fail("wakeWaitingParent", error);
+    },
   };
 }

@@ -88,6 +88,7 @@ export function retryContext(context: RunState, nodeId: string): RunState {
   const next = structuredClone(context);
   delete next.inFlight;
   delete next.waitingStepId;
+  delete next.waitingForChild;
   next.steps = next.steps ?? {};
   next.attempts = { ...(next.attempts ?? {}), [nodeId]: MAX_ATTEMPTS - 1 };
   return next;
