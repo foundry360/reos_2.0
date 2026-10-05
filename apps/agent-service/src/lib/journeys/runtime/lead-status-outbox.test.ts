@@ -122,10 +122,10 @@ describe("lead status outbox dispatch", () => {
     assert.equal(delivered[0].contactId, lead);
     assert.deepEqual(
       { ...delivered[0].payload, changed_at: undefined },
-      { event_id: row.id, from_status: "New", to_status: "Working", origin: "system", actor_user_id: null, origin_run_id: null, converted: false, changed_at: undefined },
+      { event_id: row.id, from_status: "New", to_status: "Working", origin: "system", actor_user_id: null, origin_run_id: null, converted: false, changed_at: undefined, causation_depth: 0 },
     );
     const [run] = runs();
-    assert.equal(run.idempotencyKey, `lead.status_changed:${row.id}:j-any:v1`);
+    assert.equal(run.idempotencyKey, `lead.status_changed:${row.id}:j-any`);
   });
 
   it("marks a delivered row dispatched and releases its claim", async () => {
@@ -134,7 +134,7 @@ describe("lead status outbox dispatch", () => {
     await setStatus(lead, "Working");
 
     const summary = await drain();
-    assert.deepEqual(summary, { claimed: 1, delivered: 1, failed: 0 });
+    assert.deepEqual(summary, { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
     const [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.equal(row.claim_token, null);
@@ -211,7 +211,7 @@ describe("lead status outbox dispatch", () => {
     const summary = await drain(async () => {
       throw new Error("database unavailable");
     });
-    assert.deepEqual(summary, { claimed: 1, delivered: 0, failed: 1 });
+    assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
     let [row] = await rows();
     assert.equal(row.dispatched_at, null);
     assert.equal(row.attempt_count, 1);
@@ -221,7 +221,7 @@ describe("lead status outbox dispatch", () => {
     assert.equal((await drain()).claimed, 0, "not retried before the backoff");
 
     await db.query("update public.lead_status_events set next_attempt_at = now()");
-    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, failed: 0 });
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
     [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.equal(row.last_error, null);
@@ -238,7 +238,7 @@ describe("lead status outbox dispatch", () => {
     const summary = await drain(async (event) => {
       if (event.contactId === a) throw new Error("boom");
     });
-    assert.deepEqual(summary, { claimed: 2, delivered: 1, failed: 1 });
+    assert.deepEqual(summary, { claimed: 2, delivered: 1, depthLimited: 0, failed: 1 });
   });
 
   it("delivers a contact's transitions in the order they happened", async () => {
@@ -368,6 +368,243 @@ describe("other journey events", () => {
   });
 });
 
+describe("run idempotency across journey versions", () => {
+  const JOURNEY = "j-once";
+
+  /** Trigger → wait 1 day → task, so the run stays active (waiting). */
+  function waitingJourney(journeyId: string) {
+    const snapshot: JourneySnapshot = {
+      nodes: [
+        { id: `${journeyId}-t`, type: "trigger", name: "Trigger", description: "", config: { event: "lead.status_changed", filters: [] } },
+        { id: `${journeyId}-w`, type: "action", name: "Wait", description: "", config: { action: "wait", duration: 1, unit: "days" } },
+        { id: `${journeyId}-a`, type: "action", name: "Task", description: "", config: { action: "create_task", title: "Follow up", notes: "", dueInDays: 1 } },
+      ],
+      connections: [
+        { id: `${journeyId}-c1`, sourceNodeId: `${journeyId}-t`, targetNodeId: `${journeyId}-w`, sourceHandle: null, targetHandle: null },
+        { id: `${journeyId}-c2`, sourceNodeId: `${journeyId}-w`, targetNodeId: `${journeyId}-a`, sourceHandle: null, targetHandle: null },
+      ],
+    };
+    return store.saveJourney(tenant, journeyId, snapshot);
+  }
+
+  /** Drains pending rows and records each journey's dispatch result. */
+  async function deliver(): Promise<string[]> {
+    const outcomes: string[] = [];
+    await drain(async (event) => {
+      const result = await dispatchJourneyEvent(deps, event);
+      outcomes.push(...result.map((entry) => entry.result));
+      return result;
+    });
+    return outcomes;
+  }
+
+  /** The outbox delivers the same rows again (dispatcher died before marking them, or an expired claim). */
+  async function redeliver(): Promise<string[]> {
+    await db.query("update public.lead_status_events set dispatched_at = null");
+    return deliver();
+  }
+
+  it("a status event creates one run keyed by event and journey, without a version", async () => {
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    const [row] = await rows();
+
+    assert.deepEqual(await deliver(), ["started"]);
+    assert.equal(runs().length, 1);
+    assert.equal(runs()[0].idempotencyKey, `lead.status_changed:${row.id}:${JOURNEY}`);
+  });
+
+  it("delivering the same event twice: started, then duplicate", async () => {
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+
+    assert.deepEqual(await deliver(), ["started"]);
+    assert.deepEqual(await redeliver(), ["duplicate"]);
+    assert.equal(runs().length, 1);
+  });
+
+  it("redelivery after the journey was saved as v2 is a duplicate; the run keeps version 1", async () => {
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    await deliver();
+    assert.equal(runs()[0].status, "completed");
+
+    statusJourney(JOURNEY);
+    assert.equal(store.journeys.get(JOURNEY)!.version, 2);
+
+    assert.deepEqual(await redeliver(), ["duplicate"]);
+    assert.equal(runs().length, 1);
+    assert.equal(runs()[0].journeyVersion, 1);
+  });
+
+  it("redelivery after v2, v3, and v4 is still a duplicate", async () => {
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    await deliver();
+
+    for (let save = 0; save < 3; save++) statusJourney(JOURNEY);
+    assert.equal(store.journeys.get(JOURNEY)!.version, 4);
+
+    assert.deepEqual(await redeliver(), ["duplicate"]);
+    assert.equal(runs().length, 1);
+    assert.equal(runs()[0].journeyVersion, 1);
+  });
+
+  it("journey saved while its run waits: redelivery and a new event start nothing (active-run rule unchanged)", async () => {
+    waitingJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    const [row] = await rows();
+    await deliver();
+    assert.equal(runs()[0].status, "waiting");
+
+    waitingJourney(JOURNEY);
+    // The active-run check answers before the key is tried; the key would collide anyway.
+    assert.deepEqual(await redeliver(), ["already_active"]);
+    assert.equal(idempotencyKey({ type: "lead.status_changed", sourceId: row.id }, JOURNEY, 2), runs()[0].idempotencyKey);
+    assert.equal(runs().length, 1);
+    assert.equal(runs()[0].journeyVersion, 1);
+
+    await setStatus(lead, "Contacted");
+    assert.deepEqual(await deliver(), ["already_active"]);
+    assert.equal(runs().length, 1);
+    assert.equal(runs()[0].status, "waiting");
+  });
+
+  it("a new event after the journey was saved starts its own run on the new version", async () => {
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    assert.deepEqual(await deliver(), ["started"]);
+
+    statusJourney(JOURNEY);
+    await setStatus(lead, "Contacted");
+    assert.deepEqual(await deliver(), ["started"]);
+
+    const [e1, e2] = await rows();
+    assert.deepEqual(
+      runs().map((run) => [run.idempotencyKey, run.journeyVersion]),
+      [
+        [`lead.status_changed:${e1.id}:${JOURNEY}`, 1],
+        [`lead.status_changed:${e2.id}:${JOURNEY}`, 2],
+      ],
+    );
+  });
+
+  it("two workers delivering the same event at once: one started, one duplicate, one run", async () => {
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    const [claimed] = await outbox.claim({ limit: 1, leaseSeconds: 60 });
+    const event = leadStatusJourneyEvent(claimed);
+
+    const results = await Promise.all([dispatchJourneyEvent(deps, event), dispatchJourneyEvent(deps, event)]);
+    assert.deepEqual(results.flat().map((entry) => entry.result).sort(), ["duplicate", "started"]);
+    assert.equal(runs().length, 1);
+  });
+
+  it("two workers that see different journey versions still produce one run", async () => {
+    statusJourney(JOURNEY);
+    const v1 = (await store.findCandidateJourneys(tenant, "lead.status_changed"))[0];
+    statusJourney(JOURNEY);
+    const lead = await newLead();
+    await setStatus(lead, "Working");
+    const [claimed] = await outbox.claim({ limit: 1, leaseSeconds: 60 });
+    const event = leadStatusJourneyEvent(claimed);
+
+    assert.equal(idempotencyKey(event, JOURNEY, 1), idempotencyKey(event, JOURNEY, 2));
+
+    // A worker that loaded the journey before the save still sees v1.
+    const staleStore = new Proxy(store, {
+      get(target, property) {
+        if (property === "findCandidateJourneys") return async () => [v1];
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const results = await Promise.all([
+      dispatchJourneyEvent({ ...deps, store: staleStore }, event),
+      dispatchJourneyEvent(deps, event),
+    ]);
+    assert.deepEqual(results.flat().map((entry) => entry.result).sort(), ["duplicate", "started"]);
+    assert.equal(runs().length, 1);
+  });
+
+  it("different events for the same journey run independently", async () => {
+    statusJourney(JOURNEY);
+    const a = await newLead();
+    const b = await newLead();
+    await setStatus(a, "Working");
+    await setStatus(b, "Working");
+    assert.deepEqual(await deliver(), ["started", "started"]);
+
+    await setStatus(a, "Contacted");
+    assert.deepEqual(await deliver(), ["started"]);
+    assert.equal(runs().length, 3);
+    assert.equal(new Set(runs().map((run) => run.idempotencyKey)).size, 3);
+  });
+
+  it("other journey events keep the versioned key", () => {
+    for (const type of ["lead.created", "manual", "message.received", "appointment.booked", "task.completed"] as const) {
+      const event = { type, sourceId: "src-1" };
+      assert.equal(idempotencyKey(event, JOURNEY, 1), `${type}:src-1:${JOURNEY}:v1`);
+      assert.equal(idempotencyKey(event, JOURNEY, 2), `${type}:src-1:${JOURNEY}:v2`);
+    }
+    assert.equal(idempotencyKey({ type: "lead.status_changed", sourceId: "src-1" }, JOURNEY, 7), `lead.status_changed:src-1:${JOURNEY}`);
+  });
+});
+
+describe("journey_runs uniqueness (tenant_id, idempotency_key) in Postgres", () => {
+  const insertRun = (tenantId: string, journeyId: string, version: number, key: string) =>
+    db.query(
+      "insert into public.journey_runs (tenant_id, journey_id, trigger_event, journey_version, idempotency_key) values ($1, $2, 'lead.status_changed', $3, $4)",
+      [tenantId, journeyId, version, key],
+    );
+  const event = (sourceId: string) => ({ type: "lead.status_changed" as const, sourceId });
+
+  it("a second run for the same status event and journey is rejected even at a different journey_version", async () => {
+    const journeyId = randomUUID();
+    const eventId = randomUUID();
+    await insertRun(tenant, journeyId, 1, idempotencyKey(event(eventId), journeyId, 1));
+    await assert.rejects(
+      insertRun(tenant, journeyId, 2, idempotencyKey(event(eventId), journeyId, 2)),
+      (error: { code?: string }) => error.code === "23505",
+    );
+    const [{ count }] = await db.query<{ count: number }>("select count(*)::int as count from public.journey_runs");
+    assert.equal(count, 1);
+  });
+
+  it("other events, journeys, and workspaces are not blocked", async () => {
+    const journeyId = randomUUID();
+    const eventId = randomUUID();
+    const otherTenant = await newTenant();
+    await insertRun(tenant, journeyId, 1, idempotencyKey(event(eventId), journeyId, 1));
+    await insertRun(tenant, journeyId, 2, idempotencyKey(event(randomUUID()), journeyId, 2));
+    const otherJourney = randomUUID();
+    await insertRun(tenant, otherJourney, 1, idempotencyKey(event(eventId), otherJourney, 1));
+    await insertRun(otherTenant, journeyId, 1, idempotencyKey(event(eventId), journeyId, 1));
+  });
+
+  it("deployment transition: a run keyed the old way (…:v1) does not collide with the new key", async () => {
+    const journeyId = randomUUID();
+    const eventId = randomUUID();
+    const legacyKey = `lead.status_changed:${eventId}:${journeyId}:v1`;
+    const newKey = idempotencyKey(event(eventId), journeyId, 1);
+    assert.equal(newKey, `lead.status_changed:${eventId}:${journeyId}`);
+    assert.notEqual(newKey, legacyKey);
+
+    // A row redelivered after the deploy whose run was created before it is not deduplicated by the key.
+    await insertRun(tenant, journeyId, 1, legacyKey);
+    await insertRun(tenant, journeyId, 1, newKey);
+    const [{ count }] = await db.query<{ count: number }>("select count(*)::int as count from public.journey_runs");
+    assert.equal(count, 2);
+  });
+});
+
 describe("journey-originated status changes", () => {
   // Journey A: New → Working, then Update lead → Qualified. B listens for Qualified, C for any change.
   // A also matches any change here, so only the origin exclusion keeps it from re-enrolling.
@@ -413,7 +650,7 @@ describe("journey-originated status changes", () => {
     assert.equal(pending.origin, "journey");
     assert.equal(pending.origin_run_id, runA);
 
-    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, failed: 0 });
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
     const [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.equal(row.last_error, null);
@@ -454,7 +691,7 @@ describe("journey-originated status changes", () => {
     await drain();
     const [row] = await rows();
     const keys = runs().map((run) => run.idempotencyKey).sort();
-    assert.deepEqual(keys, [`lead.status_changed:${row.id}:${journeyB}:v1`, `lead.status_changed:${row.id}:${journeyC}:v1`].sort());
+    assert.deepEqual(keys, [`lead.status_changed:${row.id}:${journeyB}`, `lead.status_changed:${row.id}:${journeyC}`].sort());
 
     await db.query("update public.lead_status_events set dispatched_at = null");
     await drain();
@@ -465,14 +702,14 @@ describe("journey-originated status changes", () => {
     const lead = await newLead(tenant, "Working");
     await journeySetsStatus(lead, "Qualified", await runOf(journeyA));
 
-    assert.deepEqual(await drain(async () => { throw new Error("temporary outage"); }), { claimed: 1, delivered: 0, failed: 1 });
+    assert.deepEqual(await drain(async () => { throw new Error("temporary outage"); }), { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
     let [row] = await rows();
     assert.equal(row.dispatched_at, null);
     assert.equal(row.attempt_count, 1);
     assert.deepEqual(runs(), []);
 
     await db.query("update public.lead_status_events set next_attempt_at = now()");
-    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, failed: 0 });
+    assert.deepEqual(await drain(), { claimed: 1, delivered: 1, depthLimited: 0, failed: 0 });
     [row] = await rows();
     assert.ok(row.dispatched_at);
     assert.deepEqual(startedJourneys(), [journeyB, journeyC].sort());
@@ -485,7 +722,7 @@ describe("journey-originated status changes", () => {
     await db.query("revoke select on public.journey_runs from service_role");
     try {
       const summary = await drain();
-      assert.deepEqual(summary, { claimed: 1, delivered: 0, failed: 1 });
+      assert.deepEqual(summary, { claimed: 1, delivered: 0, depthLimited: 0, failed: 1 });
     } finally {
       await db.query("grant select on public.journey_runs to service_role");
     }

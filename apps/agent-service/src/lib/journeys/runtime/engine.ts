@@ -206,6 +206,12 @@ export const MAX_ATTEMPTS = 3;
 export const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000];
 export const LEASE_MS = 2 * 60_000;
 export const MAX_STEPS_PER_PASS = 50;
+/**
+ * Longest chain of journey runs linked by status changes. A run started by any
+ * event other than a journey-made status change is depth 1; a run started by a
+ * status change that a depth-N run made is depth N + 1. No run deeper than this starts.
+ */
+export const MAX_JOURNEY_CAUSATION_DEPTH = 3;
 
 /** Steps that can safely run twice if the process died mid-step. */
 const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead"]);
@@ -213,8 +219,16 @@ const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead"]);
 /** Actions that change lead or opportunity data later steps read, so the pass reloads it after they succeed. */
 const CHANGES_ENTITIES = new Set(["update_lead", "assign_lead"]);
 
+/**
+ * Events redelivered by an outbox until acknowledged. Their run key leaves out
+ * the journey version, so one event starts a journey at most once even if the
+ * journey was saved (new version) between deliveries.
+ */
+const ONCE_PER_JOURNEY_EVENTS = new Set<string>(["lead.status_changed"]);
+
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
-  return `${event.type}:${event.sourceId}:${journeyId}:v${version}`;
+  const key = `${event.type}:${event.sourceId}:${journeyId}`;
+  return ONCE_PER_JOURNEY_EVENTS.has(event.type) ? key : `${key}:v${version}`;
 }
 
 /** A failed AI result becomes a step error so the normal retry/fail path handles it. */

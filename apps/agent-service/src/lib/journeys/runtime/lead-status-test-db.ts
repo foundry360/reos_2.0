@@ -42,7 +42,13 @@ create table public.contacts (
 create table public.journey_runs (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants (id) on delete cascade,
-  journey_id uuid not null
+  journey_id uuid not null,
+  trigger_event text not null default 'manual',
+  trigger_payload jsonb not null default '{}'::jsonb,
+  journey_version integer,
+  idempotency_key text,
+  -- Same uniqueness as migration 054; nullable here so tests can insert bare origin runs.
+  unique (tenant_id, idempotency_key)
 );
 
 create table public.test_memberships (user_id uuid not null, tenant_id uuid not null);
