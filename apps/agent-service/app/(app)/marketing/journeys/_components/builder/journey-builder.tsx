@@ -48,9 +48,10 @@ import { JourneyNodeView } from "./journey-node-view";
 import { JOURNEY_NODE_COLORS } from "../journey-node-icon";
 import { LeaveJourneyModal } from "./leave-journey-modal";
 import { NodePicker } from "./node-picker";
+import type { JourneyOption } from "./node-config-form";
 import { PropertiesPanel, type NodePatch } from "./properties-panel";
 import { isTriggerEventType, nodeReferenceKey } from "@/lib/journeys/runtime/contracts";
-import { knownOutputFields, referenceableSteps, stepKeys } from "@/lib/journeys/runtime/graph";
+import { exportableSteps, knownOutputFields, referenceableSteps, stepKeys } from "@/lib/journeys/runtime/graph";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
@@ -93,7 +94,7 @@ interface JourneyBuilderProps {
   journey: JourneyDefinition;
   agentOptions: { id: string; label: string }[];
   /** Other journeys in the workspace a Start journey step can target. */
-  journeyOptions: { id: string; label: string }[];
+  journeyOptions: JourneyOption[];
 }
 
 export function JourneyBuilder(props: JourneyBuilderProps) {
@@ -135,19 +136,23 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
   const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
   const lifecycle = nextJourneyStatus(status);
 
-  // Conditions and Start journey inputs can read earlier step outputs.
+  // Conditions and Start journey inputs can read earlier step outputs; a journey.started
+  // trigger's declared results can return any reachable step's output.
   const selectedReaderId =
     selectedNode &&
     (selectedNode.data.nodeType === "condition" ||
-      (selectedNode.data.nodeType === "action" && selectedNode.data.config.action === "start_journey"))
+      (selectedNode.data.nodeType === "action" && selectedNode.data.config.action === "start_journey") ||
+      (selectedNode.data.nodeType === "trigger" && selectedNode.data.config.event === "journey.started"))
       ? selectedNode.id
       : null;
+  const readerIsTrigger = selectedNode?.data.nodeType === "trigger";
   const stepOptions = useMemo(() => {
     if (!selectedReaderId) return [];
     const graph = toJourneyGraph(nodes, edges);
     const legacyKeys = stepKeys(graph.nodes);
     const seen = new Map<string, number>();
-    return referenceableSteps(graph, selectedReaderId).map((node) => {
+    const readable = readerIsTrigger ? exportableSteps(graph) : referenceableSteps(graph, selectedReaderId);
+    return readable.map((node) => {
       const base = node.name.trim() || journeyNodeTypeDefinition(node.type).label;
       const count = (seen.get(base) ?? 0) + 1;
       seen.set(base, count);
@@ -159,7 +164,7 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
         outputs: knownOutputFields(node),
       };
     });
-  }, [nodes, edges, selectedReaderId]);
+  }, [nodes, edges, selectedReaderId, readerIsTrigger]);
   const triggerEvent = useMemo(() => {
     const event = nodes.find((node) => node.data.nodeType === "trigger")?.data.config.event;
     return isTriggerEventType(event) ? event : null;

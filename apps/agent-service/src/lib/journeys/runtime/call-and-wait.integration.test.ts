@@ -149,6 +149,28 @@ describe("supabase store", () => {
     assert.equal(await store.findRunByIdempotencyKey(tenant, `${key}x`), null);
   });
 
+  it("findRunByIdempotencyKey: a completed child's captured results (or why it has none), and nothing else of its context", async () => {
+    const journey = await newJourney();
+    const withResults = `journey.started:${randomUUID()}:node:${journey}`;
+    const withError = `journey.started:${randomUUID()}:node:${journey}`;
+    const resultsId = await insertRun({
+      journeyId: journey, status: "completed", key: withResults,
+      context: { steps: { ai: { output: { secret: "x" } } }, results: { decision: "approved", score: 0.92, ok: true, note: null } },
+    });
+    const errorId = await insertRun({
+      journeyId: journey, status: "completed", key: withError,
+      context: { steps: {}, resultsError: { reason: "results_too_large", bytes: 9001 } },
+    });
+
+    assert.deepEqual(await store.findRunByIdempotencyKey(tenant, withResults), {
+      id: resultsId, status: "completed", results: { decision: "approved", score: 0.92, ok: true, note: null },
+    });
+    assert.deepEqual(await store.findRunByIdempotencyKey(tenant, withError), {
+      id: errorId, status: "completed", resultsError: { reason: "results_too_large", bytes: 9001 },
+    });
+    assert.equal(await store.findRunByIdempotencyKey(otherTenant, withResults), null);
+  });
+
   it("wakeWaitingParent: makes the parent due only for its own child, while waiting, in its workspace", async () => {
     const { parentId, childId } = await waitingPair();
     const now = new Date("2026-10-05T12:00:00.000Z");

@@ -158,9 +158,26 @@ export const INPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,59}$/;
  */
 export const TRIGGER_INPUT_FIELD_PATTERN = /^trigger\.inputs\.([a-z][a-z0-9_]{0,59})$/;
 
+/**
+ * steps.<node key>.output.results.<name> reads one result a waiting Start
+ * journey step received from the journey it started. The only nested step path.
+ */
+export const STEP_RESULT_FIELD_PATTERN = /^steps\.([a-z0-9_]{1,60})\.output\.results\.([a-z][a-z0-9_]{0,59})$/;
+
+/** The output field of a step result reference ("results.<name>"). */
+const RESULT_OUTPUT_FIELD = /^results\.[a-z][a-z0-9_]{0,59}$/;
+
+/** The step key and output field (`<field>` or `results.<name>`) of a step reference, or null. */
+export function parseStepField(field: string): { key: string; field: string } | null {
+  const step = STEP_FIELD_PATTERN.exec(field);
+  if (step) return { key: step[1], field: step[2] };
+  const result = STEP_RESULT_FIELD_PATTERN.exec(field);
+  return result ? { key: result[1], field: `results.${result[2]}` } : null;
+}
+
 /** Free-form fields: step outputs and journey inputs have no declared type. */
 function isFreeFormField(field: string): boolean {
-  return STEP_FIELD_PATTERN.test(field) || TRIGGER_INPUT_FIELD_PATTERN.test(field);
+  return parseStepField(field) !== null || TRIGGER_INPUT_FIELD_PATTERN.test(field);
 }
 
 export function isConditionField(value: unknown): value is string {
@@ -274,6 +291,37 @@ export function isInputSource(value: unknown): value is string {
   return isFreeFormField(value);
 }
 
+/**
+ * One value a journey returns to the journey that started it and waited: the
+ * value of `source` (one step-output field of this journey) when its run
+ * completes, under `name`. Declared on the "Started by another journey"
+ * trigger; nothing else of the run can leave it.
+ */
+export interface ResultExport {
+  name: string;
+  source: string;
+}
+
+/**
+ * One result a waiting Start journey step receives: the started journey's
+ * declared result `source` ("result.<name>") becomes output.results.<target>.
+ */
+export interface ResultMapping {
+  target: string;
+  source: string;
+}
+
+export const MAX_RESULT_VALUES = MAX_INPUT_MAPPINGS;
+/** Limit on a run's returned results object, as UTF-8 JSON. */
+export const MAX_RESULTS_BYTES = MAX_INPUTS_BYTES;
+/** A received result's source: the name a started journey declares. */
+export const RESULT_SOURCE_PATTERN = /^result\.([a-z][a-z0-9_]{0,59})$/;
+
+/** A returned value's source: a step-output field only (never a lead field, trigger, or whole output). */
+export function isResultExportSource(value: unknown): value is string {
+  return typeof value === "string" && value.length <= INPUT_SOURCE_MAX && parseStepField(value) !== null;
+}
+
 export type ActionConfig =
   | { action: "send_sms"; body: string }
   | { action: "send_messenger"; body: string }
@@ -283,12 +331,20 @@ export type ActionConfig =
   | { action: "create_task"; title: string; notes: string; dueInDays: number | null }
   | { action: "update_lead"; fields: Partial<Record<UpdateLeadField, string | number | boolean>> }
   | { action: "notify_team"; title: string; body: string; recipients: (typeof NOTIFY_RECIPIENTS)[number] }
-  | { action: "start_journey"; journeyId: string; inputMappings?: InputMapping[]; waitForCompletion?: true }
+  | {
+      action: "start_journey";
+      journeyId: string;
+      inputMappings?: InputMapping[];
+      waitForCompletion?: true;
+      resultMappings?: ResultMapping[];
+    }
   | { action: "wait"; duration: number; unit: WaitUnit };
 
 export interface TriggerConfig {
   event: TriggerEventType;
   filters: ConditionRule[];
+  /** Only on the journey.started trigger. */
+  results?: ResultExport[];
 }
 
 export const AI_OUTPUT_TYPES = ["string", "number", "boolean"] as const;
@@ -443,49 +499,111 @@ function validateTrigger(raw: Record<string, unknown>, mode: ValidationMode): Co
     }
     if (parsed.rule) filters.push(parsed.rule);
   });
-  return { config: { event: (event ?? "") as TriggerEventType, filters }, errors };
+  const results = parseResultExports(raw.results, mode);
+  errors.push(...results.errors);
+  if (mode === "strict" && results.exports.length > 0 && event !== "journey.started") {
+    errors.push("Results: only a journey started by another journey can return results.");
+  }
+  return {
+    config: {
+      event: (event ?? "") as TriggerEventType,
+      filters,
+      ...(results.exports.length > 0 ? { results: results.exports } : {}),
+    },
+    errors,
+  };
+}
+
+interface NamedListLabels {
+  /** "Input" → `Input "x"`, `Input 2`. */
+  item: string;
+  /** Error for a list that isn't an array. */
+  malformed: string;
+  tooMany: string;
+  missingSource: string;
 }
 
 /**
- * A Start journey step's input list. Drafts keep half-typed rows; strict mode
- * rejects a malformed list, too many rows, a bad or repeated name, and a
- * missing or unsupported source. An absent list is no inputs.
+ * A list of { <name key>, source } rows. Drafts keep half-typed rows; strict
+ * mode rejects a malformed list, too many rows, a bad or repeated name, and a
+ * missing or unsupported source. An absent list is empty.
  */
-export function parseInputMappings(raw: unknown, mode: ValidationMode): { mappings: InputMapping[]; errors: string[] } {
+function parseNamedList(
+  raw: unknown,
+  mode: ValidationMode,
+  nameKey: "target" | "name",
+  isSource: (value: unknown) => value is string,
+  labels: NamedListLabels,
+): { rows: Array<{ name: string; source: string }>; errors: string[] } {
   const errors: string[] = [];
   const strict = mode === "strict";
-  if (raw === undefined) return { mappings: [], errors };
+  if (raw === undefined) return { rows: [], errors };
   if (!Array.isArray(raw)) {
-    if (strict) errors.push("Inputs: the input list is malformed.");
-    return { mappings: [], errors };
+    if (strict) errors.push(labels.malformed);
+    return { rows: [], errors };
   }
-  if (strict && raw.length > MAX_INPUT_MAPPINGS) errors.push(`Pass at most ${MAX_INPUT_MAPPINGS} inputs.`);
+  if (strict && raw.length > MAX_INPUT_MAPPINGS) errors.push(labels.tooMany);
 
-  const mappings: InputMapping[] = [];
+  const rows: Array<{ name: string; source: string }> = [];
   raw.slice(0, MAX_INPUT_MAPPINGS).forEach((entry, index) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      if (strict) errors.push(`Input ${index + 1} is malformed.`);
+      if (strict) errors.push(`${labels.item} ${index + 1} is malformed.`);
       return;
     }
     const input = entry as Record<string, unknown>;
-    const target = str(input.target, 60).trim();
-    const source = isInputSource(input.source) && input.source.length <= INPUT_SOURCE_MAX ? input.source : "";
-    mappings.push({ target, source });
+    const name = str(input[nameKey], 60).trim();
+    const source = isSource(input.source) && input.source.length <= INPUT_SOURCE_MAX ? input.source : "";
+    rows.push({ name, source });
   });
 
   if (strict) {
     const seen = new Set<string>();
-    mappings.forEach(({ target, source }, index) => {
-      const label = INPUT_NAME_PATTERN.test(target) ? `Input "${target}"` : `Input ${index + 1}`;
-      if (!target) errors.push(`${label}: enter a name.`);
-      else if (!INPUT_NAME_PATTERN.test(target)) {
+    rows.forEach(({ name, source }, index) => {
+      const label = INPUT_NAME_PATTERN.test(name) ? `${labels.item} "${name}"` : `${labels.item} ${index + 1}`;
+      if (!name) errors.push(`${label}: enter a name.`);
+      else if (!INPUT_NAME_PATTERN.test(name)) {
         errors.push(`${label}: use lowercase letters, numbers, and underscores, starting with a letter.`);
-      } else if (seen.has(target)) errors.push(`${label} is used more than once.`);
-      seen.add(target);
-      if (!source) errors.push(`${label}: choose the value to pass.`);
+      } else if (seen.has(name)) errors.push(`${label} is used more than once.`);
+      seen.add(name);
+      if (!source) errors.push(`${label}: ${labels.missingSource}`);
     });
   }
-  return { mappings, errors };
+  return { rows, errors };
+}
+
+/** A Start journey step's input list. */
+export function parseInputMappings(raw: unknown, mode: ValidationMode): { mappings: InputMapping[]; errors: string[] } {
+  const { rows, errors } = parseNamedList(raw, mode, "target", isInputSource, {
+    item: "Input",
+    malformed: "Inputs: the input list is malformed.",
+    tooMany: `Pass at most ${MAX_INPUT_MAPPINGS} inputs.`,
+    missingSource: "choose the value to pass.",
+  });
+  return { mappings: rows.map(({ name, source }) => ({ target: name, source })), errors };
+}
+
+/** The results a journey declares it returns (journey.started trigger). Sources are step-output fields only. */
+export function parseResultExports(raw: unknown, mode: ValidationMode): { exports: ResultExport[]; errors: string[] } {
+  const { rows, errors } = parseNamedList(raw, mode, "name", isResultExportSource, {
+    item: "Result",
+    malformed: "Results: the result list is malformed.",
+    tooMany: `Return at most ${MAX_RESULT_VALUES} results.`,
+    missingSource: "choose the step output to return.",
+  });
+  return { exports: rows, errors };
+}
+
+const isResultSource = (value: unknown): value is string => typeof value === "string" && RESULT_SOURCE_PATTERN.test(value);
+
+/** A waiting Start journey step's received results. Sources name the started journey's declared results. */
+export function parseResultMappings(raw: unknown, mode: ValidationMode): { mappings: ResultMapping[]; errors: string[] } {
+  const { rows, errors } = parseNamedList(raw, mode, "target", isResultSource, {
+    item: "Result",
+    malformed: "Results: the result list is malformed.",
+    tooMany: `Receive at most ${MAX_RESULT_VALUES} results.`,
+    missingSource: "choose a result the started journey returns.",
+  });
+  return { mappings: rows.map(({ name, source }) => ({ target: name, source })), errors };
 }
 
 const EMPTY_RULE: ConditionRule = { field: "", operator: "equals", value: null };
@@ -632,12 +750,17 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
       need(Boolean(journeyId), "Choose the journey to start.");
       const inputs = parseInputMappings(raw.inputMappings, mode);
       errors.push(...inputs.errors);
+      const wait = raw.waitForCompletion === true;
+      const results = parseResultMappings(raw.resultMappings, mode);
+      errors.push(...results.errors);
+      need(!(results.mappings.length > 0 && !wait), "Results: only a step that waits for the journey to finish can receive results.");
       return {
         config: {
           action,
           journeyId,
           ...(inputs.mappings.length > 0 ? { inputMappings: inputs.mappings } : {}),
-          ...(raw.waitForCompletion === true ? { waitForCompletion: true as const } : {}),
+          ...(wait ? { waitForCompletion: true as const } : {}),
+          ...(results.mappings.length > 0 ? { resultMappings: results.mappings } : {}),
         },
         errors,
       };
@@ -735,8 +858,7 @@ export function sanitizeOutputField(value: string): string {
 
 /** The step and field of a complete reference, or null for any other field. */
 export function stepReferenceDraft(field: string): StepReferenceDraft | null {
-  const match = STEP_FIELD_PATTERN.exec(field);
-  return match ? { key: match[1], field: match[2] } : null;
+  return parseStepField(field);
 }
 
 /** The condition field to store: a full reference once both halves exist, otherwise the draft marker. */
@@ -754,7 +876,8 @@ export function updateStepReferenceDraft(
   knownFields: readonly string[] | null = null,
 ): StepReferenceDraft {
   const key = patch.key ?? draft.key;
-  let field = patch.field !== undefined ? sanitizeOutputField(patch.field) : draft.field;
+  let field =
+    patch.field === undefined ? draft.field : RESULT_OUTPUT_FIELD.test(patch.field) ? patch.field : sanitizeOutputField(patch.field);
   if (patch.key !== undefined && knownFields && !knownFields.includes(field)) field = "";
   return { key, field };
 }

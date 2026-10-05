@@ -17,13 +17,18 @@ import {
   LEAD_REPLIED_FIELD,
   MAX_INPUTS_BYTES,
   parseInputMappings,
+  parseResultExports,
+  parseResultMappings,
+  RESULT_SOURCE_PATTERN,
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
+  type InputValue,
+  type ResultMapping,
   type TriggerConfig,
   type TriggerEventType,
 } from "./contracts.ts";
-import { evaluateAll, evaluateRules, journeyInputs, resolveField, type ExecutionContext } from "./conditions.ts";
+import { evaluateAll, evaluateRules, journeyInputs, resolveField, scalarValues, type ExecutionContext } from "./conditions.ts";
 import {
   nextNodeId,
   resolveStepField,
@@ -65,6 +70,13 @@ export interface RunState {
    * completes once that run is completed, failed, or cancelled.
    */
   waitingForChild?: { nodeId: string; stepId: string; runId: string };
+  /**
+   * The results this run declared (journey.started trigger), captured from its
+   * own step outputs in the same write that completed it. Never written again.
+   */
+  results?: Record<string, InputValue>;
+  /** Set instead of `results` when a declared result couldn't be returned. */
+  resultsError?: { reason: "results_invalid" | "results_too_large"; errors?: string[]; bytes?: number };
   /** Attempts made so far for the node being retried. */
   attempts?: Record<string, number>;
   /**
@@ -209,7 +221,7 @@ export interface JourneyRuntimeStore {
   hasInboundMessageSince(tenantId: string, contactId: string, since: string): Promise<boolean>;
   listDueRunIds(now: Date, limit: number): Promise<string[]>;
   /** The run with this key in the tenant (a Start journey step's child), if any. */
-  findRunByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<{ id: string; status: RunStatus } | null>;
+  findRunByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<ChildRun | null>;
   /**
    * Makes `parentRunId` due now, only while it is waiting for `childRunId`
    * (context.waitingForChild.runId). Anything else is left alone.
@@ -345,6 +357,77 @@ export type ChildRunStatus = "completed" | "failed" | "cancelled" | "missing";
  * was lost (the process died between the child finishing and waking it).
  */
 export const CHILD_WAIT_RECHECK_MS = 60 * 60_000;
+
+/**
+ * A Start journey step's child as its parent sees it: status plus, once it
+ * completed, the results it captured (`results` / `resultsError` from its
+ * context). Read from storage, so treated as untrusted.
+ */
+export interface ChildRun {
+  id: string;
+  status: RunStatus;
+  results?: unknown;
+  resultsError?: unknown;
+}
+
+export type ResultsErrorReason = "results_invalid" | "results_too_large" | "results_not_exported";
+
+/**
+ * What a waiting Start journey step with result mappings adds to its output
+ * once the child is terminal: `results` with exactly one value per mapping,
+ * taken from the child's captured results (never re-resolved). Nothing for a
+ * child that failed, was cancelled, or is missing. If the child couldn't
+ * capture its results, doesn't declare a mapped name, or a value isn't a
+ * scalar, `results` is empty and `results_error` says why: all or nothing.
+ */
+function receivedResults(mappings: ResultMapping[], child: ChildRun | null): Record<string, unknown> {
+  if (mappings.length === 0) return {};
+  if (!child || child.status !== "completed") return { results: {} };
+  const captureError = child.resultsError as RunState["resultsError"] | undefined;
+  if (captureError) {
+    const reason = captureError.reason === "results_too_large" ? "results_too_large" : "results_invalid";
+    return { results: {}, results_error: reason };
+  }
+  const declared =
+    child.results && typeof child.results === "object" && !Array.isArray(child.results)
+      ? (child.results as Record<string, unknown>)
+      : {};
+  const entries = mappings.map(({ target, source }) => ({ target, source: RESULT_SOURCE_PATTERN.exec(source)?.[1] ?? "" }));
+  const notExported = entries.filter(({ source }) => !source || !Object.hasOwn(declared, source));
+  if (notExported.length > 0) {
+    return {
+      results: {},
+      results_error: "results_not_exported" satisfies ResultsErrorReason,
+      result_errors: notExported.map(({ target, source }) => `Result "${target}": the started journey doesn't return "${source}".`),
+    };
+  }
+  const values = scalarValues(entries, (name) => declared[name], "Result");
+  if (values.ok) return { results: values.values };
+  return values.reason === "invalid"
+    ? { results: {}, results_error: "results_invalid" satisfies ResultsErrorReason, result_errors: values.errors }
+    : { results: {}, results_error: "results_too_large" satisfies ResultsErrorReason };
+}
+
+/**
+ * The results a completing run started by journey.started returns: the
+ * declared exports of its journey.started trigger, resolved from its own
+ * recorded step outputs only. Empty when it declares none.
+ */
+function capturedResults(
+  snapshot: JourneySnapshot,
+  resolve: (source: string) => unknown,
+): Pick<RunState, "results" | "resultsError"> {
+  const trigger = snapshot.nodes.find((node) => node.type === "trigger" && node.config.event === "journey.started");
+  if (!trigger || trigger.config.results === undefined) return {};
+  const parsed = parseResultExports(trigger.config.results, "strict");
+  if (parsed.errors.length > 0) return { resultsError: { reason: "results_invalid", errors: parsed.errors.slice(0, 10) } };
+  if (parsed.exports.length === 0) return {};
+  const values = scalarValues(parsed.exports.map(({ name, source }) => ({ target: name, source })), resolve, "Result");
+  if (values.ok) return { results: values.values };
+  return values.reason === "invalid"
+    ? { resultsError: { reason: "results_invalid", errors: values.errors } }
+    : { resultsError: { reason: "results_too_large", bytes: values.bytes } };
+}
 
 /** A failed AI result becomes a step error so the normal retry/fail path handles it. */
 async function runAINode(executor: JourneyAIExecutor, request: JourneyAIRequest): Promise<ActionResult> {
@@ -504,24 +587,25 @@ async function startJourney(
     output: { started: false, target_journey_id: targetJourneyId, ...extra },
     reason,
   });
-  const child = (runId: string, status: RunStatus, duplicate: boolean) => {
+  const resultMappings = wait ? parseResultMappings(action.resultMappings, "draft").mappings : [];
+  const child = (found: ChildRun, duplicate: boolean) => {
     const output = {
       started: true,
       target_journey_id: targetJourneyId,
-      run_id: runId,
+      run_id: found.id,
       causation_depth: depth,
       ...(duplicate ? { duplicate: true } : {}),
     };
-    return TERMINAL_RUN_STATUSES.has(status)
-      ? { status: "completed" as const, output: { ...output, child_status: status } }
-      : { status: "waiting" as const, output: { ...output, waiting: true }, runId };
+    return TERMINAL_RUN_STATUSES.has(found.status)
+      ? { status: "completed" as const, output: { ...output, child_status: found.status, ...receivedResults(resultMappings, found) } }
+      : { status: "waiting" as const, output: { ...output, waiting: true }, runId: found.id };
   };
   if (targetJourneyId === run.journeyId) return skip("self_start");
   if (!run.contactId) return skip("no_contact");
 
   if (wait) {
     const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, targetJourneyId));
-    if (existing) return child(existing.id, existing.status, true);
+    if (existing) return child(existing, true);
   }
 
   const status = await deps.store.journeyStatus(run.tenantId, targetJourneyId);
@@ -568,7 +652,7 @@ async function startJourney(
   if (wait && outcome.runId) {
     const existing =
       outcome.result === "duplicate" ? await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, targetJourneyId)) : null;
-    return child(outcome.runId, existing?.status ?? "running", outcome.result === "duplicate");
+    return child(existing ?? { id: outcome.runId, status: "running" }, outcome.result === "duplicate");
   }
   return {
     status: "completed",
@@ -744,7 +828,11 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
     const recorded = await store.loadStep(run.tenantId, waiting.stepId);
     const { waiting: _waiting, ...base } = recorded?.output ?? { started: true, target_journey_id: config.journeyId, run_id: waiting.runId };
     const childStatus: ChildRunStatus = child ? (child.status as ChildRunStatus) : "missing";
-    const output = { ...base, child_status: childStatus };
+    const output = {
+      ...base,
+      child_status: childStatus,
+      ...receivedResults(parseResultMappings(config.resultMappings, "draft").mappings, child),
+    };
     await store.updateStep(waiting.stepId, { status: "completed", output, completedAt: now().toISOString() });
     recordOutput(node, output);
     currentNodeId = nextNodeId(snapshot, node.id);
@@ -937,7 +1025,12 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
     }
   }
 
-  return finish("completed", { currentNodeId: null, context: state, error: null });
+  // A run another journey started returns its declared results, captured in the write that completes it.
+  const captured =
+    run.triggerEvent === "journey.started"
+      ? capturedResults(snapshot, (source) => resolveField(context(), resolveStepField(source, snapshot.nodes, keys)))
+      : {};
+  return finish("completed", { currentNodeId: null, context: { ...state, ...captured }, error: null });
 }
 
 export interface ResumeResult {

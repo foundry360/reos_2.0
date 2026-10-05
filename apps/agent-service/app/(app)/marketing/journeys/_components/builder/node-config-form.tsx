@@ -13,6 +13,7 @@ import {
   MAX_AI_OUTPUT_FIELDS,
   MAX_CONDITION_RULES,
   MAX_INPUT_MAPPINGS,
+  MAX_RESULT_VALUES,
   NOTIFY_RECIPIENTS,
   STEP_FIELD_DRAFT,
   TEMPLATE_TOKENS,
@@ -33,6 +34,8 @@ import {
   type ConditionRule,
   type FieldDefinition,
   type InputMapping,
+  type ResultExport,
+  type ResultMapping,
   type StepReferenceDraft,
   type TriggerEventType,
 } from "@/lib/journeys/runtime/contracts";
@@ -51,6 +54,13 @@ export interface StepOption {
   outputs: string[] | null;
 }
 
+/** A journey a Start journey step can target, with the result names its trigger declares. */
+export interface JourneyOption {
+  id: string;
+  label: string;
+  results?: string[];
+}
+
 interface NodeConfigFormProps {
   nodeId: string;
   nodeType: JourneyNodeType;
@@ -58,7 +68,7 @@ interface NodeConfigFormProps {
   onChange: (config: JourneyNodeConfig) => void;
   agentOptions: { id: string; label: string }[];
   /** Other journeys in the workspace a Start journey step can target. */
-  journeyOptions: { id: string; label: string }[];
+  journeyOptions: JourneyOption[];
   /** Steps guaranteed to run before this condition or Start journey step, whose output it can read. */
   stepOptions: StepOption[];
   /** The journey's trigger event, so conditions can offer trigger fields. */
@@ -172,6 +182,7 @@ function FieldSource({
   triggerEvent,
   allowSteps,
   inCondition,
+  stepsOnly = false,
 }: {
   idPrefix: string;
   field: string;
@@ -183,9 +194,11 @@ function FieldSource({
   triggerEvent: TriggerEventType | null;
   allowSteps: boolean;
   inCondition: boolean;
+  /** Only a step output can be chosen (a journey's declared results). */
+  stepsOnly?: boolean;
 }) {
   const savedReference = stepReferenceDraft(field);
-  const isStepField = Boolean(savedReference) || field === STEP_FIELD_DRAFT;
+  const isStepField = Boolean(savedReference) || field === STEP_FIELD_DRAFT || stepsOnly;
   const savedInput = TRIGGER_INPUT_FIELD_PATTERN.exec(field)?.[1] ?? null;
   const isInputField = savedInput !== null || field === TRIGGER_INPUT_DRAFT;
   const allowInputs = triggerEvent === "journey.started";
@@ -207,7 +220,7 @@ function FieldSource({
 
   return (
     <>
-      <div className={shell.field}>
+      <div className={shell.field} hidden={stepsOnly}>
         <label className={shell.label} htmlFor={`${idPrefix}-field`}>
           {label}
         </label>
@@ -570,6 +583,185 @@ function InputMappingsEditor({
   );
 }
 
+/** Stable row keys: FieldSource keeps a half-built reference in local state, so rows can't be keyed by index. */
+function useRowKeys(length: number) {
+  const rowKeys = useRef<number[]>([]);
+  const nextKey = useRef(0);
+  while (rowKeys.current.length < length) rowKeys.current.push(nextKey.current++);
+  if (rowKeys.current.length > length) rowKeys.current.length = length;
+  return rowKeys.current;
+}
+
+/** The results this journey returns to a journey that started it and waited: declared here, nowhere else. */
+function ResultExportsEditor({
+  idPrefix,
+  exports,
+  onChange,
+  stepOptions,
+}: {
+  idPrefix: string;
+  exports: ResultExport[];
+  onChange: (exports: ResultExport[]) => void;
+  stepOptions: StepOption[];
+}) {
+  const rowKeys = useRowKeys(exports.length);
+  const update = (index: number, patch: Partial<ResultExport>) =>
+    onChange(exports.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
+
+  return (
+    <div className={shell.field}>
+      <span className={shell.label}>Results to return</span>
+      {exports.map((entry, index) => {
+        const rowId = `${idPrefix}-${rowKeys[index]}`;
+        return (
+          <div key={rowKeys[index]} className={styles.configGroup}>
+            <div className={styles.configGroupHeader}>
+              <span>{entry.name || `Result ${index + 1}`}</span>
+              <button
+                type="button"
+                className={styles.configLink}
+                onClick={() => {
+                  rowKeys.splice(index, 1);
+                  onChange(exports.filter((_, i) => i !== index));
+                }}
+              >
+                Remove
+              </button>
+            </div>
+            <div className={shell.field}>
+              <label className={shell.label} htmlFor={`${rowId}-name`}>
+                Result name
+              </label>
+              <input
+                id={`${rowId}-name`}
+                className={shell.input}
+                value={entry.name}
+                placeholder="e.g. decision"
+                onChange={(event) => update(index, { name: outputFieldName(event.target.value) })}
+              />
+            </div>
+            <FieldSource
+              idPrefix={rowId}
+              field={entry.source}
+              label="Value"
+              placeholder="Choose a step output…"
+              onSelect={(source) => update(index, { source })}
+              onReference={(source) => update(index, { source })}
+              stepOptions={stepOptions}
+              triggerEvent={null}
+              allowSteps
+              inCondition={false}
+              stepsOnly
+            />
+          </div>
+        );
+      })}
+      {exports.length < MAX_RESULT_VALUES ? (
+        <button
+          type="button"
+          className={`${shell.btnSecondary} ${shell.btnPill}`}
+          onClick={() => onChange([...exports, { name: "", source: "" }])}
+        >
+          Add result
+        </button>
+      ) : null}
+      <p className={shell.fieldHint}>
+        Optional. A journey that starts this one and waits can receive only these values, taken from this run&rsquo;s
+        step outputs when it completes. A step that didn&rsquo;t run returns empty. Nothing is returned if the run fails
+        or is cancelled.
+      </p>
+    </div>
+  );
+}
+
+function toResultMapping(raw: unknown): ResultMapping {
+  const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return { target: str(input.target), source: str(input.source) };
+}
+
+/** The results a waiting Start journey step receives: only names the started journey declares. */
+function ResultMappingsEditor({
+  idPrefix,
+  mappings,
+  onChange,
+  declared,
+}: {
+  idPrefix: string;
+  mappings: ResultMapping[];
+  onChange: (mappings: ResultMapping[]) => void;
+  /** Result names the selected journey declares; null when no journey is selected. */
+  declared: string[] | null;
+}) {
+  const update = (index: number, patch: Partial<ResultMapping>) =>
+    onChange(mappings.map((mapping, i) => (i === index ? { ...mapping, ...patch } : mapping)));
+  const available = declared ?? [];
+
+  return (
+    <div className={shell.field}>
+      <span className={shell.label}>Results to receive</span>
+      {mappings.map((mapping, index) => {
+        const rowId = `${idPrefix}-${index}`;
+        const name = mapping.source.replace(/^result\./, "");
+        return (
+          <div key={index} className={styles.configGroup}>
+            <div className={styles.configGroupHeader}>
+              <span>{mapping.target || `Result ${index + 1}`}</span>
+              <button type="button" className={styles.configLink} onClick={() => onChange(mappings.filter((_, i) => i !== index))}>
+                Remove
+              </button>
+            </div>
+            <div className={shell.fieldRow}>
+              <div className={shell.field}>
+                <label className={shell.label} htmlFor={`${rowId}-source`}>
+                  Result
+                </label>
+                <DropdownSelect
+                  id={`${rowId}-source`}
+                  value={name}
+                  placeholder="Choose…"
+                  onChange={(next) => update(index, { source: `result.${next}`, target: mapping.target || next })}
+                  options={[...new Set([...available, ...(name ? [name] : [])])].map((option) => ({
+                    value: option,
+                    label: available.includes(option) ? option : `${option} (not returned)`,
+                  }))}
+                />
+              </div>
+              <div className={shell.field}>
+                <label className={shell.label} htmlFor={`${rowId}-target`}>
+                  Name here
+                </label>
+                <input
+                  id={`${rowId}-target`}
+                  className={shell.input}
+                  value={mapping.target}
+                  placeholder="e.g. decision"
+                  onChange={(event) => update(index, { target: outputFieldName(event.target.value) })}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {available.length > 0 && mappings.length < MAX_RESULT_VALUES ? (
+        <button
+          type="button"
+          className={`${shell.btnSecondary} ${shell.btnPill}`}
+          onClick={() => onChange([...mappings, { target: "", source: "" }])}
+        >
+          Add result
+        </button>
+      ) : null}
+      <p className={shell.fieldHint}>
+        {declared === null
+          ? "Choose a journey first."
+          : available.length === 0
+            ? `That journey doesn't return any results. Only results it declares on its “${TRIGGER_EVENTS["journey.started"].label}” trigger can be returned.`
+            : "Only results the started journey declares can be returned, and only when it completes. Read them in a Condition as this step’s output results.<name>; they’re empty if it fails or is cancelled."}
+      </p>
+    </div>
+  );
+}
+
 /** Output field names must work as condition paths, so typing is nudged into snake_case. */
 function outputFieldName(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 60);
@@ -733,11 +925,28 @@ export function NodeConfigForm({
             id={id("event")}
             value={event ?? ""}
             placeholder="Choose an event…"
-            onChange={(next) => set({ event: next, filters: [] })}
+            onChange={(next) => {
+              const { results: _results, ...rest } = config;
+              onChange({ ...(next === "journey.started" ? config : rest), event: next, filters: [] });
+            }}
             options={IMPLEMENTED_TRIGGER_EVENTS.map((key) => ({ value: key, label: TRIGGER_EVENTS[key].label }))}
           />
           {event ? <p className={shell.fieldHint}>{TRIGGER_EVENTS[event].description}</p> : null}
         </div>
+        {event === "journey.started" ? (
+          <ResultExportsEditor
+            idPrefix={id("result")}
+            exports={(Array.isArray(config.results) ? config.results : []).map((raw) => {
+              const entry = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+              return { name: str(entry.name), source: str(entry.source) };
+            })}
+            onChange={(results) => {
+              const { results: _results, ...rest } = config;
+              onChange(results.length > 0 ? { ...rest, results } : rest);
+            }}
+            stepOptions={stepOptions}
+          />
+        ) : null}
         {filters.map((rule, index) => (
           <div key={index} className={styles.configGroup}>
             <div className={styles.configGroupHeader}>
@@ -964,7 +1173,7 @@ export function NodeConfigForm({
                 id={id("wait")}
                 value={config.waitForCompletion === true ? "wait" : "continue"}
                 onChange={(next) => {
-                  const { waitForCompletion: _previous, ...rest } = config;
+                  const { waitForCompletion: _previous, resultMappings: _results, ...rest } = config;
                   onChange(next === "wait" ? { ...rest, waitForCompletion: true } : rest);
                 }}
                 options={[
@@ -980,6 +1189,17 @@ export function NodeConfigForm({
                 </p>
               ) : null}
             </div>
+            {config.waitForCompletion === true ? (
+              <ResultMappingsEditor
+                idPrefix={id("received")}
+                mappings={(Array.isArray(config.resultMappings) ? config.resultMappings : []).map(toResultMapping)}
+                onChange={(resultMappings) => {
+                  const { resultMappings: _previous, ...rest } = config;
+                  onChange(resultMappings.length > 0 ? { ...rest, resultMappings } : rest);
+                }}
+                declared={str(config.journeyId) ? (journeyOptions.find((journey) => journey.id === config.journeyId)?.results ?? []) : null}
+              />
+            ) : null}
             <InputMappingsEditor
               idPrefix={id("input")}
               mappings={(Array.isArray(config.inputMappings) ? config.inputMappings : []).map(toMapping)}

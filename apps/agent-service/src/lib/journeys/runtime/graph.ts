@@ -19,9 +19,12 @@ import {
   aiOutputSchema,
   CONDITION_FIELDS,
   conditionRules,
+  INPUT_NAME_PATTERN,
   nodeReferenceKey,
   parseInputMappings,
-  STEP_FIELD_PATTERN,
+  parseResultExports,
+  parseResultMappings,
+  parseStepField,
   stepKey,
   TRIGGER_EVENTS,
   TRIGGER_INPUT_FIELD_PATTERN,
@@ -143,9 +146,50 @@ export function referenceableSteps<T extends Pick<SnapshotNode, "id" | "type" | 
  * statically (freeform AI steps, actions).
  */
 export function knownOutputFields(node: Pick<SnapshotNode, "type" | "config">): string[] | null {
+  const received = receivedResultNames(node);
+  if (received.length > 0) return [...START_JOURNEY_OUTPUT_FIELDS, ...received.map((name) => `results.${name}`)];
   if (node.type !== "ai") return null;
   const schema = aiOutputSchema(node.config as Partial<AIConfig>);
   return schema.length > 0 ? [...schema.map((field) => field.name), AI_TEXT_KEY] : null;
+}
+
+/** What a waiting Start journey step records, besides received results. */
+const START_JOURNEY_OUTPUT_FIELDS = ["child_status", "results_error", "started", "skipped_reason", "run_id", "target_journey_id", "causation_depth"];
+
+/** The result names a waiting Start journey step receives (its mapping targets); empty for anything else. */
+export function receivedResultNames(node: Pick<SnapshotNode, "type" | "config">): string[] {
+  const config = node.config as Record<string, unknown>;
+  if (node.type !== "action" || config.action !== "start_journey" || config.waitForCompletion !== true) return [];
+  return parseResultMappings(config.resultMappings, "draft")
+    .mappings.map((mapping) => mapping.target)
+    .filter((target) => INPUT_NAME_PATTERN.test(target));
+}
+
+/** Output-producing steps reachable from a trigger: what a journey's declared results can return. */
+export function exportableSteps<T extends Pick<SnapshotNode, "id" | "type" | "config">>(graph: {
+  nodes: T[];
+  connections: GraphShape["connections"];
+}): T[] {
+  const reachable = reachableNodes(graph);
+  return graph.nodes.filter((node) => reachable.has(node.id) && producesStepOutput(node));
+}
+
+function reachableNodes(graph: GraphShape): Set<string> {
+  const outgoing = new Map<string, string[]>();
+  for (const connection of graph.connections) {
+    const list = outgoing.get(connection.sourceNodeId) ?? [];
+    list.push(connection.targetNodeId);
+    outgoing.set(connection.sourceNodeId, list);
+  }
+  const reachable = new Set<string>();
+  const queue = graph.nodes.filter((node) => node.type === "trigger").map((node) => node.id);
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    if (reachable.has(id)) continue;
+    reachable.add(id);
+    queue.push(...(outgoing.get(id) ?? []));
+  }
+  return reachable;
 }
 
 /** The node a reference key points at: a node-id key first, then the legacy name-derived key. */
@@ -171,11 +215,11 @@ export function resolveStepReference(
 
 /** resolveStepReference for a bare field (a Start journey input's source). */
 export function resolveStepField(field: string, nodes: Pick<SnapshotNode, "id">[], keys: Map<string, string>): string {
-  const match = STEP_FIELD_PATTERN.exec(field);
+  const match = parseStepField(field);
   if (!match) return field;
-  const node = nodes.find((entry) => nodeReferenceKey(entry.id) === match[1]);
+  const node = nodes.find((entry) => nodeReferenceKey(entry.id) === match.key);
   const key = node ? keys.get(node.id) : undefined;
-  return key && key !== match[1] ? `steps.${key}.output.${match[2]}` : field;
+  return key && key !== match.key ? `steps.${key}.output.${match.field}` : field;
 }
 
 type GraphLike = JourneyGraph | JourneySnapshot;
@@ -198,9 +242,9 @@ function stepReferenceIssue(
   ruleField: unknown,
   subject: "condition" | "step" = "condition",
 ): string | null {
-  const match = STEP_FIELD_PATTERN.exec(typeof ruleField === "string" ? ruleField : "");
+  const match = parseStepField(typeof ruleField === "string" ? ruleField : "");
   if (!match) return null;
-  const [, key, field] = match;
+  const { key, field } = match;
   const source = referencedNode(graph.nodes, key);
   if (!source) return "the referenced journey step no longer exists.";
   if (source.id === reader.id) return `a ${subject} can't reference its own output.`;
@@ -208,9 +252,42 @@ function stepReferenceIssue(
   if (!guaranteedPredecessors(graph, reader.id).has(source.id)) {
     return `${label(source)} doesn't run before this ${subject} on every path.`;
   }
+  return outputFieldIssue(source, field);
+}
+
+/** A field the step doesn't produce: not in its known fields, or a result it doesn't receive. */
+function outputFieldIssue(source: SnapshotNode | JourneyNode, field: string): string | null {
+  if (field.startsWith("results.") && !receivedResultNames(source).includes(field.slice("results.".length))) {
+    return `${label(source)} doesn't receive a result named "${field.slice("results.".length)}".`;
+  }
   const fields = knownOutputFields(source);
   if (fields && !fields.includes(field)) return `output field "${field}" isn't defined by ${label(source)}.`;
   return null;
+}
+
+/**
+ * Problems with a trigger's declared results that need the whole graph: each
+ * source must be an output-producing step reachable from a trigger, and a
+ * field that step defines. A step that doesn't run on every path returns
+ * empty when it didn't run.
+ */
+function resultExportIssues(graph: GraphLike, trigger: SnapshotNode | JourneyNode): string[] {
+  const issues: string[] = [];
+  const reachable = reachableNodes(graph);
+  for (const { name, source } of parseResultExports((trigger.config as Record<string, unknown>).results, "draft").exports) {
+    const match = parseStepField(source);
+    if (!match) continue;
+    const node = referencedNode(graph.nodes, match.key);
+    const problem = !node
+      ? "the referenced journey step no longer exists."
+      : !producesStepOutput(node)
+        ? `${label(node)} isn't a step that produces output a result can return.`
+        : !reachable.has(node.id)
+          ? `${label(node)} isn't reachable from a trigger.`
+          : outputFieldIssue(node, match.field);
+    if (problem) issues.push(`Result "${name || "?"}": ${problem}`);
+  }
+  return issues;
 }
 
 function triggerEvents(graph: GraphLike): string[] {
@@ -282,6 +359,11 @@ export function activationIssues(graph: JourneyGraph | JourneySnapshot, journeyI
     }
     if (node.type === "action" && config.action === "start_journey") {
       for (const problem of inputSourceIssues(graph, node)) {
+        issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
+      }
+    }
+    if (node.type === "trigger") {
+      for (const problem of resultExportIssues(graph, node)) {
         issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
       }
     }

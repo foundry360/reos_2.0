@@ -1,6 +1,7 @@
 import {
   MAX_INPUTS_BYTES,
   STEP_FIELD_PATTERN,
+  STEP_RESULT_FIELD_PATTERN,
   TRIGGER_INPUT_FIELD_PATTERN,
   type ConditionLogic,
   type ConditionRule,
@@ -24,6 +25,14 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
     const [, key, name] = step;
     const entry = Object.hasOwn(context.steps, key) ? context.steps[key] : undefined;
     return entry && Object.hasOwn(entry.output, name) ? entry.output[name] : undefined;
+  }
+  const result = STEP_RESULT_FIELD_PATTERN.exec(field);
+  if (result) {
+    const [, key, name] = result;
+    const entry = Object.hasOwn(context.steps, key) ? context.steps[key] : undefined;
+    const results = entry && Object.hasOwn(entry.output, "results") ? entry.output.results : undefined;
+    if (!results || typeof results !== "object" || Array.isArray(results)) return undefined;
+    return Object.hasOwn(results, name) ? (results as Record<string, unknown>)[name] : undefined;
   }
   const input = TRIGGER_INPUT_FIELD_PATTERN.exec(field);
   if (input) {
@@ -57,19 +66,43 @@ export type JourneyInputsResult =
  * MAX_INPUTS_BYTES, passes nothing.
  */
 export function journeyInputs(mappings: InputMapping[], resolve: (source: string) => unknown): JourneyInputsResult {
-  const inputs: Record<string, InputValue> = {};
+  const result = scalarValues(mappings, resolve, "Input");
+  if (result.ok) return { ok: true, inputs: result.values };
+  return result.reason === "invalid"
+    ? { ok: false, reason: "inputs_invalid", errors: result.errors }
+    : { ok: false, reason: "inputs_too_large", bytes: result.bytes };
+}
+
+export type ScalarValuesResult =
+  | { ok: true; values: Record<string, InputValue> }
+  | { ok: false; reason: "invalid"; errors: string[] }
+  | { ok: false; reason: "too_large"; bytes: number };
+
+/**
+ * Values that may cross between journeys (inputs one way, results the other):
+ * exactly one entry per target, each the value `resolve` returns for its
+ * source. A missing value is null. Only text, finite numbers, and yes/no; any
+ * other value, or a total over MAX_INPUTS_BYTES (= MAX_RESULTS_BYTES), yields
+ * no values at all.
+ */
+export function scalarValues(
+  entries: Array<{ target: string; source: string }>,
+  resolve: (source: string) => unknown,
+  item: string,
+): ScalarValuesResult {
+  const values: Record<string, InputValue> = {};
   const errors: string[] = [];
-  for (const { target, source } of mappings) {
+  for (const { target, source } of entries) {
     const value = resolve(source);
-    if (value === undefined || value === null) inputs[target] = null;
-    else if (typeof value === "string" || typeof value === "boolean") inputs[target] = value;
-    else if (typeof value === "number" && Number.isFinite(value)) inputs[target] = value;
-    else errors.push(`Input "${target}": the value isn't text, a number, or yes/no.`);
+    if (value === undefined || value === null) values[target] = null;
+    else if (typeof value === "string" || typeof value === "boolean") values[target] = value;
+    else if (typeof value === "number" && Number.isFinite(value)) values[target] = value;
+    else errors.push(`${item} "${target}": the value isn't text, a number, or yes/no.`);
   }
-  if (errors.length > 0) return { ok: false, reason: "inputs_invalid", errors };
-  const bytes = new TextEncoder().encode(JSON.stringify(inputs)).length;
-  if (bytes > MAX_INPUTS_BYTES) return { ok: false, reason: "inputs_too_large", bytes };
-  return { ok: true, inputs };
+  if (errors.length > 0) return { ok: false, reason: "invalid", errors };
+  const bytes = new TextEncoder().encode(JSON.stringify(values)).length;
+  if (bytes > MAX_INPUTS_BYTES) return { ok: false, reason: "too_large", bytes };
+  return { ok: true, values };
 }
 
 function isEmpty(value: unknown): boolean {

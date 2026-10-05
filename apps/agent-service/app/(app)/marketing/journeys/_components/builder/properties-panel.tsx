@@ -12,7 +12,7 @@ import type { JourneyNodeConfig } from "@/lib/journeys/journey-types";
 import type { TriggerEventType } from "@/lib/journeys/runtime/contracts";
 import { JourneyNodeIcon } from "../journey-node-icon";
 import type { JourneyFlowNode } from "./canvas-mapping";
-import { NodeConfigForm, type StepOption } from "./node-config-form";
+import { NodeConfigForm, type JourneyOption, type StepOption } from "./node-config-form";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
@@ -28,7 +28,7 @@ interface PropertiesPanelProps {
   onDeleteNode: (id: string) => void;
   hiddenOnSmall: boolean;
   agentOptions: { id: string; label: string }[];
-  journeyOptions: { id: string; label: string }[];
+  journeyOptions: JourneyOption[];
   stepOptions: Array<StepOption & { nodeId: string }>;
   triggerEvent: TriggerEventType | null;
   runsHref: string;

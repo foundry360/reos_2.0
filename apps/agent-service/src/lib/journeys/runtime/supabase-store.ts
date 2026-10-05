@@ -363,12 +363,18 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
     async findRunByIdempotencyKey(tenantId, idempotencyKey) {
       const { data, error } = await db
         .from("journey_runs")
-        .select("id, status")
+        .select("id, status, results:context->results, results_error:context->resultsError")
         .eq("tenant_id", tenantId)
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
       if (error) fail("findRunByIdempotencyKey", error);
-      return data ? { id: data.id as string, status: data.status as RunRecord["status"] } : null;
+      if (!data) return null;
+      return {
+        id: data.id as string,
+        status: data.status as RunRecord["status"],
+        ...(data.results !== null && data.results !== undefined ? { results: data.results } : {}),
+        ...(data.results_error !== null && data.results_error !== undefined ? { resultsError: data.results_error } : {}),
+      };
     },
 
     async wakeWaitingParent(tenantId, parentRunId, childRunId, now) {

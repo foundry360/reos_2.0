@@ -12,6 +12,7 @@ import {
   type JourneySummary,
 } from "./journey-types";
 import { activationBlocker } from "./journey-validation";
+import { INPUT_NAME_PATTERN, parseResultExports } from "./runtime/contracts";
 import { ACTIVE_STATUSES, cancelActiveJourneyRuns, resumePausedRuns } from "./journey-run-repository";
 import {
   manualEnrollmentOptions,
@@ -139,6 +140,31 @@ export async function listJourneys(tenantId: string): Promise<RepositoryResult<J
       };
     }),
   };
+}
+
+/**
+ * The result names each journey's "Started by another journey" trigger declares
+ * in its saved graph, for the Start journey step's result picker. Only names
+ * leave this function; the runtime uses the version a run actually started on.
+ */
+export async function listJourneyResultNames(tenantId: string): Promise<Map<string, string[]>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("journey_nodes")
+    .select("journey_id, config")
+    .eq("tenant_id", tenantId)
+    .eq("type", "trigger");
+  const names = new Map<string, string[]>();
+  if (error) {
+    console.error("listJourneyResultNames failed:", error.message);
+    return names;
+  }
+  for (const row of (data ?? []) as Array<{ journey_id: string; config: Record<string, unknown> | null }>) {
+    if (row.config?.event !== "journey.started") continue;
+    const declared = parseResultExports(row.config.results, "draft").exports.map((entry) => entry.name).filter((name) => INPUT_NAME_PATTERN.test(name));
+    names.set(row.journey_id, [...new Set(declared)]);
+  }
+  return names;
 }
 
 /**
