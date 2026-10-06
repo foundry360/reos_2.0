@@ -7,14 +7,17 @@
  *                already started this journey.
  *   active_run:  journey_runs_one_active_per_contact_idx, migration 056. The
  *                contact already has a running, waiting, or paused run of it.
+ *   ai_step_child: journey_runs_one_child_per_ai_step_idx, migration 059. The
+ *                AI step that asked for this run already has a child.
  *
  * Pure module (no imports) so it runs under node --test.
  */
 
 export const ACTIVE_RUN_INDEX = "journey_runs_one_active_per_contact_idx";
 export const IDEMPOTENCY_CONSTRAINT = "journey_runs_tenant_id_idempotency_key_key";
+export const AI_STEP_CHILD_INDEX = "journey_runs_one_child_per_ai_step_idx";
 
-export type RunInsertConflict = "idempotency" | "active_run";
+export type RunInsertConflict = "idempotency" | "active_run" | "ai_step_child";
 
 export function runInsertConflict(
   error: { code?: string | null; message?: string | null; details?: string | null } | null | undefined,
@@ -25,6 +28,7 @@ export function runInsertConflict(
   if (message.includes(`"${ACTIVE_RUN_INDEX}"`) || details.startsWith("Key (tenant_id, journey_id, contact_id)=")) {
     return "active_run";
   }
+  if (message.includes(`"${AI_STEP_CHILD_INDEX}"`)) return "ai_step_child";
   if (message.includes(`"${IDEMPOTENCY_CONSTRAINT}"`) || details.startsWith("Key (tenant_id, idempotency_key)=")) {
     return "idempotency";
   }

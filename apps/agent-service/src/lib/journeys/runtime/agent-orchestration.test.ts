@@ -637,6 +637,148 @@ describe("idempotency: exactly one child per AI step per run", () => {
     assert.equal(runsOf(b).length, 1);
     assert.equal(orchestration(only(a))?.duplicate, true);
   });
+
+  for (const [label, retryAnswer] of [
+    ["a different journey", { request: ask("journey_2") }],
+    ["no journey", {}],
+  ] as const) {
+    it(`the child was created, the step failed, and the retry's model asks for ${label}: the original child stays the step's child`, async () => {
+      const [b, c] = [slow("B"), slow("C")];
+      const a = asking("A", [target(b), target(c)], (_request, call) => (call === 1 ? { request: ask("journey_1") } : retryAnswer));
+      const create = store.createRun.bind(store);
+      store.createRun = async (input) => {
+        const result = await create(input);
+        if (input.journeyId === b) throw new Error("connection reset after insert");
+        return result;
+      };
+      await enroll(a);
+      store.createRun = create;
+      const first = only(b);
+
+      await worker(RETRY_BACKOFF_MS[0]);
+      assert.equal(only(b).id, first.id);
+      assert.equal(runsOf(c).length, 0);
+      assert.deepEqual(orchestration(only(a)), {
+        requested: true, action: "start_journey", journey: "journey_1", target_journey_id: b, started: true, run_id: first.id, causation_depth: 1, duplicate: true,
+      });
+      assert.equal(only(a).status, "completed");
+    });
+  }
+});
+
+// ---------- Overlapping passes ----------
+
+describe("overlapping passes of one AI step: still at most one child", () => {
+  /** Enrolls the lead with the run left due, so the test runs (and interleaves) its passes. */
+  async function enrolled(journeyId: string) {
+    await enroll(journeyId, { execute: false });
+    return only(journeyId);
+  }
+
+  /** What another pass of `parent`'s AI step (n0) inserts when its model picked `targetId`: the same journey.started event. */
+  const otherPassStarts = (parent: MemoryRun, targetId: string) =>
+    dispatchJourneyEvent(
+      deps,
+      {
+        tenantId: tenant, type: "journey.started", sourceId: `${parent.id}:${parent.journeyId}-n0`, journeyId: targetId,
+        contactId: contact, entityType: "contact", entityId: contact,
+        payload: { origin: "journey", origin_run_id: parent.id, origin_journey_id: parent.journeyId, root_run_id: parent.id, causation_depth: 1, requested_by: "ai_step" },
+      },
+      { execute: false },
+    );
+
+  /** Runs `meanwhile` while this pass is past its existing-child check and its run-key lookup, just before it inserts. */
+  function beforeNextInsert(meanwhile: () => Promise<unknown>) {
+    const check = store.hasActiveRun.bind(store);
+    let armed = true;
+    store.hasActiveRun = async (...args) => {
+      if (armed) {
+        armed = false;
+        await meanwhile();
+      }
+      return check(...args);
+    };
+  }
+
+  const childOf = (run: MemoryRun) => runs().filter((entry) => entry.triggerPayload.origin_run_id === run.id);
+
+  it("both passes pick the same journey: one child, reported as the step's child", async () => {
+    const b = slow("B");
+    const parent = await enrolled(asking("A", [target(b)], { request: ask("journey_1") }));
+    beforeNextInsert(() => otherPassStarts(parent, b));
+    await executeRun(deps, parent.id);
+
+    assert.equal(childOf(parent).length, 1);
+    assert.deepEqual(orchestration(only(parent.journeyId)), {
+      requested: true, action: "start_journey", journey: "journey_1", target_journey_id: b, started: true, run_id: only(b).id, causation_depth: 1, duplicate: true,
+    });
+  });
+
+  it("the other pass picked journey_1 and inserted first; this pass picked journey_2: one child (journey_1's), and this pass reports it", async () => {
+    const [b, c] = [slow("B"), slow("C")];
+    const parent = await enrolled(asking("A", [target(b), target(c)], { request: ask("journey_2") }));
+    beforeNextInsert(() => otherPassStarts(parent, b));
+    await executeRun(deps, parent.id);
+
+    assert.equal(childOf(parent).length, 1, "only one child of the AI step");
+    assert.equal(runsOf(c).length, 0, "journey_2's insert was refused");
+    assert.deepEqual(orchestration(only(parent.journeyId)), {
+      requested: true, action: "start_journey", journey: "journey_1", target_journey_id: b, started: true, run_id: only(b).id, causation_depth: 1, duplicate: true,
+    });
+
+    // The first inserted child stays the step's child for every later attempt, whatever the model asks.
+    const live = store.runs.get(parent.id)!;
+    stepAt(live, 0).status = "running";
+    Object.assign(live, {
+      status: "running", currentNodeId: `${parent.journeyId}-n0`, lockedUntil: null, completedAt: null, resumeAt: new Date(clock).toISOString(),
+      context: { steps: {}, attempts: {}, inFlight: { nodeId: `${parent.journeyId}-n0`, stepId: stepAt(live, 0).id } },
+    });
+    await worker();
+    assert.equal(childOf(parent).length, 1);
+    assert.equal(orchestration(only(parent.journeyId))?.run_id, only(b).id);
+  });
+
+  it("a stalled pass loses its lease mid model call; the pass that took over starts journey_2; the stalled pass, answering journey_1, starts nothing", async () => {
+    const [b, c] = [slow("B"), slow("C")];
+    // Model calls in order: the pass that took over answers first (journey_2), the stalled one last (journey_1).
+    const parent = await enrolled(asking("A", [target(b), target(c)], (_request, call) => ({ request: ask(call === 1 ? "journey_2" : "journey_1") })));
+    const model = deps.ai;
+    let stalled = true;
+    deps.ai = {
+      async execute(request) {
+        if (stalled) {
+          stalled = false;
+          store.runs.get(parent.id)!.lockedUntil = new Date(clock - 1).toISOString();
+          const takeover = await executeRun(deps, parent.id);
+          assert.equal(takeover.status, "completed");
+        }
+        return model.execute(request);
+      },
+    };
+    const outcome = await executeRun(deps, parent.id);
+    deps.ai = model;
+
+    assert.equal(outcome.status, "lease_lost");
+    assert.equal(childOf(parent).length, 1);
+    assert.equal(runsOf(b).length, 0);
+    assert.equal(orchestration(only(parent.journeyId))?.journey, "journey_2");
+    assert.equal(orchestration(only(parent.journeyId))?.run_id, only(c).id);
+    assert.equal(only(parent.journeyId).status, "completed");
+  });
+
+  it("something else starts the chosen journey for the lead in between: not adopted, already_active, no child", async () => {
+    const b = slow("B");
+    const x = journey("X", "manual", [{ action: "start_journey", journeyId: b }]);
+    const parent = await enrolled(asking("A", [target(b)], { request: ask("journey_1") }));
+    beforeNextInsert(() => enroll(x));
+    await executeRun(deps, parent.id);
+
+    assert.equal(childOf(parent).length, 0);
+    assert.equal(only(b).triggerPayload.origin_journey_id, x);
+    assert.deepEqual(orchestration(only(parent.journeyId)), {
+      requested: true, action: "start_journey", journey: "journey_1", target_journey_id: b, started: false, reason: "already_active",
+    });
+  });
 });
 
 // ---------- Causation ----------

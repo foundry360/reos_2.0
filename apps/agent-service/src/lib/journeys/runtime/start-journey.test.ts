@@ -612,16 +612,21 @@ describe("idempotency", () => {
     assert.deepEqual(performed, ["B:create_task"], "the child didn't run again");
   });
 
-  it("executing the same start step again (child still active) creates nothing", async () => {
+  it("executing the same start step again (child still active) reuses that exact child: no second run, reported as started", async () => {
     const b = journey("B", "journey.started", [waitDay]);
-    const a = journey("A", "manual", [start(b)]);
+    const a = journey("A", "manual", [start(b), task]);
     await enroll(a);
+    const child = only(b);
 
     rewind(only(a), 0);
     await executeRun(deps, only(a).id);
 
-    assert.equal(runsOf(b).length, 1);
-    assert.equal(stepAt(only(a), 0).output?.skipped_reason, "already_active");
+    assert.equal(only(b).id, child.id);
+    assert.equal(only(b).status, "waiting");
+    assert.equal(stepAt(only(a), 0).status, "completed");
+    assert.deepEqual(stepAt(only(a), 0).output, { started: true, target_journey_id: b, run_id: child.id, causation_depth: 1, duplicate: true });
+    assert.equal(only(a).status, "completed", "a step that doesn't wait still doesn't wait");
+    assert.equal(only(a).context.waitingForChild, undefined);
   });
 
   it("retrying a parent that failed after starting its child doesn't start a second child", async () => {
@@ -695,6 +700,185 @@ describe("idempotency", () => {
     await enroll(a);
     assert.equal(runsOf(b).length, 1);
     assert.equal(stepAt(only(a), 1).output?.skipped_reason, "already_active");
+  });
+});
+
+describe("the step's own child: only its exact run key makes a run the step's child", () => {
+  const startAndWait = (journeyId: string): Step => ({ ...start(journeyId), waitForCompletion: true });
+
+  /** As if the pass died after step `<journey>:<index>` created its child but before the step was recorded. */
+  function interruptAfterChildCreated(run: MemoryRun, index: number) {
+    const live = store.runs.get(run.id)!;
+    const stepId = stepAt(live, index).id;
+    Object.assign(store.steps.find((step) => step.id === stepId)!, { status: "running", output: {}, completedAt: null });
+    Object.assign(live, {
+      status: "running", currentNodeId: `${run.journeyId}:${index}`, lockedUntil: null, completedAt: null,
+      resumeAt: new Date().toISOString(), context: { ...live.context, inFlight: { nodeId: `${run.journeyId}:${index}`, stepId } },
+    });
+  }
+
+  /** A's Start journey step (doesn't wait) started B, then A's pass died before recording it; B is then put in `state`. */
+  async function interruptedNonWaitingStart(state: (child: MemoryRun) => void) {
+    const b = journey("B", "journey.started", [waitDay]);
+    const a = journey("A", "manual", [start(b), task]);
+    await enroll(a);
+    const child = only(b);
+    state(store.runs.get(child.id)!);
+    interruptAfterChildCreated(only(a), 0);
+    performed = [];
+    await resumeDueRuns(deps);
+    return { a, b, child };
+  }
+
+  /** Enrolls the lead with the run left due, so the test runs (and interleaves) its pass. */
+  const enrollUnexecuted = (journeyId: string) =>
+    dispatchJourneyEvent(
+      deps,
+      { tenantId: tenant, type: "manual", journeyId, sourceId: randomUUID(), contactId: contact, entityType: "contact", entityId: contact, payload: {} },
+      { execute: false },
+    );
+
+  const reused = (b: string, child: MemoryRun) => ({ started: true, target_journey_id: b, run_id: child.id, causation_depth: 1, duplicate: true });
+
+  it("M1: interrupted after creating its child, child still active: the exact child is reused, no second run, still doesn't wait", async () => {
+    const { a, b, child } = await interruptedNonWaitingStart(() => {});
+    assert.equal(only(b).id, child.id);
+    assert.equal(only(b).idempotencyKey, idempotencyKey({ type: "journey.started", sourceId: `${only(a).id}:${a}:0` }, b, 0));
+    assert.equal(only(b).status, "waiting", "the child keeps its actual state");
+    assert.equal(stepAt(only(a), 0).status, "completed");
+    assert.deepEqual(stepAt(only(a), 0).output, reused(b, child));
+    assert.equal(only(a).status, "completed");
+    assert.equal(only(a).context.waitingForChild, undefined);
+    assert.deepEqual(performed, ["A:create_task"], "the journey went on to its next step once; B didn't run again");
+  });
+
+  it("M1: the child's journey was paused since (child paused): still the step's child, not target_inactive or already_active", async () => {
+    const { a, b, child } = await interruptedNonWaitingStart((run) => {
+      store.setStatus(run.journeyId, "paused");
+      run.status = "paused";
+    });
+    assert.equal(only(b).id, child.id);
+    assert.equal(only(b).status, "paused");
+    assert.deepEqual(stepAt(only(a), 0).output, reused(b, child));
+    assert.equal(only(a).status, "completed");
+  });
+
+  for (const status of ["completed", "failed", "cancelled"] as const) {
+    it(`M1: interrupted after creating its child, child ${status}: the exact child is reused, no second run`, async () => {
+      const { a, b, child } = await interruptedNonWaitingStart((run) => {
+        run.status = status;
+      });
+      assert.equal(only(b).id, child.id);
+      assert.equal(only(b).status, status);
+      assert.deepEqual(stepAt(only(a), 0).output, reused(b, child));
+      assert.equal(only(a).status, "completed");
+    });
+  }
+
+  it("M1: a run of the target that isn't this step's (the lead is already in it) is never adopted, waiting or not", async () => {
+    const b = journey("B", "journey.started", [waitDay]);
+    await enroll(journey("X", "manual", [start(b)]));
+    const unrelated = only(b);
+
+    const a = journey("A", "manual", [start(b), startAndWait(b), task]);
+    await enroll(a);
+
+    assert.equal(only(b).id, unrelated.id);
+    for (const index of [0, 1]) {
+      assert.equal(stepAt(only(a), index).status, "skipped");
+      assert.equal(stepAt(only(a), index).output?.skipped_reason, "already_active");
+      assert.equal(stepAt(only(a), index).output?.run_id, undefined);
+    }
+    assert.equal(only(a).status, "completed", "nothing waited for");
+  });
+
+  /**
+   * Overlapping passes: while this pass (the lease holder) is between its own
+   * run-key lookup and its insert, `meanwhile` runs (another pass of the same
+   * step inserting the child, or something else starting the target).
+   */
+  function duringNextActiveRunCheck(meanwhile: () => Promise<unknown>) {
+    const check = store.hasActiveRun.bind(store);
+    let armed = true;
+    store.hasActiveRun = async (...args) => {
+      if (armed) {
+        armed = false;
+        await meanwhile();
+      }
+      return check(...args);
+    };
+  }
+
+  /** What another pass of `run`'s step `<journey>:<index>` sends for `target`: the same journey.started event. */
+  const samePassStart = (run: MemoryRun, index: number, target: string) =>
+    dispatchJourneyEvent(
+      deps,
+      {
+        tenantId: tenant, type: "journey.started", sourceId: `${run.id}:${run.journeyId}:${index}`, journeyId: target,
+        contactId: contact, entityType: "contact", entityId: contact,
+        payload: { origin: "journey", origin_run_id: run.id, origin_journey_id: run.journeyId, root_run_id: run.id, causation_depth: 1 },
+      },
+      { execute: false },
+    );
+
+  it("M2: overlapping passes of a waiting Start journey step: the child the other pass created is found and waited for", async () => {
+    const b = journey("B", "journey.started", [task]);
+    const a = journey("A", "manual", [startAndWait(b), task]);
+    await enrollUnexecuted(a);
+    const parent = only(a);
+
+    duringNextActiveRunCheck(() => samePassStart(parent, 0, b));
+    const outcome = await executeRun(deps, parent.id);
+
+    const child = only(b);
+    assert.equal(stepAt(only(a), 0).output?.run_id, child.id);
+    assert.equal(stepAt(only(a), 0).output?.duplicate, true);
+    assert.equal(stepAt(only(a), 0).output?.skipped_reason, undefined);
+    assert.equal(outcome.waitingForChild, child.id, "parked on the exact child");
+    await resumeDueRuns(deps);
+    await resumeDueRuns(deps);
+    assert.equal(only(b).id, child.id, "one child");
+    assert.equal(only(a).status, "completed");
+    assert.equal(stepAt(only(a), 0).output?.child_status, "completed", "the parent waited for that exact child");
+    assert.deepEqual(performed.filter((entry) => entry === "A:create_task"), ["A:create_task"]);
+  });
+
+  it("M2: overlapping passes of a fan-out step: each child exists once and the step waits for both", async () => {
+    const [b, c] = [journey("B", "journey.started", [waitDay]), journey("C", "journey.started", [waitDay])];
+    const fanOut: Step = { action: "start_journeys", journeys: [{ journeyId: b }, { journeyId: c }], waitForCompletion: true, completion: "all" };
+    const a = journey("A", "manual", [fanOut, task]);
+    await enrollUnexecuted(a);
+    const parent = only(a);
+    duringNextActiveRunCheck(async () => {
+      await samePassStart(parent, 0, b);
+      await samePassStart(parent, 0, c);
+    });
+    await executeRun(deps, parent.id);
+
+    const [childB, childC] = [only(b), only(c)];
+    const live = only(a);
+    assert.equal(live.status, "waiting");
+    assert.deepEqual(live.context.waitingForChildren?.children.map((entry) => entry.runId).sort(), [childB.id, childC.id].sort());
+    const children = stepAt(live, 0).output?.children as Record<string, Record<string, unknown>>;
+    assert.deepEqual(Object.values(children).map((record) => [record.run_id, record.started, record.skipped_reason]).sort(), [
+      [childB.id, true, undefined],
+      [childC.id, true, undefined],
+    ].sort());
+  });
+
+  it("M2: something else starting the target while this pass is between lookup and insert is still never adopted", async () => {
+    const b = journey("B", "journey.started", [waitDay]);
+    const x = journey("X", "manual", [start(b)]);
+    const a = journey("A", "manual", [startAndWait(b), task]);
+    await enrollUnexecuted(a);
+    duringNextActiveRunCheck(() => enroll(x));
+    await executeRun(deps, only(a).id);
+
+    const unrelated = only(b);
+    assert.equal(unrelated.triggerPayload.origin_journey_id, x);
+    assert.equal(stepAt(only(a), 0).output?.skipped_reason, "already_active");
+    assert.equal(stepAt(only(a), 0).output?.run_id, undefined);
+    assert.equal(only(a).status, "completed", "not waited for");
   });
 });
 

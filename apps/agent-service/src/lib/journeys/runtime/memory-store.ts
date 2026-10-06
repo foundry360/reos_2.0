@@ -24,6 +24,16 @@ import type {
 
 const ACTIVE_STATUSES: readonly string[] = ["running", "waiting", "paused"];
 
+/**
+ * The AI step (parent run + node) a run was started for, as the index of
+ * migration 059 computes it: its run key without the target journey. Null
+ * for any run an AI step didn't ask for.
+ */
+function aiStepOf(run: Pick<NewRun, "triggerEvent" | "triggerPayload" | "idempotencyKey">): string | null {
+  if (run.triggerEvent !== "journey.started" || run.triggerPayload.requested_by !== "ai_step") return null;
+  return run.idempotencyKey.replace(/:[^:]*$/, "");
+}
+
 export interface MemoryJourney {
   id: string;
   tenantId: string;
@@ -101,6 +111,11 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
       (run) => run.tenantId === input.tenantId && run.idempotencyKey === input.idempotencyKey,
     );
     if (existing) return { run: structuredClone(existing), created: false };
+    // Mirrors journey_runs_one_child_per_ai_step_idx (migration 059).
+    const aiStep = aiStepOf(input);
+    if (aiStep !== null && [...this.runs.values()].some((run) => run.tenantId === input.tenantId && aiStepOf(run) === aiStep)) {
+      return { run: null, created: false, aiStepChildExists: true };
+    }
     // Mirrors journey_runs_one_active_per_contact_idx (migration 056).
     const active = [...this.runs.values()].some(
       (run) =>

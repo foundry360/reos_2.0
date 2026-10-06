@@ -178,6 +178,7 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
       if (!error && data) return { run: toRun(data as RunRow), created: true };
       const conflict = runInsertConflict(error);
       if (conflict === "active_run") return { run: null, created: false, alreadyActive: true };
+      if (conflict === "ai_step_child") return { run: null, created: false, aiStepChildExists: true };
       if (conflict !== "idempotency") fail("createRun", error);
 
       const { data: existing, error: existingError } = await db

@@ -185,9 +185,15 @@ export interface StepPatch {
 /** "not_failed": no failed run in this tenant stopped at that node. "active_run": the contact already has an active run of the journey. */
 export type RunRetryWriteResult = "retried" | "not_failed" | "active_run";
 
+/**
+ * `aiStepChildExists`: the run is a child an AI step asked for, and that AI
+ * step (same parent run and node) already has a child of another journey
+ * (journey_runs_one_child_per_ai_step_idx, migration 059).
+ */
 export type CreateRunResult =
-  | { run: RunRecord; created: boolean; alreadyActive?: false }
-  | { run: null; created: false; alreadyActive: true };
+  | { run: RunRecord; created: boolean; alreadyActive?: false; aiStepChildExists?: false }
+  | { run: null; created: false; alreadyActive: true; aiStepChildExists?: false }
+  | { run: null; created: false; alreadyActive?: false; aiStepChildExists: true };
 
 export interface CandidateJourney {
   journeyId: string;
@@ -207,7 +213,9 @@ export interface JourneyRuntimeStore {
   hasActiveRun(tenantId: string, journeyId: string, contactId: string): Promise<boolean>;
   /**
    * Inserts unless (tenant, idempotencyKey) exists (returns that run, created
-   * false) or the contact already has an active run of the journey (alreadyActive).
+   * false), the contact already has an active run of the journey
+   * (alreadyActive), or it is an AI step's child and that step already has one
+   * (aiStepChildExists).
    */
   createRun(run: NewRun): Promise<CreateRunResult>;
   /** Atomically leases a running/waiting run that isn't leased; marks it running. */
@@ -494,12 +502,17 @@ async function runAIStep(
 
 /**
  * What an AI step's request to start a journey came to. An AI step starts at
- * most one child per run: one an earlier attempt of this step created (found
- * by its run key) is the outcome, whatever the model asks this time. Otherwise
- * the request is checked against the step's allowed journeys and the chosen
- * one is started through startChildRun with the model's values as its inputs.
- * The run key, lineage, depth guard, and target checks are the engine's; the
- * model supplies only the key and declared input values.
+ * most one child per run: the child this step already has (found by its run
+ * key under any allowed journey) is the outcome, whatever the model asks this
+ * time. Otherwise the request is checked against the step's allowed journeys
+ * and the chosen one is started through startChildRun with the model's values
+ * as its inputs. The run key, lineage, depth guard, and target checks are the
+ * engine's; the model supplies only the key and declared input values.
+ *
+ * The database holds the one-child rule (migration 059): of two passes of the
+ * same step choosing different journeys, only the first insert becomes a
+ * child. A start that doesn't happen looks again, so the loser reports the
+ * winner's child instead of its own refusal.
  */
 async function agentStartJourney(
   deps: EngineDeps,
@@ -510,20 +523,25 @@ async function agentStartJourney(
   started: string[],
 ): Promise<Record<string, unknown>> {
   const depth = runCausationDepth(run);
-  for (const entry of allowed) {
-    const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, entry.target.journeyId));
-    if (!existing) continue;
-    return {
-      requested: true,
-      action: "start_journey",
-      journey: entry.key,
-      target_journey_id: entry.target.journeyId,
-      started: true,
-      run_id: existing.id,
-      causation_depth: depth,
-      duplicate: true,
-    };
-  }
+  const existingChild = async () => {
+    for (const entry of allowed) {
+      const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, entry.target.journeyId));
+      if (!existing) continue;
+      return {
+        requested: true,
+        action: "start_journey",
+        journey: entry.key,
+        target_journey_id: entry.target.journeyId,
+        started: true,
+        run_id: existing.id,
+        causation_depth: depth,
+        duplicate: true,
+      };
+    }
+    return null;
+  };
+  const before = await existingChild();
+  if (before) return before;
   if (request === undefined) return { requested: false, started: false };
 
   const parsed = parseAgentJourneyRequest(request, allowed);
@@ -546,10 +564,13 @@ async function agentStartJourney(
     { journeyId: target.journeyId, agentInputs: { names, values: parsed.values } },
     () => undefined,
     started,
-    true,
   );
   const chosen = { requested: true, action: "start_journey", journey: key, target_journey_id: target.journeyId };
-  if (!result.started) return { ...chosen, started: false, reason: result.reason, ...result.extra };
+  if (!result.started) {
+    const after = await existingChild();
+    if (after) return after;
+    return { ...chosen, started: false, reason: result.reason, ...result.extra };
+  }
   return { ...chosen, started: true, run_id: result.run.id, causation_depth: depth, ...(result.duplicate ? { duplicate: true } : {}) };
 }
 
@@ -571,7 +592,7 @@ export interface DispatchOutcome {
   journeyId: string;
   version: number;
   runId: string | null;
-  result: "started" | "duplicate" | "filtered" | "already_active";
+  result: "started" | "duplicate" | "filtered" | "already_active" | "ai_step_child_exists";
   execution?: ExecuteOutcome;
 }
 
@@ -642,6 +663,10 @@ export async function dispatchJourneyEvent(
       outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: null, result: "already_active" });
       continue;
     }
+    if (result.aiStepChildExists) {
+      outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: null, result: "ai_step_child_exists" });
+      continue;
+    }
     const { run, created } = result;
     if (!created) {
       outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: run.id, result: "duplicate" });
@@ -682,11 +707,12 @@ export type StartJourneySkipReason =
  * when the child is created; a repeated step never changes them. A started
  * child is returned in `started` for the caller to execute after this pass.
  *
+ * A child an earlier attempt of this step created is found by its run key and
+ * is always this step's child, waiting or not; a run of the target that
+ * belongs to anything else (already_active) is never adopted or waited for.
  * Without waitForCompletion this run continues at once. With it, the result is
  * "waiting" on the child (the caller parks this run) unless the child has
- * already finished. A child an earlier attempt of this step created is found
- * by its run key and is always the one waited for; a run of the target that
- * belongs to anything else (already_active) is never waited for.
+ * already finished.
  */
 async function startJourney(
   deps: EngineDeps,
@@ -698,7 +724,7 @@ async function startJourney(
 ): Promise<ActionResult | { status: "waiting"; output: Record<string, unknown>; runId: string }> {
   const targetJourneyId = action.journeyId;
   const wait = action.waitForCompletion === true;
-  const result = await startChildRun(deps, run, nodeId, action, resolve, started, wait);
+  const result = await startChildRun(deps, run, nodeId, action, resolve, started);
   if (!result.started) {
     return { status: "skipped", output: { started: false, target_journey_id: targetJourneyId, ...result.extra }, reason: result.reason };
   }
@@ -717,17 +743,24 @@ async function startJourney(
     : { status: "waiting", output: { ...output, waiting: true }, runId: found.id };
 }
 
-/** One child a Start journey or Start journeys step tried to start: skipped (and why), or its run. */
+/**
+ * One child a Start journey, Start journeys, or AI step tried to start:
+ * skipped (and why), or its run. "ai_step_child_exists" only reaches an AI
+ * step, which then reports the child its step already has.
+ */
+type ChildSkipReason = StartJourneySkipReason | "ai_step_child_exists";
 type ChildStart =
-  | { started: false; reason: StartJourneySkipReason; extra: Record<string, unknown> }
+  | { started: false; reason: ChildSkipReason; extra: Record<string, unknown> }
   | { started: true; run: ChildRun; duplicate: boolean };
 
 /**
- * Starts (or, with `reuse`, first finds by its run key) the one child this
- * step has for `target.journeyId`. With `reuse`, a run an earlier attempt of
- * this step created is always the one returned, even if the target was paused
- * since or the lead is now in it; without it (a Start journey step that
- * doesn't wait), the dispatcher's run key reports it as a duplicate.
+ * Starts, or first finds by its run key, the one child this step has for
+ * `target.journeyId`. Only that exact run key makes a run this step's child: a
+ * run an earlier attempt (or an overlapping pass) of this step created is
+ * always the one returned, with its actual status, even if the target was
+ * paused since or the lead is now in it. A start that doesn't happen looks
+ * once more by the run key, so a child another pass created in between is
+ * still found; any other run of the target is never adopted.
  */
 async function startChildRun(
   deps: EngineDeps,
@@ -741,19 +774,20 @@ async function startChildRun(
   },
   resolve: (source: string) => unknown,
   started: string[],
-  reuse: boolean,
 ): Promise<ChildStart> {
   const targetJourneyId = target.journeyId;
   const depth = runCausationDepth(run);
-  const skip = (reason: StartJourneySkipReason, extra: Record<string, unknown> = {}): ChildStart => ({ started: false, reason, extra });
+  const skip = (reason: ChildSkipReason, extra: Record<string, unknown> = {}): ChildStart => ({ started: false, reason, extra });
   if (targetJourneyId === run.journeyId) return skip("self_start");
   if (!run.contactId) return skip("no_contact");
 
   const key = childRunKey(run.id, nodeId, targetJourneyId);
-  if (reuse) {
+  const ownChild = async (): Promise<ChildStart | null> => {
     const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, key);
-    if (existing) return { started: true, run: existing, duplicate: true };
-  }
+    return existing ? { started: true, run: existing, duplicate: true } : null;
+  };
+  const before = await ownChild();
+  if (before) return before;
 
   const status = await deps.store.journeyStatus(run.tenantId, targetJourneyId);
   if (status === null) return skip("target_not_found");
@@ -793,20 +827,27 @@ async function startChildRun(
         origin_journey_id: run.journeyId,
         root_run_id: runRootId(run, run.id),
         causation_depth: depth,
-        // Audit only: an AI step asked for this start. Never read by the engine.
+        // An AI step asked for this start. Never read by the engine; the
+        // one-child-per-AI-step index (migration 059) applies to these runs only.
         ...(agent ? { requested_by: "ai_step" } : {}),
         ...(mappings.mappings.length > 0 ? { inputs: resolved.inputs } : {}),
       },
     },
     { execute: false },
   );
+  if (outcome?.result === "started" && outcome.runId) {
+    started.push(outcome.runId);
+    return { started: true, run: { id: outcome.runId, status: "running" }, duplicate: false };
+  }
+  // Not created by this call: another pass of this step may have created the child since the lookup above.
+  const after = await ownChild();
+  if (after) return after;
   if (!outcome) return skip("target_not_listening");
   if (outcome.result === "filtered") return skip("trigger_filters_not_matched");
   if (outcome.result === "already_active") return skip("already_active");
-  if (outcome.result === "started" && outcome.runId) started.push(outcome.runId);
-  const runId = outcome.runId as string;
-  const existing = reuse && outcome.result === "duplicate" ? await deps.store.findRunByIdempotencyKey(run.tenantId, key) : null;
-  return { started: true, run: existing ?? { id: runId, status: "running" }, duplicate: outcome.result === "duplicate" };
+  if (outcome.result === "ai_step_child_exists") return skip("ai_step_child_exists");
+  // A duplicate run key whose run can't be read back: report it as this step's child, as the key says.
+  return { started: true, run: { id: outcome.runId as string, status: "running" }, duplicate: true };
 }
 
 /** The distinct, well-formed children of a Start journeys step, in order (at most MAX_CHILD_JOURNEYS_PER_FANOUT). */
@@ -843,7 +884,7 @@ async function startJourneys(
   const records: Record<string, Record<string, unknown>> = {};
   const found = new Map<string, ChildRun>();
   for (const child of configured) {
-    const result = await startChildRun(deps, run, nodeId, child, resolve, started, true);
+    const result = await startChildRun(deps, run, nodeId, child, resolve, started);
     records[fanOutChildKey(child.journeyId)] = fanOutRecord(child.journeyId, result);
     if (result.started) found.set(child.journeyId, result.run);
   }
