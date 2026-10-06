@@ -167,12 +167,34 @@ export const STEP_RESULT_FIELD_PATTERN = /^steps\.([a-z0-9_]{1,60})\.output\.res
 /** The output field of a step result reference ("results.<name>"). */
 const RESULT_OUTPUT_FIELD = /^results\.[a-z][a-z0-9_]{0,59}$/;
 
-/** The step key and output field (`<field>` or `results.<name>`) of a step reference, or null. */
+/** A Start journeys child's key in its step's output: the target journey id with underscores. */
+const CHILD_KEY = "[0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12}";
+/** What a Start journeys step records per child that a condition may read. */
+const CHILD_OUTPUT = "child_status|results_error|started|skipped_reason|results\\.[a-z][a-z0-9_]{0,59}";
+
+/**
+ * steps.<node key>.output.children.<child key>.<field> reads one child's outcome
+ * on a Start journeys step: child_status, results_error, started,
+ * skipped_reason, or results.<name>. Nothing else of a child is addressable.
+ */
+export const STEP_CHILD_FIELD_PATTERN = new RegExp(`^steps\\.([a-z0-9_]{1,60})\\.output\\.children\\.(${CHILD_KEY})\\.(${CHILD_OUTPUT})$`);
+
+/** The output field of a child reference ("children.<child key>.<field>"). */
+const CHILD_OUTPUT_FIELD = new RegExp(`^children\\.${CHILD_KEY}\\.(?:${CHILD_OUTPUT})$`);
+
+/** The key a Start journeys step records a child under. */
+export function fanOutChildKey(journeyId: string): string {
+  return journeyId.toLowerCase().replace(/-/g, "_");
+}
+
+/** The step key and output field (`<field>`, `results.<name>`, or `children.<key>.<field>`) of a step reference, or null. */
 export function parseStepField(field: string): { key: string; field: string } | null {
   const step = STEP_FIELD_PATTERN.exec(field);
   if (step) return { key: step[1], field: step[2] };
   const result = STEP_RESULT_FIELD_PATTERN.exec(field);
-  return result ? { key: result[1], field: `results.${result[2]}` } : null;
+  if (result) return { key: result[1], field: `results.${result[2]}` };
+  const child = STEP_CHILD_FIELD_PATTERN.exec(field);
+  return child ? { key: child[1], field: `children.${child[2]}.${child[3]}` } : null;
 }
 
 /** Free-form fields: step outputs and journey inputs have no declared type. */
@@ -255,6 +277,10 @@ export const ACTION_TYPES = {
     label: "Start journey",
     description: "Start another journey for this lead. This journey continues without waiting for it.",
   },
+  start_journeys: {
+    label: "Start journeys",
+    description: "Start several journeys for this lead at once. Each journey runs independently.",
+  },
   wait: { label: "Wait", description: "Pause the journey, then continue." },
 } as const;
 
@@ -277,7 +303,7 @@ export interface InputMapping {
 }
 
 export const MAX_INPUT_MAPPINGS = 10;
-/** Longest stored source: steps.<60>.output.<60> is 134 characters. */
+/** Longest stored source: steps.<60>.output.children.<36>.results.<60> is 188 characters. */
 export const INPUT_SOURCE_MAX = 200;
 /** Limit on the started run's inputs object, as UTF-8 JSON. */
 export const MAX_INPUTS_BYTES = 8192;
@@ -317,6 +343,19 @@ export const MAX_RESULTS_BYTES = MAX_INPUTS_BYTES;
 /** A received result's source: the name a started journey declares. */
 export const RESULT_SOURCE_PATTERN = /^result\.([a-z][a-z0-9_]{0,59})$/;
 
+/** Most journeys one Start journeys step starts. */
+export const MAX_CHILD_JOURNEYS_PER_FANOUT = 10;
+
+/** When a waiting Start journeys step continues. Only "all": once every child is completed, failed, or cancelled. */
+export const FAN_OUT_COMPLETION = "all";
+
+/** One journey a Start journeys step starts: the same inputs and results as a Start journey step. */
+export interface FanOutChild {
+  journeyId: string;
+  inputMappings?: InputMapping[];
+  resultMappings?: ResultMapping[];
+}
+
 /** A returned value's source: a step-output field only (never a lead field, trigger, or whole output). */
 export function isResultExportSource(value: unknown): value is string {
   return typeof value === "string" && value.length <= INPUT_SOURCE_MAX && parseStepField(value) !== null;
@@ -337,6 +376,13 @@ export type ActionConfig =
       inputMappings?: InputMapping[];
       waitForCompletion?: true;
       resultMappings?: ResultMapping[];
+    }
+  | {
+      action: "start_journeys";
+      journeys: FanOutChild[];
+      waitForCompletion?: true;
+      /** Set exactly when waiting. */
+      completion?: typeof FAN_OUT_COMPLETION;
     }
   | { action: "wait"; duration: number; unit: WaitUnit };
 
@@ -606,6 +652,51 @@ export function parseResultMappings(raw: unknown, mode: ValidationMode): { mappi
   return { mappings: rows.map(({ name, source }) => ({ target: name, source })), errors };
 }
 
+/**
+ * A Start journeys step's children: 1 to MAX_CHILD_JOURNEYS_PER_FANOUT
+ * distinct journeys, each with its own inputs and (only when waiting) results.
+ * Drafts keep half-chosen rows; problems name the row ("Journey 2: …").
+ */
+export function parseFanOutChildren(
+  raw: unknown,
+  mode: ValidationMode,
+  wait: boolean,
+): { children: FanOutChild[]; errors: string[] } {
+  const errors: string[] = [];
+  const strict = mode === "strict";
+  const rows = Array.isArray(raw) ? raw : [];
+  if (strict && raw !== undefined && !Array.isArray(raw)) errors.push("Journeys: the journey list is malformed.");
+  else if (strict && rows.length === 0) errors.push("Add at least one journey to start.");
+  if (strict && rows.length > MAX_CHILD_JOURNEYS_PER_FANOUT) errors.push(`Start at most ${MAX_CHILD_JOURNEYS_PER_FANOUT} journeys.`);
+
+  const children: FanOutChild[] = [];
+  const seen = new Set<string>();
+  rows.slice(0, MAX_CHILD_JOURNEYS_PER_FANOUT).forEach((entry, index) => {
+    const label = `Journey ${index + 1}`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      if (strict) errors.push(`${label} is malformed.`);
+      return;
+    }
+    const input = entry as Record<string, unknown>;
+    const journeyId = typeof input.journeyId === "string" && UUID.test(input.journeyId) ? input.journeyId.toLowerCase() : "";
+    if (strict && !journeyId) errors.push(`${label}: choose the journey to start.`);
+    if (strict && journeyId && seen.has(journeyId)) errors.push(`${label}: that journey is already started by this step.`);
+    if (journeyId) seen.add(journeyId);
+    const inputs = parseInputMappings(input.inputMappings, mode);
+    const results = parseResultMappings(input.resultMappings, mode);
+    errors.push(...[...inputs.errors, ...results.errors].map((error) => `${label}: ${error}`));
+    if (strict && results.mappings.length > 0 && !wait) {
+      errors.push(`${label}: Results: only a step that waits for the journeys to finish can receive results.`);
+    }
+    children.push({
+      journeyId,
+      ...(inputs.mappings.length > 0 ? { inputMappings: inputs.mappings } : {}),
+      ...(results.mappings.length > 0 ? { resultMappings: results.mappings } : {}),
+    });
+  });
+  return { children, errors };
+}
+
 const EMPTY_RULE: ConditionRule = { field: "", operator: "equals", value: null };
 
 function validateCondition(raw: Record<string, unknown>, mode: ValidationMode): ConfigValidation<ConditionConfig> {
@@ -765,6 +856,20 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
         errors,
       };
     }
+    case "start_journeys": {
+      const wait = raw.waitForCompletion === true;
+      const journeys = parseFanOutChildren(raw.journeys, mode, wait);
+      errors.push(...journeys.errors);
+      need(raw.completion === undefined || raw.completion === FAN_OUT_COMPLETION, "Completion: only “All journeys finish” is supported.");
+      return {
+        config: {
+          action,
+          journeys: journeys.children,
+          ...(wait ? { waitForCompletion: true as const, completion: FAN_OUT_COMPLETION } : {}),
+        },
+        errors,
+      };
+    }
     case "wait": {
       const unit = WAIT_UNITS.includes(raw.unit as WaitUnit) ? (raw.unit as WaitUnit) : "days";
       const value = num(raw.duration);
@@ -877,7 +982,11 @@ export function updateStepReferenceDraft(
 ): StepReferenceDraft {
   const key = patch.key ?? draft.key;
   let field =
-    patch.field === undefined ? draft.field : RESULT_OUTPUT_FIELD.test(patch.field) ? patch.field : sanitizeOutputField(patch.field);
+    patch.field === undefined
+      ? draft.field
+      : RESULT_OUTPUT_FIELD.test(patch.field) || CHILD_OUTPUT_FIELD.test(patch.field)
+        ? patch.field
+        : sanitizeOutputField(patch.field);
   if (patch.key !== undefined && knownFields && !knownFields.includes(field)) field = "";
   return { key, field };
 }

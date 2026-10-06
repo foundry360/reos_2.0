@@ -8,9 +8,11 @@ import {
   CONDITION_FIELDS,
   CONDITION_OPERATORS,
   EMPTY_STEP_REFERENCE,
+  FAN_OUT_COMPLETION,
   IMPLEMENTED_TRIGGER_EVENTS,
   INPUT_NAME_PATTERN,
   MAX_AI_OUTPUT_FIELDS,
+  MAX_CHILD_JOURNEYS_PER_FANOUT,
   MAX_CONDITION_RULES,
   MAX_INPUT_MAPPINGS,
   MAX_RESULT_VALUES,
@@ -32,6 +34,7 @@ import {
   type AIOutputField,
   type ConditionLogic,
   type ConditionRule,
+  type FanOutChild,
   type FieldDefinition,
   type InputMapping,
   type ResultExport,
@@ -52,6 +55,8 @@ export interface StepOption {
   label: string;
   /** Output fields the step is known to produce; null means type the field name. */
   outputs: string[] | null;
+  /** Readable names for output fields that aren't readable as-is (a Start journeys step's per-journey fields). */
+  outputLabels?: Record<string, string>;
 }
 
 /** A journey a Start journey step can target, with the result names its trigger declares. */
@@ -291,7 +296,7 @@ function FieldSource({
                 onChange={(field) => editReference({ field })}
                 options={selectedStep.outputs.map((name) => ({
                   value: name,
-                  label: name === AI_TEXT_KEY ? `${name} (AI explanation)` : name,
+                  label: selectedStep.outputLabels?.[name] ?? (name === AI_TEXT_KEY ? `${name} (AI explanation)` : name),
                 }))}
               />
             ) : (
@@ -762,6 +767,155 @@ function ResultMappingsEditor({
   );
 }
 
+function toFanOutChild(raw: unknown): FanOutChild {
+  const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    journeyId: str(input.journeyId),
+    inputMappings: (Array.isArray(input.inputMappings) ? input.inputMappings : []).map(toMapping),
+    resultMappings: (Array.isArray(input.resultMappings) ? input.resultMappings : []).map(toResultMapping),
+  };
+}
+
+/** Drops empty lists so a saved child carries only what it configures. */
+function fromFanOutChild(child: FanOutChild): FanOutChild {
+  return {
+    journeyId: child.journeyId,
+    ...(child.inputMappings?.length ? { inputMappings: child.inputMappings } : {}),
+    ...(child.resultMappings?.length ? { resultMappings: child.resultMappings } : {}),
+  };
+}
+
+/** A Start journeys step: up to MAX_CHILD_JOURNEYS_PER_FANOUT journeys, each with its own inputs and results. */
+function StartJourneysEditor({
+  idPrefix,
+  config,
+  onChange,
+  journeyOptions,
+  stepOptions,
+  triggerEvent,
+}: {
+  idPrefix: string;
+  config: JourneyNodeConfig;
+  onChange: (config: JourneyNodeConfig) => void;
+  journeyOptions: JourneyOption[];
+  stepOptions: StepOption[];
+  triggerEvent: TriggerEventType | null;
+}) {
+  const children = (Array.isArray(config.journeys) ? config.journeys : []).map(toFanOutChild);
+  const wait = config.waitForCompletion === true;
+  const rowKeys = useRowKeys(children.length);
+  const save = (next: FanOutChild[]) => onChange({ ...config, journeys: next.map(fromFanOutChild) });
+  const update = (index: number, patch: Partial<FanOutChild>) =>
+    save(children.map((child, i) => (i === index ? { ...child, ...patch } : child)));
+
+  return (
+    <>
+      <div className={shell.field}>
+        <span className={shell.label}>Journeys to start</span>
+        {children.map((child, index) => {
+          const rowId = `${idPrefix}-${rowKeys[index]}`;
+          const takenElsewhere = new Set(children.filter((_, i) => i !== index).map((other) => other.journeyId));
+          return (
+            <div key={rowKeys[index]} className={styles.configGroup}>
+              <div className={styles.configGroupHeader}>
+                <span>{journeyOptions.find((journey) => journey.id === child.journeyId)?.label ?? `Journey ${index + 1}`}</span>
+                <button
+                  type="button"
+                  className={styles.configLink}
+                  onClick={() => {
+                    rowKeys.splice(index, 1);
+                    save(children.filter((_, i) => i !== index));
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+              <div className={shell.field}>
+                <label className={shell.label} htmlFor={`${rowId}-journey`}>
+                  Journey
+                </label>
+                <DropdownSelect
+                  id={`${rowId}-journey`}
+                  value={child.journeyId}
+                  placeholder="Choose a journey…"
+                  onChange={(journeyId) => update(index, { journeyId, resultMappings: [] })}
+                  options={journeyOptions
+                    .filter((journey) => !takenElsewhere.has(journey.id))
+                    .map((journey) => ({ value: journey.id, label: journey.label }))}
+                />
+              </div>
+              <InputMappingsEditor
+                idPrefix={`${rowId}-input`}
+                mappings={child.inputMappings ?? []}
+                onChange={(inputMappings) => update(index, { inputMappings })}
+                stepOptions={stepOptions}
+                triggerEvent={triggerEvent}
+              />
+              {wait ? (
+                <ResultMappingsEditor
+                  idPrefix={`${rowId}-received`}
+                  mappings={child.resultMappings ?? []}
+                  onChange={(resultMappings) => update(index, { resultMappings })}
+                  declared={child.journeyId ? (journeyOptions.find((journey) => journey.id === child.journeyId)?.results ?? []) : null}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        {children.length < MAX_CHILD_JOURNEYS_PER_FANOUT ? (
+          <button type="button" className={`${shell.btnSecondary} ${shell.btnPill}`} onClick={() => save([...children, { journeyId: "" }])}>
+            Add journey
+          </button>
+        ) : null}
+        <p className={shell.fieldHint}>
+          Each journey needs the &ldquo;{TRIGGER_EVENTS["journey.started"].label}&rdquo; trigger and must be active. One that
+          can&rsquo;t start (or that the lead is already in) is skipped; the others still start.
+        </p>
+      </div>
+      <div className={shell.field}>
+        <label className={shell.label} htmlFor={`${idPrefix}-wait`}>
+          Then
+        </label>
+        <DropdownSelect
+          id={`${idPrefix}-wait`}
+          value={wait ? "wait" : "continue"}
+          onChange={(next) => {
+            const { waitForCompletion: _wait, completion: _completion, ...rest } = config;
+            onChange(
+              next === "wait"
+                ? { ...rest, waitForCompletion: true, completion: FAN_OUT_COMPLETION }
+                : { ...rest, journeys: children.map(({ resultMappings: _results, ...child }) => fromFanOutChild(child)) },
+            );
+          }}
+          options={[
+            { value: "continue", label: "Continue right away" },
+            { value: "wait", label: "Wait for the journeys to finish" },
+          ]}
+        />
+      </div>
+      {wait ? (
+        <div className={shell.field}>
+          <label className={shell.label} htmlFor={`${idPrefix}-completion`}>
+            Continue when
+          </label>
+          <DropdownSelect
+            id={`${idPrefix}-completion`}
+            value={FAN_OUT_COMPLETION}
+            disabled
+            onChange={() => {}}
+            options={[{ value: FAN_OUT_COMPLETION, label: "All journeys finish" }]}
+          />
+          <p className={shell.fieldHint}>
+            Each journey runs independently. This journey continues after all of them have completed, failed, or been
+            cancelled, whatever the outcome. To branch on how one ended, add a Condition using this step&rsquo;s output
+            for that journey.
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 /** Output field names must work as condition paths, so typing is nudged into snake_case. */
 function outputFieldName(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 60);
@@ -1031,7 +1185,9 @@ export function NodeConfigForm({
                   ? { action: "wait", duration: 1, unit: "days" }
                   : next === "notify_team"
                     ? { action: "notify_team", recipients: "assigned_agent" }
-                    : { action: next },
+                    : next === "start_journeys"
+                      ? { action: "start_journeys", journeys: [{ journeyId: "" }] }
+                      : { action: next },
               )
             }
             options={Object.entries(ACTION_TYPES).map(([key, def]) => ({ value: key, label: def.label }))}
@@ -1208,6 +1364,17 @@ export function NodeConfigForm({
               triggerEvent={triggerEvent}
             />
           </>
+        ) : null}
+
+        {action === "start_journeys" ? (
+          <StartJourneysEditor
+            idPrefix={id("fanout")}
+            config={config}
+            onChange={onChange}
+            journeyOptions={journeyOptions}
+            stepOptions={stepOptions}
+            triggerEvent={triggerEvent}
+          />
         ) : null}
 
         {action === "wait" ? (

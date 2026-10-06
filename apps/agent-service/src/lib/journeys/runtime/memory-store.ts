@@ -253,7 +253,11 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
 
   async wakeWaitingParent(tenantId: string, parentRunId: string, childRunId: string, now: Date) {
     const run = this.runs.get(parentRunId);
-    if (!run || run.tenantId !== tenantId || run.status !== "waiting" || run.context.waitingForChild?.runId !== childRunId) return;
+    if (!run || run.tenantId !== tenantId || run.status !== "waiting") return;
+    const waitedFor =
+      run.context.waitingForChild?.runId === childRunId ||
+      (Array.isArray(run.context.waitingForChildren?.children) && run.context.waitingForChildren.children.some((child) => child.runId === childRunId));
+    if (!waitedFor) return;
     run.resumeAt = now.toISOString();
   }
 

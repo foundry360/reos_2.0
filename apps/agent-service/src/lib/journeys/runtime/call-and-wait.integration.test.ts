@@ -189,6 +189,99 @@ describe("supabase store", () => {
   });
 });
 
+/** A parent waiting at a Start journeys step on two journey.started children it created. */
+async function waitingFanOut() {
+  const parentJourney = await newJourney();
+  const [firstJourney, secondJourney] = [await newJourney(), await newJourney()];
+  const parentId = randomUUID();
+  const child = (journeyId: string) =>
+    insertRun({
+      journeyId, status: "waiting", triggerEvent: "journey.started",
+      payload: { origin: "journey", origin_run_id: parentId, origin_journey_id: parentJourney, root_run_id: parentId, causation_depth: 1 },
+    });
+  const [first, second] = [await child(firstJourney), await child(secondJourney)];
+  await insertRun({
+    id: parentId, journeyId: parentJourney, status: "waiting",
+    context: {
+      steps: {},
+      waitingForChildren: { nodeId: "n0", stepId: randomUUID(), children: [{ journeyId: firstJourney, runId: first }, { journeyId: secondJourney, runId: second }] },
+    },
+  });
+  return { parentId, first, second, firstJourney };
+}
+
+describe("supabase store: Start journeys", () => {
+  it("wakeWaitingParent: any one of the step's children makes the parent due; nothing else does", async () => {
+    const { parentId, first, second } = await waitingFanOut();
+    const { parentId: otherParent } = await waitingPair();
+    const now = new Date("2026-10-05T12:00:00.000Z");
+
+    await store.wakeWaitingParent(tenant, parentId, randomUUID(), now);
+    await store.wakeWaitingParent(otherTenant, parentId, first, now);
+    await store.wakeWaitingParent(tenant, otherParent, first, now);
+    assert.equal(await resumeAt(parentId), LATER);
+    assert.equal(await resumeAt(otherParent), LATER, "a child of another parent's step wakes only its own parent");
+
+    await db.query("update public.journey_runs set status = 'paused' where id = $1", [parentId]);
+    await store.wakeWaitingParent(tenant, parentId, second, now);
+    assert.equal(await resumeAt(parentId), LATER, "a parent that isn't waiting isn't touched");
+
+    await db.query("update public.journey_runs set status = 'waiting' where id = $1", [parentId]);
+    await store.wakeWaitingParent(tenant, parentId, second, now);
+    assert.equal(await resumeAt(parentId), now.toISOString());
+  });
+
+  it("a member cancelling one child, or archiving its journey, wakes the parent; the parent isn't cancelled", async () => {
+    const cancelled = await waitingFanOut();
+    assert.ok((await runRepo.cancelJourneyRun(tenant, cancelled.first)).ok);
+    assert.ok(new Date((await resumeAt(cancelled.parentId))!).getTime() <= Date.now());
+
+    const archived = await waitingFanOut();
+    const result = await repo.setJourneyStatus({ tenantId: tenant, userId: null, journeyId: archived.firstJourney, status: "archived" });
+    assert.ok(result.ok, result.ok ? "" : result.error);
+    assert.ok(new Date((await resumeAt(archived.parentId))!).getTime() <= Date.now());
+    const [parent] = await db.query<{ status: string }>("select status from public.journey_runs where id = $1", [archived.parentId]);
+    assert.equal(parent.status, "waiting");
+  });
+
+  it("activation refuses a received result the started journey doesn't declare, and allows a declared one", async () => {
+    const child = await newJourney();
+    const childTrigger = (await db.query<{ id: string; config: Record<string, unknown> }>(
+      "select id, config from public.journey_nodes where journey_id = $1 and type = 'trigger'", [child],
+    ))[0];
+    const declare = (results: unknown[]) =>
+      db.query("update public.journey_nodes set config = $1 where id = $2", [JSON.stringify({ event: "journey.started", filters: [], results }), childTrigger.id]);
+    await declare([]);
+
+    const trigger = randomUUID();
+    const fanOut = randomUUID();
+    const created = await repo.createJourney({
+      tenantId: tenant, userId: member, name: "Parent", description: "",
+      graph: {
+        nodes: [
+          { id: trigger, type: "trigger", name: "Trigger", description: "", position: { x: 0, y: 0 }, config: { event: "manual", filters: [] } },
+          {
+            id: fanOut, type: "action", name: "Fan out", description: "", position: { x: 0, y: 120 },
+            config: { action: "start_journeys", journeys: [{ journeyId: child, resultMappings: [{ target: "decision", source: "result.decision" }] }], waitForCompletion: true, completion: "all" },
+          },
+        ],
+        connections: [{ id: randomUUID(), sourceNodeId: trigger, targetNodeId: fanOut, sourceHandle: null, targetHandle: null }],
+      },
+    });
+    assert.ok(created.ok, created.ok ? "" : created.error);
+
+    const refused = await repo.setJourneyStatus({ tenantId: tenant, userId: member, journeyId: created.value, status: "active" });
+    assert.equal(refused.ok, false);
+    assert.match(refused.ok ? "" : refused.error, /Journey 1: Result "decision": the started journey doesn't return "decision"\./);
+
+    // A declared result whose source is the child's task step output.
+    const task = (await db.query<{ id: string }>("select id from public.journey_nodes where journey_id = $1 and type = 'action'", [child]))[0];
+    await declare([{ name: "decision", source: `steps.${task.id.replace(/-/g, "_")}.output.decision` }]);
+    const activated = await repo.setJourneyStatus({ tenantId: tenant, userId: member, journeyId: created.value, status: "active" });
+    assert.ok(activated.ok, activated.ok ? "" : activated.error);
+  });
+});
+
 describe("cancellation outside the engine", () => {
   it("a member cancelling the child wakes the parent waiting for it", async () => {
     const { parentId, childId } = await waitingPair();

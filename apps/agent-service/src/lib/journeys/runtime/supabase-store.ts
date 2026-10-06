@@ -378,14 +378,22 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
     },
 
     async wakeWaitingParent(tenantId, parentRunId, childRunId, now) {
-      const { error } = await db
-        .from("journey_runs")
-        .update({ resume_at: now.toISOString() })
-        .eq("tenant_id", tenantId)
-        .eq("id", parentRunId)
-        .eq("status", "waiting")
-        .eq("context->waitingForChild->>runId", childRunId);
+      const wake = () =>
+        db
+          .from("journey_runs")
+          .update({ resume_at: now.toISOString() })
+          .eq("tenant_id", tenantId)
+          .eq("id", parentRunId)
+          .eq("status", "waiting");
+      const { error } = await wake().eq("context->waitingForChild->>runId", childRunId);
       if (error) fail("wakeWaitingParent", error);
+      // A Start journeys step: the run is one of the children it waits for (jsonb containment).
+      const { error: fanOutError } = await wake().filter(
+        "context->waitingForChildren->children",
+        "cs",
+        JSON.stringify([{ runId: childRunId }]),
+      );
+      if (fanOutError) fail("wakeWaitingParent", fanOutError);
     },
   };
 }

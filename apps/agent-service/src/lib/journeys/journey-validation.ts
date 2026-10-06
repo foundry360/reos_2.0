@@ -113,8 +113,12 @@ export function validateJourneyGraph(graph: JourneyGraph): string | null {
  * reachable path from a trigger, branches only on conditions, no loops).
  * Returns a single message listing the first few problems.
  */
-export function activationBlocker(graph: JourneyGraph, journeyId?: string): string | null {
-  const issues = activationIssues(graph, journeyId);
+export function activationBlocker(
+  graph: JourneyGraph,
+  journeyId?: string,
+  declaredResults?: ReadonlyMap<string, readonly string[]>,
+): string | null {
+  const issues = activationIssues(graph, journeyId, declaredResults);
   if (issues.length === 0) return null;
   const shown = issues.slice(0, 3).map((issue) => issue.message);
   const more = issues.length > shown.length ? ` (+${issues.length - shown.length} more)` : "";

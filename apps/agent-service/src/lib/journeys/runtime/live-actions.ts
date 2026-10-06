@@ -207,6 +207,7 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
           });
 
         case "start_journey":
+        case "start_journeys":
           throw new JourneyStepError("Start journey steps are run by the journey engine.", "config");
       }
     },

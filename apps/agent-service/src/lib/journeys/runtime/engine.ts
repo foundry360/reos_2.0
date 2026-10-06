@@ -15,7 +15,10 @@ import {
   aiOutputSchema,
   conditionRules,
   LEAD_REPLIED_FIELD,
+  FAN_OUT_COMPLETION,
+  fanOutChildKey,
   MAX_INPUTS_BYTES,
+  MAX_RESULTS_BYTES,
   parseInputMappings,
   parseResultExports,
   parseResultMappings,
@@ -23,6 +26,7 @@ import {
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
+  type FanOutChild,
   type InputValue,
   type ResultMapping,
   type TriggerConfig,
@@ -30,6 +34,7 @@ import {
 } from "./contracts.ts";
 import { evaluateAll, evaluateRules, journeyInputs, resolveField, scalarValues, type ExecutionContext } from "./conditions.ts";
 import {
+  fanOutChildren,
   nextNodeId,
   resolveStepField,
   resolveStepReference,
@@ -70,6 +75,12 @@ export interface RunState {
    * completes once that run is completed, failed, or cancelled.
    */
   waitingForChild?: { nodeId: string; stepId: string; runId: string };
+  /**
+   * A Start journeys step waiting for the runs it started (one per target
+   * journey, each found again by its run key). The step completes once every
+   * one of them is completed, failed, or cancelled.
+   */
+  waitingForChildren?: { nodeId: string; stepId: string; children: Array<{ journeyId: string; runId: string }> };
   /**
    * The results this run declared (journey.started trigger), captured from its
    * own step outputs in the same write that completed it. Never written again.
@@ -224,7 +235,8 @@ export interface JourneyRuntimeStore {
   findRunByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<ChildRun | null>;
   /**
    * Makes `parentRunId` due now, only while it is waiting for `childRunId`
-   * (context.waitingForChild.runId). Anything else is left alone.
+   * (context.waitingForChild.runId, or one of context.waitingForChildren's
+   * runs). Anything else is left alone.
    */
   wakeWaitingParent(tenantId: string, parentRunId: string, childRunId: string, now: Date): Promise<void>;
 }
@@ -318,8 +330,11 @@ export const INTERRUPTED_STEP_ERROR = "The step was interrupted and may or may n
 /** Error on runs cancelled because their journey was archived. */
 export const JOURNEY_ARCHIVED_ERROR = "Journey archived.";
 
-/** Steps that can safely run twice if the process died mid-step (Start journey: its run key makes a repeat a no-op). */
-const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead", "start_journey"]);
+/**
+ * Steps that can safely run twice if the process died mid-step (Start journey
+ * and Start journeys: each child's run key makes a repeat find it, not start it again).
+ */
+const SAFE_TO_REPEAT = new Set(["update_lead", "assign_lead", "start_journey", "start_journeys"]);
 
 /** Actions that change lead or opportunity data later steps read, so the pass reloads it after they succeed. */
 const CHANGES_ENTITIES = new Set(["update_lead", "assign_lead"]);
@@ -581,31 +596,56 @@ async function startJourney(
 ): Promise<ActionResult | { status: "waiting"; output: Record<string, unknown>; runId: string }> {
   const targetJourneyId = action.journeyId;
   const wait = action.waitForCompletion === true;
-  const depth = runCausationDepth(run);
-  const skip = (reason: StartJourneySkipReason, extra: Record<string, unknown> = {}): ActionResult => ({
-    status: "skipped",
-    output: { started: false, target_journey_id: targetJourneyId, ...extra },
-    reason,
-  });
-  const resultMappings = wait ? parseResultMappings(action.resultMappings, "draft").mappings : [];
-  const child = (found: ChildRun, duplicate: boolean) => {
-    const output = {
-      started: true,
-      target_journey_id: targetJourneyId,
-      run_id: found.id,
-      causation_depth: depth,
-      ...(duplicate ? { duplicate: true } : {}),
-    };
-    return TERMINAL_RUN_STATUSES.has(found.status)
-      ? { status: "completed" as const, output: { ...output, child_status: found.status, ...receivedResults(resultMappings, found) } }
-      : { status: "waiting" as const, output: { ...output, waiting: true }, runId: found.id };
+  const result = await startChildRun(deps, run, nodeId, action, resolve, started, wait);
+  if (!result.started) {
+    return { status: "skipped", output: { started: false, target_journey_id: targetJourneyId, ...result.extra }, reason: result.reason };
+  }
+  const found = result.run;
+  const output = {
+    started: true,
+    target_journey_id: targetJourneyId,
+    run_id: found.id,
+    causation_depth: runCausationDepth(run),
+    ...(result.duplicate ? { duplicate: true } : {}),
   };
+  if (!wait) return { status: "completed", output };
+  const resultMappings = parseResultMappings(action.resultMappings, "draft").mappings;
+  return TERMINAL_RUN_STATUSES.has(found.status)
+    ? { status: "completed", output: { ...output, child_status: found.status, ...receivedResults(resultMappings, found) } }
+    : { status: "waiting", output: { ...output, waiting: true }, runId: found.id };
+}
+
+/** One child a Start journey or Start journeys step tried to start: skipped (and why), or its run. */
+type ChildStart =
+  | { started: false; reason: StartJourneySkipReason; extra: Record<string, unknown> }
+  | { started: true; run: ChildRun; duplicate: boolean };
+
+/**
+ * Starts (or, with `reuse`, first finds by its run key) the one child this
+ * step has for `target.journeyId`. With `reuse`, a run an earlier attempt of
+ * this step created is always the one returned, even if the target was paused
+ * since or the lead is now in it; without it (a Start journey step that
+ * doesn't wait), the dispatcher's run key reports it as a duplicate.
+ */
+async function startChildRun(
+  deps: EngineDeps,
+  run: RunRecord,
+  nodeId: string,
+  target: { journeyId: string; inputMappings?: unknown },
+  resolve: (source: string) => unknown,
+  started: string[],
+  reuse: boolean,
+): Promise<ChildStart> {
+  const targetJourneyId = target.journeyId;
+  const depth = runCausationDepth(run);
+  const skip = (reason: StartJourneySkipReason, extra: Record<string, unknown> = {}): ChildStart => ({ started: false, reason, extra });
   if (targetJourneyId === run.journeyId) return skip("self_start");
   if (!run.contactId) return skip("no_contact");
 
-  if (wait) {
-    const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, targetJourneyId));
-    if (existing) return child(existing, true);
+  const key = childRunKey(run.id, nodeId, targetJourneyId);
+  if (reuse) {
+    const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, key);
+    if (existing) return { started: true, run: existing, duplicate: true };
   }
 
   const status = await deps.store.journeyStatus(run.tenantId, targetJourneyId);
@@ -615,7 +655,7 @@ async function startJourney(
   if (isCausationDepthLimited(depth)) return skip("depth_limited", { causation_depth: depth });
 
   // Snapshots are parsed leniently, so the list is checked strictly again here.
-  const mappings = parseInputMappings(action.inputMappings, "strict");
+  const mappings = parseInputMappings(target.inputMappings, "strict");
   if (mappings.errors.length > 0) return skip("inputs_invalid", { input_errors: mappings.errors });
   const resolved = journeyInputs(mappings.mappings, resolve);
   if (!resolved.ok) {
@@ -649,21 +689,103 @@ async function startJourney(
   if (outcome.result === "filtered") return skip("trigger_filters_not_matched");
   if (outcome.result === "already_active") return skip("already_active");
   if (outcome.result === "started" && outcome.runId) started.push(outcome.runId);
-  if (wait && outcome.runId) {
-    const existing =
-      outcome.result === "duplicate" ? await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, targetJourneyId)) : null;
-    return child(existing ?? { id: outcome.runId, status: "running" }, outcome.result === "duplicate");
+  const runId = outcome.runId as string;
+  const existing = reuse && outcome.result === "duplicate" ? await deps.store.findRunByIdempotencyKey(run.tenantId, key) : null;
+  return { started: true, run: existing ?? { id: runId, status: "running" }, duplicate: outcome.result === "duplicate" };
+}
+
+/** The distinct, well-formed children of a Start journeys step, in order (at most MAX_CHILD_JOURNEYS_PER_FANOUT). */
+function fanOutTargets(action: Extract<ActionConfig, { action: "start_journeys" }>): FanOutChild[] {
+  return fanOutChildren({ type: "action", config: action as unknown as Record<string, unknown> }) ?? [];
+}
+
+/** A child's record on its Start journeys step before its outcome is known: its run, or why it wasn't started. */
+function fanOutRecord(journeyId: string, result: ChildStart): Record<string, unknown> {
+  return result.started
+    ? { target_journey_id: journeyId, started: true, run_id: result.run.id, ...(result.duplicate ? { duplicate: true } : {}) }
+    : { target_journey_id: journeyId, started: false, child_status: "not_started", skipped_reason: result.reason, ...result.extra };
+}
+
+/**
+ * A Start journeys step: each configured journey is started exactly as one
+ * Start journey step would start it (same run key per target, lineage, depth
+ * check, inputs), one after another. A child an earlier attempt created is
+ * found by its run key, so a repeat after a crash starts only the missing
+ * ones. A child that can't start is recorded with its skip reason; the others
+ * still start. Without waitForCompletion the step completes at once; with it,
+ * it waits for every started child (completion "all") unless all already
+ * finished. A run of a target that this step didn't create is never waited for.
+ */
+async function startJourneys(
+  deps: EngineDeps,
+  run: RunRecord,
+  nodeId: string,
+  action: Extract<ActionConfig, { action: "start_journeys" }>,
+  resolve: (source: string) => unknown,
+  started: string[],
+): Promise<ActionResult | { status: "waiting"; output: Record<string, unknown>; children: Array<{ journeyId: string; runId: string }> }> {
+  const configured = fanOutTargets(action);
+  const records: Record<string, Record<string, unknown>> = {};
+  const found = new Map<string, ChildRun>();
+  for (const child of configured) {
+    const result = await startChildRun(deps, run, nodeId, child, resolve, started, true);
+    records[fanOutChildKey(child.journeyId)] = fanOutRecord(child.journeyId, result);
+    if (result.started) found.set(child.journeyId, result.run);
   }
-  return {
-    status: "completed",
-    output: {
+  const base = { causation_depth: runCausationDepth(run) };
+  if (action.waitForCompletion !== true) return { status: "completed", output: { ...base, children: records } };
+  if ([...found.values()].some((child) => !TERMINAL_RUN_STATUSES.has(child.status))) {
+    return {
+      status: "waiting",
+      output: { ...base, completion: FAN_OUT_COMPLETION, waiting: true, children: records },
+      children: [...found].map(([journeyId, child]) => ({ journeyId, runId: child.id })),
+    };
+  }
+  return { status: "completed", output: fanInOutput(base, configured, records, found) };
+}
+
+/**
+ * A waiting Start journeys step's final output, once every child it waits for
+ * is terminal: per child (by fanOutChildKey) its record, child_status, and the
+ * results it maps from that child's captured results (never re-resolved). A
+ * child that wasn't started keeps child_status "not_started" and its skip
+ * reason. All children's results together are held to MAX_RESULTS_BYTES; over
+ * it, no child returns any (results_too_large), so a result is never partial.
+ */
+function fanInOutput(
+  base: Record<string, unknown>,
+  configured: FanOutChild[],
+  records: Record<string, Record<string, unknown>>,
+  found: ReadonlyMap<string, ChildRun | null>,
+): Record<string, unknown> {
+  const children: Record<string, Record<string, unknown>> = {};
+  for (const child of configured) {
+    const key = fanOutChildKey(child.journeyId);
+    const record = Object.hasOwn(records, key) ? records[key] : null;
+    if (record?.started !== true) {
+      children[key] = record ?? { target_journey_id: child.journeyId, started: false, child_status: "not_started" };
+      continue;
+    }
+    const childRun = found.get(child.journeyId) ?? null;
+    children[key] = {
+      target_journey_id: child.journeyId,
       started: true,
-      target_journey_id: targetJourneyId,
-      run_id: outcome.runId,
-      causation_depth: depth,
-      ...(outcome.result === "duplicate" ? { duplicate: true } : {}),
-    },
-  };
+      run_id: childRun?.id ?? (typeof record.run_id === "string" ? record.run_id : null),
+      ...(record.duplicate === true ? { duplicate: true } : {}),
+      child_status: (childRun ? childRun.status : "missing") satisfies ChildRunStatus | RunStatus,
+      ...receivedResults(parseResultMappings(child.resultMappings, "draft").mappings, childRun),
+    };
+  }
+  const returned = Object.fromEntries(Object.entries(children).flatMap(([key, record]) => (record.results === undefined ? [] : [[key, record.results]])));
+  if (new TextEncoder().encode(JSON.stringify(returned)).length <= MAX_RESULTS_BYTES) {
+    return { ...base, completion: FAN_OUT_COMPLETION, children };
+  }
+  for (const record of Object.values(children)) {
+    if (record.results === undefined) continue;
+    record.results = {};
+    if (record.results_error === undefined) record.results_error = "results_too_large" satisfies ResultsErrorReason;
+  }
+  return { ...base, completion: FAN_OUT_COMPLETION, children, results_error: "results_too_large" satisfies ResultsErrorReason };
 }
 
 // ---------- Execution ----------
@@ -674,6 +796,8 @@ export interface ExecuteOutcome {
   steps: number;
   /** Set when the pass parked the run to wait for this child run. */
   waitingForChild?: string;
+  /** Set when the pass parked the run to wait for these child runs (Start journeys). */
+  waitingForChildren?: string[];
 }
 
 /**
@@ -697,7 +821,10 @@ export async function executeRun(deps: EngineDeps, runId: string): Promise<Execu
       console.error("[journeys] started run failed to execute:", childId, error instanceof Error ? error.message : error);
     }
   }
-  if (outcome.waitingForChild && started.includes(outcome.waitingForChild)) {
+  const waitedForStarted =
+    (outcome.waitingForChild !== undefined && started.includes(outcome.waitingForChild)) ||
+    (outcome.waitingForChildren ?? []).some((childId) => started.includes(childId));
+  if (waitedForStarted) {
     try {
       const resumed = await executeRun(deps, runId);
       if (resumed.status !== "not_claimed") return resumed;
@@ -754,22 +881,57 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
   };
 
   /**
-   * Parks this run on its child: waiting, unleased, rechecking at the latest
-   * after CHILD_WAIT_RECHECK_MS. The child is checked once more after the write,
-   * so a child that finished before this run was waiting (and so couldn't wake
-   * it) still makes it due now.
+   * Parks this run on its child or children: waiting, unleased, rechecking at
+   * the latest after CHILD_WAIT_RECHECK_MS. `ready` is checked once more after
+   * the write, so children that finished before this run was waiting (and so
+   * couldn't wake it) still make it due now (woken through `wakeRunId`).
    */
-  const waitForChild = async (patch: RunPatch, childRunId: string, childKey: string): Promise<ExecuteOutcome> => {
+  const park = async (
+    patch: RunPatch,
+    wakeRunId: string,
+    ready: () => Promise<boolean>,
+    waitingFor: Pick<ExecuteOutcome, "waitingForChild" | "waitingForChildren">,
+  ): Promise<ExecuteOutcome> => {
     const parked = await finish("waiting", { ...patch, resumeAt: new Date(now().getTime() + CHILD_WAIT_RECHECK_MS).toISOString() });
     if (parked.status !== "waiting") return parked;
     try {
-      const child = await store.findRunByIdempotencyKey(run.tenantId, childKey);
-      if (!child || TERMINAL_RUN_STATUSES.has(child.status)) await store.wakeWaitingParent(run.tenantId, run.id, childRunId, now());
+      if (await ready()) await store.wakeWaitingParent(run.tenantId, run.id, wakeRunId, now());
     } catch (error) {
-      console.error("[journeys] couldn't recheck the waited-for run:", childRunId, error instanceof Error ? error.message : error);
+      console.error("[journeys] couldn't recheck the waited-for run:", wakeRunId, error instanceof Error ? error.message : error);
     }
-    return { ...parked, waitingForChild: childRunId };
+    return { ...parked, ...waitingFor };
   };
+
+  const waitForChild = (patch: RunPatch, childRunId: string, childKey: string) =>
+    park(
+      patch,
+      childRunId,
+      async () => {
+        const child = await store.findRunByIdempotencyKey(run.tenantId, childKey);
+        return !child || TERMINAL_RUN_STATUSES.has(child.status);
+      },
+      { waitingForChild: childRunId },
+    );
+
+  /** Each waited-for child of a Start journeys step, found again by its run key (null: the run no longer exists). */
+  const findChildren = async (nodeId: string, journeyIds: string[]) => {
+    const found = new Map<string, ChildRun | null>();
+    for (const journeyId of journeyIds) {
+      found.set(journeyId, await store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, journeyId)));
+    }
+    return found;
+  };
+  const allTerminal = (found: ReadonlyMap<string, ChildRun | null>) =>
+    [...found.values()].every((child) => !child || TERMINAL_RUN_STATUSES.has(child.status));
+
+  /** Parks on every child a Start journeys step started; it continues only once all are terminal. */
+  const waitForChildren = (patch: RunPatch, nodeId: string, children: Array<{ journeyId: string; runId: string }>) =>
+    park(
+      patch,
+      children[0].runId,
+      async () => allTerminal(await findChildren(nodeId, children.map((child) => child.journeyId))),
+      { waitingForChildren: children.map((child) => child.runId) },
+    );
 
   const journeyStatus = await store.journeyStatus(run.tenantId, run.journeyId);
   if (journeyStatus === null) return finish("cancelled", { error: "The journey was deleted." });
@@ -834,6 +996,40 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
       ...receivedResults(parseResultMappings(config.resultMappings, "draft").mappings, child),
     };
     await store.updateStep(waiting.stepId, { status: "completed", output, completedAt: now().toISOString() });
+    recordOutput(node, output);
+    currentNodeId = nextNodeId(snapshot, node.id);
+    if (!(await persist())) return leaseLost();
+  }
+
+  // Waiting for a Start journeys step's children: continue once every one is
+  // terminal, else park again. Each child is found by its run key; the wake-up
+  // that made this run due is never read.
+  const fanOut = run.context.waitingForChildren;
+  if (fanOut && currentNodeId === fanOut.nodeId) {
+    const node = snapshot.nodes.find((entry) => entry.id === fanOut.nodeId);
+    const config = node?.type === "action" ? (node.config as unknown as ActionConfig) : null;
+    if (!node || config?.action !== "start_journeys") {
+      return finish("failed", { error: "The journey points to a step that doesn't exist.", context: state, currentNodeId });
+    }
+    const configured = fanOutTargets(config);
+    const waitedFor = (Array.isArray(fanOut.children) ? fanOut.children : []).filter((entry) =>
+      configured.some((child) => child.journeyId === entry.journeyId),
+    );
+    const found = await findChildren(node.id, waitedFor.map((entry) => entry.journeyId));
+    if (waitedFor.length > 0 && !allTerminal(found)) return waitForChildren({}, node.id, waitedFor);
+
+    const recorded = await store.loadStep(run.tenantId, fanOut.stepId);
+    const recordedChildren = recorded?.output.children;
+    const records: Record<string, Record<string, unknown>> =
+      recordedChildren && typeof recordedChildren === "object" && !Array.isArray(recordedChildren)
+        ? { ...(recordedChildren as Record<string, Record<string, unknown>>) }
+        : {};
+    for (const entry of waitedFor) {
+      const key = fanOutChildKey(entry.journeyId);
+      if (records[key]?.started !== true) records[key] = { target_journey_id: entry.journeyId, started: true, run_id: entry.runId };
+    }
+    const output = fanInOutput({ causation_depth: runCausationDepth(run) }, configured, records, found);
+    await store.updateStep(fanOut.stepId, { status: "completed", output, completedAt: now().toISOString() });
     recordOutput(node, output);
     currentNodeId = nextNodeId(snapshot, node.id);
     if (!(await persist())) return leaseLost();
@@ -934,6 +1130,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
     // Side-effecting step: action or AI.
     let outcome: StepOutcome | null = null;
     let waitFor: { runId: string; output: Record<string, unknown> } | null = null;
+    let waitForAll: { children: Array<{ journeyId: string; runId: string }>; output: Record<string, unknown> } | null = null;
     const attempt = (state.attempts?.[node.id] ?? 0) + 1;
     const input = { ...node.config };
     const stepId = await store.insertStep({ ...base, status: "running", input, attemptCount: attempt });
@@ -948,6 +1145,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
 
     try {
       const ai = node.type === "ai" ? (node.config as unknown as AIConfig) : null;
+      const resolve = (source: string) => resolveField(context(), resolveStepField(source, snapshot.nodes, keys));
       const result = ai
         ? await runAINode(deps.ai, {
             tenantId: run.tenantId,
@@ -963,16 +1161,19 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
             context: context(),
           })
         : action?.action === "start_journey"
-          ? await startJourney(deps, run, node.id, action, (source) => resolveField(context(), resolveStepField(source, snapshot.nodes, keys)), started)
-          : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
-              tenantId: run.tenantId,
-              runId: run.id,
-              nodeId: node.id,
-              contactId: run.contactId,
-              lead: entities.lead,
-              opportunity: entities.opportunity,
-            });
-      if (result.status === "waiting") waitFor = { runId: result.runId, output: result.output };
+          ? await startJourney(deps, run, node.id, action, resolve, started)
+          : action?.action === "start_journeys"
+            ? await startJourneys(deps, run, node.id, action, resolve, started)
+            : await deps.actions.execute(action as Exclude<ActionConfig, { action: "wait" }>, {
+                tenantId: run.tenantId,
+                runId: run.id,
+                nodeId: node.id,
+                contactId: run.contactId,
+                lead: entities.lead,
+                opportunity: entities.opportunity,
+              });
+      if (result.status === "waiting" && "children" in result) waitForAll = { children: result.children, output: result.output };
+      else if (result.status === "waiting") waitFor = { runId: result.runId, output: result.output };
       else {
         const output = result.status === "skipped" ? { ...result.output, skipped_reason: result.reason } : result.output;
         outcome = { status: result.status, output, completedAt: now().toISOString() };
@@ -1003,6 +1204,16 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
         { currentNodeId: node.id, context: { ...state, waitingForChild: { nodeId: node.id, stepId, runId: waitFor.runId } } },
         waitFor.runId,
         childKey,
+      );
+    }
+    if (waitForAll) {
+      // Every child exists. As above: a pass that dies before the park repeats the step, which finds them by their run keys.
+      await store.updateStep(stepId, { output: waitForAll.output });
+      if (state.attempts) delete state.attempts[node.id];
+      return waitForChildren(
+        { currentNodeId: node.id, context: { ...state, waitingForChildren: { nodeId: node.id, stepId, children: waitForAll.children } } },
+        node.id,
+        waitForAll.children,
       );
     }
     if (!outcome) throw new Error("Step finished without an outcome.");

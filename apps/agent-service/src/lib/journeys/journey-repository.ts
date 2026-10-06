@@ -148,6 +148,11 @@ export async function listJourneys(tenantId: string): Promise<RepositoryResult<J
  * leave this function; the runtime uses the version a run actually started on.
  */
 export async function listJourneyResultNames(tenantId: string): Promise<Map<string, string[]>> {
+  return (await loadJourneyResultNames(tenantId)) ?? new Map();
+}
+
+/** listJourneyResultNames, or null when they couldn't be read. */
+async function loadJourneyResultNames(tenantId: string): Promise<Map<string, string[]> | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("journey_nodes")
@@ -157,7 +162,7 @@ export async function listJourneyResultNames(tenantId: string): Promise<Map<stri
   const names = new Map<string, string[]>();
   if (error) {
     console.error("listJourneyResultNames failed:", error.message);
-    return names;
+    return null;
   }
   for (const row of (data ?? []) as Array<{ journey_id: string; config: Record<string, unknown> | null }>) {
     if (row.config?.event !== "journey.started") continue;
@@ -165,6 +170,17 @@ export async function listJourneyResultNames(tenantId: string): Promise<Map<stri
     names.set(row.journey_id, [...new Set(declared)]);
   }
   return names;
+}
+
+/**
+ * Why this graph can't be active, checking received results against what the
+ * started journeys declare. If the declarations can't be read, activation is
+ * refused rather than checked without them.
+ */
+async function activationBlockerWithResults(tenantId: string, graph: JourneyGraph, journeyId: string): Promise<string | null> {
+  const declared = await loadJourneyResultNames(tenantId);
+  if (!declared) return "Couldn't check the journeys this one starts. Try again.";
+  return activationBlocker(graph, journeyId, declared);
 }
 
 /**
@@ -386,7 +402,7 @@ export async function saveJourney(params: {
 
   // New runs start on whatever is saved, so an active journey must stay runnable.
   if (owned.status === "active") {
-    const blocker = activationBlocker(params.graph, params.journeyId);
+    const blocker = await activationBlockerWithResults(params.tenantId, params.graph, params.journeyId);
     if (blocker) return { ok: false, error: `This journey is active, so it can't be saved yet. ${blocker}` };
   }
 
@@ -435,7 +451,7 @@ export async function setJourneyStatus(params: {
     return { ok: false, error: `A ${from} journey cannot move to ${params.status}.` };
   }
   if (params.status === "active") {
-    const blocker = activationBlocker(current.value, params.journeyId);
+    const blocker = await activationBlockerWithResults(params.tenantId, current.value, params.journeyId);
     if (blocker) return { ok: false, error: blocker };
   }
 

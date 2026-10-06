@@ -19,18 +19,22 @@ import {
   aiOutputSchema,
   CONDITION_FIELDS,
   conditionRules,
+  fanOutChildKey,
   INPUT_NAME_PATTERN,
   nodeReferenceKey,
+  parseFanOutChildren,
   parseInputMappings,
   parseResultExports,
   parseResultMappings,
   parseStepField,
+  RESULT_SOURCE_PATTERN,
   stepKey,
   TRIGGER_EVENTS,
   TRIGGER_INPUT_FIELD_PATTERN,
   validateNodeConfig,
   type AIConfig,
   type ConditionRule,
+  type FanOutChild,
 } from "./contracts.ts";
 
 export interface SnapshotNode {
@@ -146,6 +150,8 @@ export function referenceableSteps<T extends Pick<SnapshotNode, "id" | "type" | 
  * statically (freeform AI steps, actions).
  */
 export function knownOutputFields(node: Pick<SnapshotNode, "type" | "config">): string[] | null {
+  const fanOut = fanOutOutputFields(node);
+  if (fanOut) return fanOut;
   const received = receivedResultNames(node);
   if (received.length > 0) return [...START_JOURNEY_OUTPUT_FIELDS, ...received.map((name) => `results.${name}`)];
   if (node.type !== "ai") return null;
@@ -163,6 +169,41 @@ export function receivedResultNames(node: Pick<SnapshotNode, "type" | "config">)
   return parseResultMappings(config.resultMappings, "draft")
     .mappings.map((mapping) => mapping.target)
     .filter((target) => INPUT_NAME_PATTERN.test(target));
+}
+
+/** The distinct, well-formed children of a Start journeys step (null for any other node). */
+export function fanOutChildren(node: Pick<SnapshotNode, "type" | "config">): FanOutChild[] | null {
+  const config = node.config as Record<string, unknown>;
+  if (node.type !== "action" || config.action !== "start_journeys") return null;
+  const seen = new Set<string>();
+  return parseFanOutChildren(config.journeys, "draft", config.waitForCompletion === true).children.filter((child) => {
+    if (!child.journeyId || seen.has(child.journeyId)) return false;
+    seen.add(child.journeyId);
+    return true;
+  });
+}
+
+/**
+ * What a Start journeys step records that a condition can read: per configured
+ * child (children.<child key>.…) started, skipped_reason, and child_status,
+ * plus, when it waits, results_error and results.<name> for each result it
+ * maps from that child. Children that aren't configured have no fields.
+ */
+export function fanOutOutputFields(node: Pick<SnapshotNode, "type" | "config">): string[] | null {
+  const children = fanOutChildren(node);
+  if (!children) return null;
+  const wait = (node.config as Record<string, unknown>).waitForCompletion === true;
+  const fields = ["causation_depth", ...(wait ? ["completion", "results_error"] : [])];
+  for (const child of children) {
+    const prefix = `children.${fanOutChildKey(child.journeyId)}.`;
+    fields.push(`${prefix}child_status`, `${prefix}started`, `${prefix}skipped_reason`);
+    if (!wait) continue;
+    fields.push(`${prefix}results_error`);
+    for (const { target } of parseResultMappings(child.resultMappings, "draft").mappings) {
+      if (INPUT_NAME_PATTERN.test(target)) fields.push(`${prefix}results.${target}`);
+    }
+  }
+  return fields;
 }
 
 /** Output-producing steps reachable from a trigger: what a journey's declared results can return. */
@@ -260,6 +301,11 @@ function outputFieldIssue(source: SnapshotNode | JourneyNode, field: string): st
   if (field.startsWith("results.") && !receivedResultNames(source).includes(field.slice("results.".length))) {
     return `${label(source)} doesn't receive a result named "${field.slice("results.".length)}".`;
   }
+  if (field.startsWith("children.") && !fanOutOutputFields(source)?.includes(field)) {
+    return fanOutChildren(source)
+      ? `${label(source)} doesn't start that journey or doesn't record "${field.split(".").slice(2).join(".")}" for it.`
+      : `${label(source)} isn't a Start journeys step.`;
+  }
   const fields = knownOutputFields(source);
   if (fields && !fields.includes(field)) return `output field "${field}" isn't defined by ${label(source)}.`;
   return null;
@@ -302,11 +348,11 @@ function triggerInputIssue(graph: GraphLike, field: unknown): string | null {
     : `inputs only exist when another journey starts this one ("${TRIGGER_EVENTS["journey.started"].label}" trigger).`;
 }
 
-/** Problems with a Start journey step's input sources that need the whole graph. */
-function inputSourceIssues(graph: GraphLike, node: SnapshotNode | JourneyNode): string[] {
+/** Problems with a Start journey(s) step's input sources (`rawMappings`) that need the whole graph. */
+function inputSourceIssues(graph: GraphLike, node: SnapshotNode | JourneyNode, rawMappings: unknown): string[] {
   const issues: string[] = [];
   const events = triggerEvents(graph);
-  for (const { target, source } of parseInputMappings((node.config as Record<string, unknown>).inputMappings, "draft").mappings) {
+  for (const { target, source } of parseInputMappings(rawMappings, "draft").mappings) {
     if (!source) continue;
     const definition = Object.hasOwn(CONDITION_FIELDS, source) ? CONDITION_FIELDS[source] : null;
     const problem =
@@ -320,6 +366,17 @@ function inputSourceIssues(graph: GraphLike, node: SnapshotNode | JourneyNode): 
   return issues;
 }
 
+/**
+ * Received results the started journey doesn't declare. `declared` is null
+ * when the target declares nothing (or isn't known): every mapping is then an issue.
+ */
+function undeclaredResultIssues(rawMappings: unknown, declared: readonly string[] | null): string[] {
+  return parseResultMappings(rawMappings, "draft").mappings.flatMap(({ target, source }) => {
+    const name = RESULT_SOURCE_PATTERN.exec(source)?.[1];
+    return name && !declared?.includes(name) ? [`Result "${target || "?"}": the started journey doesn't return "${name}".`] : [];
+  });
+}
+
 export interface ActivationIssue {
   nodeId: string | null;
   message: string;
@@ -331,10 +388,16 @@ function label(node: Pick<SnapshotNode, "name" | "type">): string {
 
 /**
  * Everything that must hold before a journey can run. Returns every problem so
- * the builder can show them together. With `journeyId`, a Start journey step
- * that targets this same journey is an issue.
+ * the builder can show them together. With `journeyId`, a Start journey(s)
+ * step that targets this same journey is an issue. With `declaredResults` (the
+ * result names each journey in the workspace declares), a received result its
+ * target doesn't declare is an issue.
  */
-export function activationIssues(graph: JourneyGraph | JourneySnapshot, journeyId?: string): ActivationIssue[] {
+export function activationIssues(
+  graph: JourneyGraph | JourneySnapshot,
+  journeyId?: string,
+  declaredResults?: ReadonlyMap<string, readonly string[]>,
+): ActivationIssue[] {
   const issues: ActivationIssue[] = [];
   const nodes = graph.nodes;
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -358,9 +421,24 @@ export function activationIssues(graph: JourneyGraph | JourneySnapshot, journeyI
       issues.push({ nodeId: node.id, message: `${label(node)}: a journey can't start itself.` });
     }
     if (node.type === "action" && config.action === "start_journey") {
-      for (const problem of inputSourceIssues(graph, node)) {
-        issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
-      }
+      const problems = [
+        ...inputSourceIssues(graph, node, config.inputMappings),
+        ...(declaredResults && config.waitForCompletion === true && typeof config.journeyId === "string"
+          ? undeclaredResultIssues(config.resultMappings, declaredResults.get(config.journeyId.toLowerCase()) ?? null)
+          : []),
+      ];
+      for (const problem of problems) issues.push({ nodeId: node.id, message: `${label(node)}: ${problem}` });
+    }
+    if (node.type === "action" && config.action === "start_journeys") {
+      const rows = parseFanOutChildren(config.journeys, "draft", config.waitForCompletion === true).children;
+      rows.forEach((child, index) => {
+        const problems = [
+          ...(journeyId && child.journeyId === journeyId.toLowerCase() ? ["a journey can't start itself."] : []),
+          ...inputSourceIssues(graph, node, child.inputMappings),
+          ...(declaredResults && child.journeyId ? undeclaredResultIssues(child.resultMappings, declaredResults.get(child.journeyId) ?? null) : []),
+        ];
+        for (const problem of problems) issues.push({ nodeId: node.id, message: `${label(node)}: Journey ${index + 1}: ${problem}` });
+      });
     }
     if (node.type === "trigger") {
       for (const problem of resultExportIssues(graph, node)) {

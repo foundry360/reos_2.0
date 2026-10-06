@@ -1,5 +1,6 @@
 import {
   MAX_INPUTS_BYTES,
+  STEP_CHILD_FIELD_PATTERN,
   STEP_FIELD_PATTERN,
   STEP_RESULT_FIELD_PATTERN,
   TRIGGER_INPUT_FIELD_PATTERN,
@@ -34,6 +35,16 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
     if (!results || typeof results !== "object" || Array.isArray(results)) return undefined;
     return Object.hasOwn(results, name) ? (results as Record<string, unknown>)[name] : undefined;
   }
+  const child = STEP_CHILD_FIELD_PATTERN.exec(field);
+  if (child) {
+    const [, key, childKey, name] = child;
+    const entry = Object.hasOwn(context.steps, key) ? context.steps[key] : undefined;
+    const record = ownObject(ownObject(entry?.output, "children"), childKey);
+    if (!name.startsWith("results.")) return record && Object.hasOwn(record, name) ? record[name] : undefined;
+    const results = ownObject(record, "results");
+    const resultName = name.slice("results.".length);
+    return results && Object.hasOwn(results, resultName) ? results[resultName] : undefined;
+  }
   const input = TRIGGER_INPUT_FIELD_PATTERN.exec(field);
   if (input) {
     const inputs = context.trigger.event === "journey.started" ? context.trigger.payload.inputs : undefined;
@@ -52,6 +63,13 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
           ? context.trigger.payload
           : null;
   return source && Object.hasOwn(source, name) ? source[name] : undefined;
+}
+
+/** `value[key]` when it is an own plain object; otherwise undefined. */
+function ownObject(value: unknown, key: string): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value) || !Object.hasOwn(value, key)) return undefined;
+  const next = (value as Record<string, unknown>)[key];
+  return next && typeof next === "object" && !Array.isArray(next) ? (next as Record<string, unknown>) : undefined;
 }
 
 export type JourneyInputsResult =

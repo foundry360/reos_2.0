@@ -50,8 +50,15 @@ import { LeaveJourneyModal } from "./leave-journey-modal";
 import { NodePicker } from "./node-picker";
 import type { JourneyOption } from "./node-config-form";
 import { PropertiesPanel, type NodePatch } from "./properties-panel";
-import { isTriggerEventType, nodeReferenceKey } from "@/lib/journeys/runtime/contracts";
-import { exportableSteps, knownOutputFields, referenceableSteps, stepKeys } from "@/lib/journeys/runtime/graph";
+import { fanOutChildKey, isTriggerEventType, nodeReferenceKey } from "@/lib/journeys/runtime/contracts";
+import {
+  exportableSteps,
+  fanOutChildren,
+  fanOutOutputFields,
+  knownOutputFields,
+  referenceableSteps,
+  stepKeys,
+} from "@/lib/journeys/runtime/graph";
 import shell from "@/components/shell/shell.module.css";
 import styles from "../journeys.module.css";
 
@@ -80,6 +87,30 @@ function snapshotOf(
     description: description.trim(),
     graph: toJourneyGraph(nodes, edges),
   });
+}
+
+const FAN_OUT_FIELD_LABELS: Record<string, string> = {
+  child_status: "how it ended",
+  started: "started",
+  skipped_reason: "why it wasn't started",
+  results_error: "results problem",
+};
+
+/** Readable names for a Start journeys step's per-journey output fields (children.<key>.…), by journey name. */
+function fanOutFieldLabels(node: Parameters<typeof fanOutChildren>[0], journeyOptions: JourneyOption[]) {
+  const children = fanOutChildren(node);
+  if (!children) return undefined;
+  const labels: Record<string, string> = { results_error: "Results problem (any journey)" };
+  for (const child of children) {
+    const journey = journeyOptions.find((option) => option.id === child.journeyId)?.label ?? "Journey";
+    for (const field of fanOutOutputFields(node) ?? []) {
+      const prefix = `children.${fanOutChildKey(child.journeyId)}.`;
+      if (!field.startsWith(prefix)) continue;
+      const rest = field.slice(prefix.length);
+      labels[field] = `${journey}: ${rest.startsWith("results.") ? `result ${rest.slice("results.".length)}` : FAN_OUT_FIELD_LABELS[rest] ?? rest}`;
+    }
+  }
+  return labels;
 }
 
 function IconBack() {
@@ -141,7 +172,8 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
   const selectedReaderId =
     selectedNode &&
     (selectedNode.data.nodeType === "condition" ||
-      (selectedNode.data.nodeType === "action" && selectedNode.data.config.action === "start_journey") ||
+      (selectedNode.data.nodeType === "action" &&
+        (selectedNode.data.config.action === "start_journey" || selectedNode.data.config.action === "start_journeys")) ||
       (selectedNode.data.nodeType === "trigger" && selectedNode.data.config.event === "journey.started"))
       ? selectedNode.id
       : null;
@@ -162,9 +194,10 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
         legacyKey: legacyKeys.get(node.id),
         label: count > 1 ? `${base} (${count})` : base,
         outputs: knownOutputFields(node),
+        outputLabels: fanOutFieldLabels(node, journeyOptions),
       };
     });
-  }, [nodes, edges, selectedReaderId, readerIsTrigger]);
+  }, [nodes, edges, selectedReaderId, readerIsTrigger, journeyOptions]);
   const triggerEvent = useMemo(() => {
     const event = nodes.find((node) => node.data.nodeType === "trigger")?.data.config.event;
     return isTriggerEventType(event) ? event : null;

@@ -89,6 +89,7 @@ export function retryContext(context: RunState, nodeId: string): RunState {
   delete next.inFlight;
   delete next.waitingStepId;
   delete next.waitingForChild;
+  delete next.waitingForChildren;
   next.steps = next.steps ?? {};
   next.attempts = { ...(next.attempts ?? {}), [nodeId]: MAX_ATTEMPTS - 1 };
   return next;
