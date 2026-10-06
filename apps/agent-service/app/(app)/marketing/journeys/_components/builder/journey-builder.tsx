@@ -56,6 +56,7 @@ import {
   fanOutChildren,
   fanOutOutputFields,
   knownOutputFields,
+  orchestrationOutputFields,
   referenceableSteps,
   stepKeys,
 } from "@/lib/journeys/runtime/graph";
@@ -111,6 +112,23 @@ function fanOutFieldLabels(node: Parameters<typeof fanOutChildren>[0], journeyOp
     }
   }
   return labels;
+}
+
+const ORCHESTRATION_FIELD_LABELS: Record<string, string> = {
+  requested: "Journey orchestration: AI asked for a journey",
+  started: "Journey orchestration: journey started",
+  reason: "Journey orchestration: why it wasn't started",
+  journey: "Journey orchestration: which journey (journey_1, …)",
+  target_journey_id: "Journey orchestration: journey id",
+  run_id: "Journey orchestration: run id",
+  causation_depth: "Journey orchestration: depth",
+};
+
+/** Readable names for what an AI step allowed to ask for a journey records (orchestration.…). */
+function orchestrationFieldLabels(node: Parameters<typeof orchestrationOutputFields>[0]) {
+  const fields = orchestrationOutputFields(node);
+  if (fields.length === 0) return undefined;
+  return Object.fromEntries(fields.map((field) => [field, ORCHESTRATION_FIELD_LABELS[field.slice("orchestration.".length)] ?? field]));
 }
 
 function IconBack() {
@@ -194,7 +212,7 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
         legacyKey: legacyKeys.get(node.id),
         label: count > 1 ? `${base} (${count})` : base,
         outputs: knownOutputFields(node),
-        outputLabels: fanOutFieldLabels(node, journeyOptions),
+        outputLabels: fanOutFieldLabels(node, journeyOptions) ?? orchestrationFieldLabels(node),
       };
     });
   }, [nodes, edges, selectedReaderId, readerIsTrigger, journeyOptions]);

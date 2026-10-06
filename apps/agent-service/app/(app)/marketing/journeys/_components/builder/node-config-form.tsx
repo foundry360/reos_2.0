@@ -11,6 +11,7 @@ import {
   FAN_OUT_COMPLETION,
   IMPLEMENTED_TRIGGER_EVENTS,
   INPUT_NAME_PATTERN,
+  MAX_AGENT_JOURNEY_TARGETS,
   MAX_AI_OUTPUT_FIELDS,
   MAX_CHILD_JOURNEYS_PER_FANOUT,
   MAX_CONDITION_RULES,
@@ -31,6 +32,7 @@ import {
   stepReferenceField,
   updateStepReferenceDraft,
   validateNodeConfig,
+  type AgentJourneyTarget,
   type AIOutputField,
   type ConditionLogic,
   type ConditionRule,
@@ -64,6 +66,8 @@ export interface JourneyOption {
   id: string;
   label: string;
   results?: string[];
+  /** Lifecycle status; an AI step is only offered active journeys. */
+  status?: string;
 }
 
 interface NodeConfigFormProps {
@@ -300,13 +304,23 @@ function FieldSource({
                 }))}
               />
             ) : (
-              <input
-                id={`${idPrefix}-output`}
-                className={shell.input}
-                placeholder="e.g. result"
-                value={reference.field}
-                onChange={(event) => editReference({ field: event.target.value })}
-              />
+              <>
+                <input
+                  id={`${idPrefix}-output`}
+                  className={shell.input}
+                  placeholder="e.g. result"
+                  value={reference.field}
+                  list={selectedStep?.outputLabels ? `${idPrefix}-output-suggestions` : undefined}
+                  onChange={(event) => editReference({ field: event.target.value })}
+                />
+                {selectedStep?.outputLabels ? (
+                  <datalist id={`${idPrefix}-output-suggestions`}>
+                    {Object.entries(selectedStep.outputLabels).map(([name, label]) => (
+                      <option key={name} value={name} label={label} />
+                    ))}
+                  </datalist>
+                ) : null}
+              </>
             )}
           </div>
         </div>
@@ -916,6 +930,189 @@ function StartJourneysEditor({
   );
 }
 
+function toAgentJourneyTarget(raw: unknown): AgentJourneyTarget {
+  const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    journeyId: str(input.journeyId),
+    description: str(input.description),
+    inputs: (Array.isArray(input.inputs) ? input.inputs : []).map((row) => {
+      const entry = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+      return { name: str(entry.name), description: str(entry.description) };
+    }),
+  };
+}
+
+/**
+ * An AI step's permission to ask the engine to start one journey, and the
+ * journeys it may choose from. Off by default; only active journeys are offered.
+ */
+function AgentJourneysEditor({
+  idPrefix,
+  config,
+  onChange,
+  journeyOptions,
+}: {
+  idPrefix: string;
+  config: JourneyNodeConfig;
+  onChange: (config: JourneyNodeConfig) => void;
+  journeyOptions: JourneyOption[];
+}) {
+  const allowed = config.allowJourneyOrchestration === true;
+  const targets = (Array.isArray(config.orchestrationJourneys) ? config.orchestrationJourneys : []).map(toAgentJourneyTarget);
+  const rowKeys = useRowKeys(targets.length);
+  const active = journeyOptions.filter((journey) => journey.status === "active");
+  const save = (next: AgentJourneyTarget[]) =>
+    onChange({
+      ...config,
+      orchestrationJourneys: next.map((target) => ({
+        journeyId: target.journeyId,
+        description: target.description,
+        ...(target.inputs?.length ? { inputs: target.inputs } : {}),
+      })),
+    });
+  const update = (index: number, patch: Partial<AgentJourneyTarget>) =>
+    save(targets.map((target, i) => (i === index ? { ...target, ...patch } : target)));
+
+  return (
+    <div className={shell.field}>
+      <label className={shell.checkboxRow}>
+        <input
+          type="checkbox"
+          checked={allowed}
+          onChange={(event) => {
+            const { allowJourneyOrchestration: _allow, orchestrationJourneys: _journeys, ...rest } = config;
+            onChange(
+              event.target.checked
+                ? { ...rest, allowJourneyOrchestration: true, orchestrationJourneys: [{ journeyId: "", description: "" }] }
+                : rest,
+            );
+          }}
+        />
+        <span>
+          <strong>Allow Journey orchestration</strong>
+          <small>
+            The AI may ask to start one of the journeys below for this lead. The journey checks every request (active,
+            same workspace, not this journey, depth limit, one run per lead) and starts at most one; this step never
+            waits for it.
+          </small>
+        </span>
+      </label>
+      {allowed ? (
+        <>
+          {targets.map((target, index) => {
+            const rowId = `${idPrefix}-${rowKeys[index]}`;
+            const takenElsewhere = new Set(targets.filter((_, i) => i !== index).map((other) => other.journeyId));
+            const inputs = target.inputs ?? [];
+            return (
+              <div key={rowKeys[index]} className={styles.configGroup}>
+                <div className={styles.configGroupHeader}>
+                  <span>{journeyOptions.find((journey) => journey.id === target.journeyId)?.label ?? `Journey ${index + 1}`}</span>
+                  <button
+                    type="button"
+                    className={styles.configLink}
+                    onClick={() => {
+                      rowKeys.splice(index, 1);
+                      save(targets.filter((_, i) => i !== index));
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+                <div className={shell.field}>
+                  <label className={shell.label} htmlFor={`${rowId}-journey`}>
+                    Journey
+                  </label>
+                  <DropdownSelect
+                    id={`${rowId}-journey`}
+                    value={target.journeyId}
+                    placeholder="Choose an active journey…"
+                    onChange={(journeyId) => update(index, { journeyId })}
+                    options={active
+                      .filter((journey) => !takenElsewhere.has(journey.id))
+                      .map((journey) => ({ value: journey.id, label: journey.label }))}
+                  />
+                </div>
+                <TextField
+                  id={`${rowId}-description`}
+                  label="When to start it"
+                  value={target.description}
+                  onChange={(description) => update(index, { description })}
+                  placeholder="e.g. The lead is ready to book a showing"
+                />
+                {inputs.map((input, inputIndex) => (
+                  <div key={inputIndex} className={shell.fieldRow}>
+                    <div className={shell.field}>
+                      <label className={shell.label} htmlFor={`${rowId}-input-${inputIndex}-name`}>
+                        Input name
+                      </label>
+                      <input
+                        id={`${rowId}-input-${inputIndex}-name`}
+                        className={shell.input}
+                        value={input.name}
+                        placeholder="e.g. preferred_area"
+                        onChange={(event) =>
+                          update(index, {
+                            inputs: inputs.map((entry, i) => (i === inputIndex ? { ...entry, name: outputFieldName(event.target.value) } : entry)),
+                          })
+                        }
+                      />
+                    </div>
+                    <div className={shell.field}>
+                      <label className={shell.label} htmlFor={`${rowId}-input-${inputIndex}-description`}>
+                        What the AI should give
+                      </label>
+                      <input
+                        id={`${rowId}-input-${inputIndex}-description`}
+                        className={shell.input}
+                        value={input.description}
+                        onChange={(event) =>
+                          update(index, {
+                            inputs: inputs.map((entry, i) => (i === inputIndex ? { ...entry, description: event.target.value } : entry)),
+                          })
+                        }
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.configLink}
+                      onClick={() => update(index, { inputs: inputs.filter((_, i) => i !== inputIndex) })}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {inputs.length < MAX_INPUT_MAPPINGS ? (
+                  <button
+                    type="button"
+                    className={`${shell.btnSecondary} ${shell.btnPill}`}
+                    onClick={() => update(index, { inputs: [...inputs, { name: "", description: "" }] })}
+                  >
+                    Add input
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+          {targets.length < MAX_AGENT_JOURNEY_TARGETS ? (
+            <button
+              type="button"
+              className={`${shell.btnSecondary} ${shell.btnPill}`}
+              onClick={() => save([...targets, { journeyId: "", description: "" }])}
+            >
+              Add journey
+            </button>
+          ) : null}
+          <p className={shell.fieldHint}>
+            Each journey needs the &ldquo;{TRIGGER_EVENTS["journey.started"].label}&rdquo; trigger. The AI only sees
+            &ldquo;When to start it&rdquo; and the input names, and can give only text, numbers, yes/no, or empty values.
+            Check what happened in a later condition with this step&rsquo;s orchestration output.
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** Output field names must work as condition paths, so typing is nudged into snake_case. */
 function outputFieldName(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, "_").replace(/[^a-z0-9_]/g, "").slice(0, 60);
@@ -1160,6 +1357,7 @@ export function NodeConfigForm({
           fields={(Array.isArray(config.outputSchema) ? config.outputSchema : []) as AIOutputField[]}
           onChange={(outputSchema) => set({ outputSchema })}
         />
+        <AgentJourneysEditor idPrefix={id("orchestration")} config={config} onChange={onChange} journeyOptions={journeyOptions} />
         <p className={styles.panelNote}>
           The AI reads the lead, their recent conversation, and earlier step results, then returns its
           answer as fields (for example sales_ready or score). Check them in a later condition with

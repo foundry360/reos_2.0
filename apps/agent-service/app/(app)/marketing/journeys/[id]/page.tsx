@@ -39,7 +39,7 @@ export default async function JourneyBuilderCanvasPage({ params }: PageProps) {
   const journeyOptions = journeys.ok
     ? journeys.value
         .filter((journey) => journey.id !== id && journey.status !== "archived")
-        .map((journey) => ({ id: journey.id, label: journey.name, results: resultNames.get(journey.id) ?? [] }))
+        .map((journey) => ({ id: journey.id, label: journey.name, results: resultNames.get(journey.id) ?? [], status: journey.status }))
     : [];
   if (!result.ok) {
     return (

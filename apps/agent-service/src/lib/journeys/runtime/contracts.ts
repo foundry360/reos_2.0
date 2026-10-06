@@ -167,6 +167,20 @@ export const STEP_RESULT_FIELD_PATTERN = /^steps\.([a-z0-9_]{1,60})\.output\.res
 /** The output field of a step result reference ("results.<name>"). */
 const RESULT_OUTPUT_FIELD = /^results\.[a-z][a-z0-9_]{0,59}$/;
 
+/** What an AI step that may start a journey records under output.orchestration that a condition may read. */
+export const ORCHESTRATION_FIELDS = ["requested", "started", "reason", "journey", "target_journey_id", "run_id", "causation_depth"] as const;
+
+/**
+ * steps.<node key>.output.orchestration.<field> reads the outcome of the journey
+ * an AI step asked the engine to start. Only ORCHESTRATION_FIELDS are addressable.
+ */
+export const STEP_ORCHESTRATION_FIELD_PATTERN = new RegExp(
+  `^steps\\.([a-z0-9_]{1,60})\\.output\\.orchestration\\.(${ORCHESTRATION_FIELDS.join("|")})$`,
+);
+
+/** An orchestration reference's output field ("orchestration.<field>"), complete or still being typed. */
+const ORCHESTRATION_OUTPUT_TYPING = /^orchestration\.[a-z_]{0,30}$/;
+
 /** A Start journeys child's key in its step's output: the target journey id with underscores. */
 const CHILD_KEY = "[0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12}";
 /** What a Start journeys step records per child that a condition may read. */
@@ -187,14 +201,19 @@ export function fanOutChildKey(journeyId: string): string {
   return journeyId.toLowerCase().replace(/-/g, "_");
 }
 
-/** The step key and output field (`<field>`, `results.<name>`, or `children.<key>.<field>`) of a step reference, or null. */
+/**
+ * The step key and output field (`<field>`, `results.<name>`,
+ * `children.<key>.<field>`, or `orchestration.<field>`) of a step reference, or null.
+ */
 export function parseStepField(field: string): { key: string; field: string } | null {
   const step = STEP_FIELD_PATTERN.exec(field);
   if (step) return { key: step[1], field: step[2] };
   const result = STEP_RESULT_FIELD_PATTERN.exec(field);
   if (result) return { key: result[1], field: `results.${result[2]}` };
   const child = STEP_CHILD_FIELD_PATTERN.exec(field);
-  return child ? { key: child[1], field: `children.${child[2]}.${child[3]}` } : null;
+  if (child) return { key: child[1], field: `children.${child[2]}.${child[3]}` };
+  const orchestration = STEP_ORCHESTRATION_FIELD_PATTERN.exec(field);
+  return orchestration ? { key: orchestration[1], field: `orchestration.${orchestration[2]}` } : null;
 }
 
 /** Free-form fields: step outputs and journey inputs have no declared type. */
@@ -408,6 +427,29 @@ export const AI_OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,59}$/;
 export const MAX_AI_OUTPUT_FIELDS = 20;
 /** Step output key holding the AI's plain-language explanation. */
 export const AI_TEXT_KEY = "ai_response";
+/** Step output key the engine (never the model) fills with the outcome of a journey the AI step asked to start. */
+export const AI_ORCHESTRATION_KEY = "orchestration";
+
+/**
+ * A journey an AI step may ask the engine to start, chosen by the journey's
+ * designer. The model sees only `agentJourneyKey(index)`, the description,
+ * and the input names; never the journey id.
+ */
+export interface AgentJourneyTarget {
+  journeyId: string;
+  /** When the AI should ask for this journey. */
+  description: string;
+  /** The only inputs the AI may give it (scalars, Stage 3 limits). */
+  inputs?: Array<{ name: string; description: string }>;
+}
+
+/** Most journeys one AI step may choose between. It starts at most one of them. */
+export const MAX_AGENT_JOURNEY_TARGETS = 10;
+
+/** What the model calls the `index`th allowed journey: an opaque key, never the journey id. */
+export function agentJourneyKey(index: number): string {
+  return `journey_${index + 1}`;
+}
 
 export interface AIConfig {
   /** What the AI step should accomplish. */
@@ -417,6 +459,10 @@ export interface AIConfig {
   agent: string;
   /** Optional. When present, the AI must return exactly these fields. */
   outputSchema?: AIOutputField[];
+  /** Set by the journey's designer: the AI may ask the engine to start one of orchestrationJourneys. */
+  allowJourneyOrchestration?: true;
+  /** Set exactly when allowJourneyOrchestration is. */
+  orchestrationJourneys?: AgentJourneyTarget[];
 }
 
 /** The well-formed fields of an AI node's schema; empty means freeform output. */
@@ -427,7 +473,7 @@ export function aiOutputSchema(config: Partial<AIConfig>): Array<AIOutputField &
   for (const field of fields.slice(0, MAX_AI_OUTPUT_FIELDS)) {
     const name = typeof field?.name === "string" ? field.name : "";
     const type = AI_OUTPUT_TYPES.includes(field?.type as AIOutputType) ? (field.type as AIOutputType) : null;
-    if (!type || !AI_OUTPUT_NAME_PATTERN.test(name) || name === AI_TEXT_KEY || seen.has(name)) continue;
+    if (!type || !AI_OUTPUT_NAME_PATTERN.test(name) || name === AI_TEXT_KEY || name === AI_ORCHESTRATION_KEY || seen.has(name)) continue;
     seen.add(name);
     usable.push({ name, type, description: typeof field.description === "string" ? field.description : "" });
   }
@@ -758,6 +804,9 @@ function validateAI(raw: Record<string, unknown>, mode: ValidationMode): ConfigV
       const label = field.name ? `Output field "${field.name}"` : `Output field ${index + 1}`;
       if (!field.name) errors.push(`${label}: enter a name.`);
       else if (field.name === AI_TEXT_KEY) errors.push(`${label}: "${AI_TEXT_KEY}" is reserved for the AI's explanation.`);
+      else if (field.name === AI_ORCHESTRATION_KEY) {
+        errors.push(`${label}: "${AI_ORCHESTRATION_KEY}" is reserved for the journey this step asks to start.`);
+      }
       else if (!AI_OUTPUT_NAME_PATTERN.test(field.name)) {
         errors.push(`${label}: use lowercase letters, numbers, and underscores, starting with a letter.`);
       }
@@ -767,7 +816,69 @@ function validateAI(raw: Record<string, unknown>, mode: ValidationMode): ConfigV
       if (!field.type) errors.push(`${label}: choose a type.`);
     });
   }
+
+  if (raw.allowJourneyOrchestration === true) {
+    const targets = parseAgentJourneyTargets(raw.orchestrationJourneys, mode);
+    config.allowJourneyOrchestration = true;
+    config.orchestrationJourneys = targets.targets;
+    errors.push(...targets.errors);
+  }
   return { config, errors };
+}
+
+/**
+ * The journeys an AI step may ask to start: 1 to MAX_AGENT_JOURNEY_TARGETS
+ * distinct journeys, each with a description and up to MAX_INPUT_MAPPINGS
+ * distinct input names. Drafts keep half-filled rows; problems name the row.
+ */
+export function parseAgentJourneyTargets(raw: unknown, mode: ValidationMode): { targets: AgentJourneyTarget[]; errors: string[] } {
+  const errors: string[] = [];
+  const strict = mode === "strict";
+  const rows = Array.isArray(raw) ? raw : [];
+  if (strict && raw !== undefined && !Array.isArray(raw)) errors.push("Journeys the AI may start: the list is malformed.");
+  else if (strict && rows.length === 0) errors.push("Add at least one journey the AI may start.");
+  if (strict && rows.length > MAX_AGENT_JOURNEY_TARGETS) errors.push(`Let the AI choose from at most ${MAX_AGENT_JOURNEY_TARGETS} journeys.`);
+
+  const targets: AgentJourneyTarget[] = [];
+  const seen = new Set<string>();
+  rows.slice(0, MAX_AGENT_JOURNEY_TARGETS).forEach((entry, index) => {
+    const label = `Journey the AI may start ${index + 1}`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      if (strict) errors.push(`${label} is malformed.`);
+      return;
+    }
+    const input = entry as Record<string, unknown>;
+    const journeyId = typeof input.journeyId === "string" && UUID.test(input.journeyId) ? input.journeyId.toLowerCase() : "";
+    if (strict && !journeyId) errors.push(`${label}: choose the journey.`);
+    if (strict && journeyId && seen.has(journeyId)) errors.push(`${label}: that journey is already listed.`);
+    if (journeyId) seen.add(journeyId);
+    const description = str(input.description, 300);
+    if (strict && !description.trim()) errors.push(`${label}: describe when the AI should start it.`);
+
+    const rawInputs = Array.isArray(input.inputs) ? input.inputs : [];
+    if (strict && input.inputs !== undefined && !Array.isArray(input.inputs)) errors.push(`${label}: the input list is malformed.`);
+    if (strict && rawInputs.length > MAX_INPUT_MAPPINGS) errors.push(`${label}: pass at most ${MAX_INPUT_MAPPINGS} inputs.`);
+    const inputs: Array<{ name: string; description: string }> = [];
+    const names = new Set<string>();
+    rawInputs.slice(0, MAX_INPUT_MAPPINGS).forEach((row, inputIndex) => {
+      const value = row && typeof row === "object" && !Array.isArray(row) ? (row as Record<string, unknown>) : null;
+      if (!value) {
+        if (strict) errors.push(`${label}: Input ${inputIndex + 1} is malformed.`);
+        return;
+      }
+      const name = str(value.name, 60).trim();
+      if (strict) {
+        const item = INPUT_NAME_PATTERN.test(name) ? `Input "${name}"` : `Input ${inputIndex + 1}`;
+        if (!name) errors.push(`${label}: ${item}: enter a name.`);
+        else if (!INPUT_NAME_PATTERN.test(name)) errors.push(`${label}: ${item}: use lowercase letters, numbers, and underscores, starting with a letter.`);
+        else if (names.has(name)) errors.push(`${label}: ${item} is used more than once.`);
+      }
+      names.add(name);
+      inputs.push({ name, description: str(value.description, 200) });
+    });
+    targets.push({ journeyId, description, ...(inputs.length > 0 ? { inputs } : {}) });
+  });
+  return { targets, errors };
 }
 
 function validateAction(raw: Record<string, unknown>, mode: ValidationMode): ConfigValidation<ActionConfig | { action: "" }> {
@@ -984,7 +1095,7 @@ export function updateStepReferenceDraft(
   let field =
     patch.field === undefined
       ? draft.field
-      : RESULT_OUTPUT_FIELD.test(patch.field) || CHILD_OUTPUT_FIELD.test(patch.field)
+      : RESULT_OUTPUT_FIELD.test(patch.field) || CHILD_OUTPUT_FIELD.test(patch.field) || ORCHESTRATION_OUTPUT_TYPING.test(patch.field)
         ? patch.field
         : sanitizeOutputField(patch.field);
   if (patch.key !== undefined && knownFields && !knownFields.includes(field)) field = "";

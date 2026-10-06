@@ -2,6 +2,7 @@ import {
   MAX_INPUTS_BYTES,
   STEP_CHILD_FIELD_PATTERN,
   STEP_FIELD_PATTERN,
+  STEP_ORCHESTRATION_FIELD_PATTERN,
   STEP_RESULT_FIELD_PATTERN,
   TRIGGER_INPUT_FIELD_PATTERN,
   type ConditionLogic,
@@ -44,6 +45,13 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
     const results = ownObject(record, "results");
     const resultName = name.slice("results.".length);
     return results && Object.hasOwn(results, resultName) ? results[resultName] : undefined;
+  }
+  const orchestration = STEP_ORCHESTRATION_FIELD_PATTERN.exec(field);
+  if (orchestration) {
+    const [, key, name] = orchestration;
+    const entry = Object.hasOwn(context.steps, key) ? context.steps[key] : undefined;
+    const record = ownObject(entry?.output, "orchestration");
+    return record && Object.hasOwn(record, name) ? record[name] : undefined;
   }
   const input = TRIGGER_INPUT_FIELD_PATTERN.exec(field);
   if (input) {

@@ -22,6 +22,8 @@ import {
   fanOutChildKey,
   INPUT_NAME_PATTERN,
   nodeReferenceKey,
+  ORCHESTRATION_FIELDS,
+  parseAgentJourneyTargets,
   parseFanOutChildren,
   parseInputMappings,
   parseResultExports,
@@ -156,7 +158,13 @@ export function knownOutputFields(node: Pick<SnapshotNode, "type" | "config">): 
   if (received.length > 0) return [...START_JOURNEY_OUTPUT_FIELDS, ...received.map((name) => `results.${name}`)];
   if (node.type !== "ai") return null;
   const schema = aiOutputSchema(node.config as Partial<AIConfig>);
-  return schema.length > 0 ? [...schema.map((field) => field.name), AI_TEXT_KEY] : null;
+  return schema.length > 0 ? [...schema.map((field) => field.name), AI_TEXT_KEY, ...orchestrationOutputFields(node)] : null;
+}
+
+/** What an AI step allowed to ask for a journey records under output.orchestration (empty for any other step). */
+export function orchestrationOutputFields(node: Pick<SnapshotNode, "type" | "config">): string[] {
+  if (node.type !== "ai" || (node.config as Partial<AIConfig>).allowJourneyOrchestration !== true) return [];
+  return ORCHESTRATION_FIELDS.map((field) => `orchestration.${field}`);
 }
 
 /** What a waiting Start journey step records, besides received results. */
@@ -306,6 +314,9 @@ function outputFieldIssue(source: SnapshotNode | JourneyNode, field: string): st
       ? `${label(source)} doesn't start that journey or doesn't record "${field.split(".").slice(2).join(".")}" for it.`
       : `${label(source)} isn't a Start journeys step.`;
   }
+  if (field.startsWith("orchestration.") && !orchestrationOutputFields(source).includes(field)) {
+    return `${label(source)} isn't an AI step allowed to start a journey.`;
+  }
   const fields = knownOutputFields(source);
   if (fields && !fields.includes(field)) return `output field "${field}" isn't defined by ${label(source)}.`;
   return null;
@@ -438,6 +449,12 @@ export function activationIssues(
           ...(declaredResults && child.journeyId ? undeclaredResultIssues(child.resultMappings, declaredResults.get(child.journeyId) ?? null) : []),
         ];
         for (const problem of problems) issues.push({ nodeId: node.id, message: `${label(node)}: Journey ${index + 1}: ${problem}` });
+      });
+    }
+    if (node.type === "ai" && config.allowJourneyOrchestration === true && journeyId) {
+      parseAgentJourneyTargets(config.orchestrationJourneys, "draft").targets.forEach((target, index) => {
+        if (target.journeyId !== journeyId.toLowerCase()) return;
+        issues.push({ nodeId: node.id, message: `${label(node)}: Journey the AI may start ${index + 1}: a journey can't start itself.` });
       });
     }
     if (node.type === "trigger") {

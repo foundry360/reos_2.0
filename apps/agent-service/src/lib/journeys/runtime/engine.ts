@@ -12,6 +12,7 @@
 
 import type { JourneyStatus } from "../journey-types.ts";
 import {
+  AI_ORCHESTRATION_KEY,
   aiOutputSchema,
   conditionRules,
   LEAD_REPLIED_FIELD,
@@ -44,6 +45,13 @@ import {
   type SnapshotNode,
 } from "./graph.ts";
 import { journeyAIStepOutput, type JourneyAIExecutor, type JourneyAIRequest } from "./ai.ts";
+import {
+  agentJourneyOption,
+  allowedAgentJourneys,
+  parseAgentJourneyRequest,
+  type AgentRequestRefusal,
+  type AllowedAgentJourney,
+} from "./agent-orchestration.ts";
 
 // ---------- Types ----------
 
@@ -445,10 +453,104 @@ function capturedResults(
 }
 
 /** A failed AI result becomes a step error so the normal retry/fail path handles it. */
-async function runAINode(executor: JourneyAIExecutor, request: JourneyAIRequest): Promise<ActionResult> {
+async function runAINode(executor: JourneyAIExecutor, request: JourneyAIRequest): Promise<{ output: Record<string, unknown>; journeyRequest?: unknown }> {
   const result = await executor.execute(request);
   if (!result.success) throw new JourneyStepError(result.error, result.retryable ? "transient" : "config");
-  return { status: "completed", output: journeyAIStepOutput(result) };
+  const output = journeyAIStepOutput(result);
+  delete output[AI_ORCHESTRATION_KEY];
+  return { output, ...(result.journeyRequest !== undefined ? { journeyRequest: result.journeyRequest } : {}) };
+}
+
+/**
+ * An AI step. When its designer allowed it to ask for a journey, the model is
+ * offered the allowed journeys that are active in this workspace (opaque keys
+ * only), and output.orchestration records what the engine did with its
+ * answer. The model never reaches the dispatcher: the request is checked here
+ * and started, if at all, exactly as a Start journey step starts its child.
+ */
+async function runAIStep(
+  deps: EngineDeps,
+  run: RunRecord,
+  nodeId: string,
+  ai: AIConfig,
+  request: JourneyAIRequest,
+  started: string[],
+): Promise<ActionResult> {
+  const allowed = allowedAgentJourneys(ai);
+  const offered: AllowedAgentJourney[] = [];
+  for (const entry of allowed ?? []) {
+    if (entry.target.journeyId === run.journeyId) continue;
+    if ((await deps.store.journeyStatus(run.tenantId, entry.target.journeyId)) === "active") offered.push(entry);
+  }
+  const answer = await runAINode(deps.ai, offered.length > 0 ? { ...request, journeyOptions: offered.map(agentJourneyOption) } : request);
+  if (!allowed) {
+    if (answer.journeyRequest === undefined) return { status: "completed", output: answer.output };
+    const refused = { requested: true, started: false, reason: "orchestration_disabled" satisfies AgentRequestRefusal };
+    return { status: "completed", output: { ...answer.output, [AI_ORCHESTRATION_KEY]: refused } };
+  }
+  const orchestration = await agentStartJourney(deps, run, nodeId, allowed, answer.journeyRequest, started);
+  return { status: "completed", output: { ...answer.output, [AI_ORCHESTRATION_KEY]: orchestration } };
+}
+
+/**
+ * What an AI step's request to start a journey came to. An AI step starts at
+ * most one child per run: one an earlier attempt of this step created (found
+ * by its run key) is the outcome, whatever the model asks this time. Otherwise
+ * the request is checked against the step's allowed journeys and the chosen
+ * one is started through startChildRun with the model's values as its inputs.
+ * The run key, lineage, depth guard, and target checks are the engine's; the
+ * model supplies only the key and declared input values.
+ */
+async function agentStartJourney(
+  deps: EngineDeps,
+  run: RunRecord,
+  nodeId: string,
+  allowed: AllowedAgentJourney[],
+  request: unknown,
+  started: string[],
+): Promise<Record<string, unknown>> {
+  const depth = runCausationDepth(run);
+  for (const entry of allowed) {
+    const existing = await deps.store.findRunByIdempotencyKey(run.tenantId, childRunKey(run.id, nodeId, entry.target.journeyId));
+    if (!existing) continue;
+    return {
+      requested: true,
+      action: "start_journey",
+      journey: entry.key,
+      target_journey_id: entry.target.journeyId,
+      started: true,
+      run_id: existing.id,
+      causation_depth: depth,
+      duplicate: true,
+    };
+  }
+  if (request === undefined) return { requested: false, started: false };
+
+  const parsed = parseAgentJourneyRequest(request, allowed);
+  if (!parsed.ok) {
+    return {
+      requested: true,
+      action: "start_journey",
+      ...(parsed.key ? { journey: parsed.key } : {}),
+      started: false,
+      reason: parsed.reason,
+      request_errors: parsed.errors,
+    };
+  }
+  const { key, target } = parsed.allowed;
+  const names = (target.inputs ?? []).map((input) => input.name);
+  const result = await startChildRun(
+    deps,
+    run,
+    nodeId,
+    { journeyId: target.journeyId, agentInputs: { names, values: parsed.values } },
+    () => undefined,
+    started,
+    true,
+  );
+  const chosen = { requested: true, action: "start_journey", journey: key, target_journey_id: target.journeyId };
+  if (!result.started) return { ...chosen, started: false, reason: result.reason, ...result.extra };
+  return { ...chosen, started: true, run_id: result.run.id, causation_depth: depth, ...(result.duplicate ? { duplicate: true } : {}) };
 }
 
 /** The output of a step whose side effect was recorded as finished, if it was. */
@@ -631,7 +733,12 @@ async function startChildRun(
   deps: EngineDeps,
   run: RunRecord,
   nodeId: string,
-  target: { journeyId: string; inputMappings?: unknown },
+  target: {
+    journeyId: string;
+    inputMappings?: unknown;
+    /** An AI step's request: its declared input names and the model's (unchecked) values, instead of inputMappings. */
+    agentInputs?: { names: string[]; values: Record<string, unknown> };
+  },
   resolve: (source: string) => unknown,
   started: string[],
   reuse: boolean,
@@ -655,9 +762,15 @@ async function startChildRun(
   if (isCausationDepthLimited(depth)) return skip("depth_limited", { causation_depth: depth });
 
   // Snapshots are parsed leniently, so the list is checked strictly again here.
-  const mappings = parseInputMappings(target.inputMappings, "strict");
+  const agent = target.agentInputs;
+  const mappings = agent
+    ? { mappings: agent.names.map((name) => ({ target: name, source: name })), errors: [] }
+    : parseInputMappings(target.inputMappings, "strict");
   if (mappings.errors.length > 0) return skip("inputs_invalid", { input_errors: mappings.errors });
-  const resolved = journeyInputs(mappings.mappings, resolve);
+  const resolved = journeyInputs(
+    mappings.mappings,
+    agent ? (name) => (Object.hasOwn(agent.values, name) ? agent.values[name] : undefined) : resolve,
+  );
   if (!resolved.ok) {
     return resolved.reason === "inputs_invalid"
       ? skip("inputs_invalid", { input_errors: resolved.errors })
@@ -680,6 +793,8 @@ async function startChildRun(
         origin_journey_id: run.journeyId,
         root_run_id: runRootId(run, run.id),
         causation_depth: depth,
+        // Audit only: an AI step asked for this start. Never read by the engine.
+        ...(agent ? { requested_by: "ai_step" } : {}),
         ...(mappings.mappings.length > 0 ? { inputs: resolved.inputs } : {}),
       },
     },
@@ -1147,7 +1262,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
       const ai = node.type === "ai" ? (node.config as unknown as AIConfig) : null;
       const resolve = (source: string) => resolveField(context(), resolveStepField(source, snapshot.nodes, keys));
       const result = ai
-        ? await runAINode(deps.ai, {
+        ? await runAIStep(deps, run, node.id, ai, {
             tenantId: run.tenantId,
             journeyId: run.journeyId,
             runId: run.id,
@@ -1159,7 +1274,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
             instructions: ai.instructions ?? "",
             outputSchema: aiOutputSchema(ai),
             context: context(),
-          })
+          }, started)
         : action?.action === "start_journey"
           ? await startJourney(deps, run, node.id, action, resolve, started)
           : action?.action === "start_journeys"
