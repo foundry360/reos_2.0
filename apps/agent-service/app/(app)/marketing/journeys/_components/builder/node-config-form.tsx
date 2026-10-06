@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import {
   ACTION_TYPES,
+  APPOINTMENT_WAIT_FIELD,
   AI_OUTPUT_TYPES,
   AI_TEXT_KEY,
   CONDITION_FIELDS,
@@ -43,6 +44,7 @@ import {
   type ResultMapping,
   type StepReferenceDraft,
   type TriggerEventType,
+  type WaitUnit,
 } from "@/lib/journeys/runtime/contracts";
 import type { JourneyNodeConfig, JourneyNodeType } from "@/lib/journeys/journey-types";
 import { DropdownSelect, type DropdownSelectOption } from "@/components/shell/dropdown-select";
@@ -82,6 +84,8 @@ interface NodeConfigFormProps {
   stepOptions: StepOption[];
   /** The journey's trigger event, so conditions can offer trigger fields. */
   triggerEvent: TriggerEventType | null;
+  /** Every trigger is an appointment event, so a Wait can wait until the appointment. */
+  appointmentTriggersOnly: boolean;
 }
 
 const TOKEN_HINT = `Personalize with ${TEMPLATE_TOKENS.map((token) => `{{${token}}}`).join(", ")}.`;
@@ -1247,6 +1251,138 @@ function TextField({
   );
 }
 
+const OFFSET_UNIT_MINUTES: Record<WaitUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+
+function WaitFields({
+  id,
+  config,
+  set,
+  onChange,
+  appointmentTriggersOnly,
+}: {
+  id: (name: string) => string;
+  config: JourneyNodeConfig;
+  set: (patch: JourneyNodeConfig) => void;
+  onChange: (config: JourneyNodeConfig) => void;
+  appointmentTriggersOnly: boolean;
+}) {
+  const untilMode = Object.hasOwn(config, "until");
+  const unitOptions = WAIT_UNITS.map((unit) => ({ value: unit, label: unit[0].toUpperCase() + unit.slice(1) }));
+  return (
+    <>
+      {appointmentTriggersOnly || untilMode ? (
+        <div className={shell.field}>
+          <label className={shell.label} htmlFor={id("waitMode")}>
+            Wait
+          </label>
+          <DropdownSelect
+            id={id("waitMode")}
+            value={untilMode ? "until" : "duration"}
+            onChange={(mode) =>
+              onChange(
+                mode === "until"
+                  ? { action: "wait", until: { field: APPOINTMENT_WAIT_FIELD, offsetMinutes: -1440 } }
+                  : { action: "wait", duration: 1, unit: "days" },
+              )
+            }
+            options={[
+              { value: "duration", label: "For a duration" },
+              { value: "until", label: "Until the appointment" },
+            ]}
+          />
+        </div>
+      ) : null}
+      {untilMode ? (
+        <AppointmentOffsetFields id={id} until={config.until} onChange={onChange} />
+      ) : (
+        <div className={shell.fieldRow}>
+          <div className={shell.field}>
+            <label className={shell.label} htmlFor={id("duration")}>
+              Wait
+            </label>
+            <input id={id("duration")} className={shell.input} type="number" min={1} value={str(config.duration)} onChange={(e) => set({ duration: e.target.value === "" ? "" : Number(e.target.value) })} />
+          </div>
+          <div className={shell.field}>
+            <label className={shell.label} htmlFor={id("unit")}>
+              Unit
+            </label>
+            <DropdownSelect id={id("unit")} value={str(config.unit) || "days"} onChange={(unit) => set({ unit })} options={unitOptions} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** [amount] [unit] [before/after] the appointment starts, saved as one signed offsetMinutes. */
+function AppointmentOffsetFields({
+  id,
+  until,
+  onChange,
+}: {
+  id: (name: string) => string;
+  until: unknown;
+  onChange: (config: JourneyNodeConfig) => void;
+}) {
+  const offset = until && typeof until === "object" ? (until as Record<string, unknown>).offsetMinutes : null;
+  const minutes = typeof offset === "number" && Number.isFinite(offset) ? offset : null;
+  const [unit, setUnit] = useState<WaitUnit>(() =>
+    minutes && minutes % 1440 === 0 ? "days" : minutes && minutes % 60 === 0 ? "hours" : minutes ? "minutes" : "hours",
+  );
+  const [after, setAfter] = useState(minutes !== null && minutes > 0);
+  const amount = minutes === null ? "" : String(Math.abs(minutes) / OFFSET_UNIT_MINUTES[unit]);
+  const save = (nextAmount: string, nextUnit: WaitUnit, nextAfter: boolean) =>
+    onChange({
+      action: "wait",
+      until: {
+        field: APPOINTMENT_WAIT_FIELD,
+        offsetMinutes: nextAmount === "" ? "" : (nextAfter ? 1 : -1) * Number(nextAmount) * OFFSET_UNIT_MINUTES[nextUnit],
+      },
+    });
+  return (
+    <div className={shell.fieldRow}>
+      <div className={shell.field}>
+        <label className={shell.label} htmlFor={id("offsetAmount")}>
+          Amount
+        </label>
+        <input id={id("offsetAmount")} className={shell.input} type="number" min={0} step={1} value={amount} onChange={(e) => save(e.target.value, unit, after)} />
+      </div>
+      <div className={shell.field}>
+        <label className={shell.label} htmlFor={id("offsetUnit")}>
+          Unit
+        </label>
+        <DropdownSelect
+          id={id("offsetUnit")}
+          value={unit}
+          onChange={(next) => {
+            const nextUnit = WAIT_UNITS.includes(next as WaitUnit) ? (next as WaitUnit) : "hours";
+            setUnit(nextUnit);
+            save(amount, nextUnit, after);
+          }}
+          options={WAIT_UNITS.map((value) => ({ value, label: value[0].toUpperCase() + value.slice(1) }))}
+        />
+      </div>
+      <div className={shell.field}>
+        <label className={shell.label} htmlFor={id("offsetDirection")}>
+          When
+        </label>
+        <DropdownSelect
+          id={id("offsetDirection")}
+          value={after ? "after" : "before"}
+          onChange={(next) => {
+            setAfter(next === "after");
+            save(amount, unit, next === "after");
+          }}
+          options={[
+            { value: "before", label: "Before appointment starts" },
+            { value: "after", label: "After appointment starts" },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function NodeConfigForm({
   nodeId,
   nodeType,
@@ -1256,6 +1392,7 @@ export function NodeConfigForm({
   journeyOptions,
   stepOptions,
   triggerEvent,
+  appointmentTriggersOnly,
 }: NodeConfigFormProps) {
   const id = (name: string) => `node-${nodeId}-${name}`;
   const set = (patch: JourneyNodeConfig) => onChange({ ...config, ...patch });
@@ -1576,25 +1713,7 @@ export function NodeConfigForm({
         ) : null}
 
         {action === "wait" ? (
-          <div className={shell.fieldRow}>
-            <div className={shell.field}>
-              <label className={shell.label} htmlFor={id("duration")}>
-                Wait
-              </label>
-              <input id={id("duration")} className={shell.input} type="number" min={1} value={str(config.duration)} onChange={(e) => set({ duration: e.target.value === "" ? "" : Number(e.target.value) })} />
-            </div>
-            <div className={shell.field}>
-              <label className={shell.label} htmlFor={id("unit")}>
-                Unit
-              </label>
-              <DropdownSelect
-                id={id("unit")}
-                value={str(config.unit) || "days"}
-                onChange={(unit) => set({ unit })}
-                options={WAIT_UNITS.map((unit) => ({ value: unit, label: unit[0].toUpperCase() + unit.slice(1) }))}
-              />
-            </div>
-          </div>
+          <WaitFields id={id} config={config} set={set} onChange={onChange} appointmentTriggersOnly={appointmentTriggersOnly} />
         ) : null}
       </>
     );

@@ -23,7 +23,9 @@ import {
   parseInputMappings,
   parseResultExports,
   parseResultMappings,
+  parseWait,
   RESULT_SOURCE_PATTERN,
+  appointmentWaitTarget,
   waitMilliseconds,
   type ActionConfig,
   type AIConfig,
@@ -427,6 +429,15 @@ export type ChildRunStatus = "completed" | "failed" | "cancelled" | "missing";
  * was lost (the process died between the child finishing and waking it).
  */
 export const CHILD_WAIT_RECHECK_MS = 60 * 60_000;
+
+/**
+ * The longest a Wait until the appointment sleeps before reading the
+ * appointment again. A reschedule doesn't wake the run, so this is how soon a
+ * move to an earlier time is noticed; a later time just parks it again.
+ */
+export const APPOINTMENT_WAIT_RECHECK_MS = 15 * 60_000;
+
+export const INVALID_WAIT_ERROR = "This Wait step's settings aren't valid, so the journey can't tell how long to wait.";
 
 /**
  * A Start journey step's child as its parent sees it: status plus, once it
@@ -1158,12 +1169,50 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
   };
   const persist = () => write({ currentNodeId, context: state });
 
-  // A wait finished: close its step and move past it.
+  /**
+   * Where a Wait until the appointment stands right now, read from the run's
+   * own appointment (its entity_id) every time, so a reschedule counts.
+   * "missing": the appointment is gone. "due": continue (late when the target
+   * already passed). "future": keep waiting; resumeAt is never more than
+   * APPOINTMENT_WAIT_RECHECK_MS away.
+   */
+  const appointmentWait = (offsetMinutes: number) => {
+    const target = appointmentWaitTarget(entities.appointment?.start, offsetMinutes);
+    const at = now();
+    if (!target) return { state: "missing" as const, output: { skipped_reason: "appointment_not_found" } };
+    const targetAt = target.toISOString();
+    if (target.getTime() > at.getTime()) {
+      const resumeAt = new Date(Math.min(target.getTime(), at.getTime() + APPOINTMENT_WAIT_RECHECK_MS)).toISOString();
+      return { state: "future" as const, targetAt, resumeAt };
+    }
+    return {
+      state: "due" as const,
+      output: { target_at: targetAt, resumed_at: at.toISOString(), late: target.getTime() < at.getTime() },
+    };
+  };
+
+  // A wait finished: close its step and move past it. A Wait until the
+  // appointment first checks the appointment again and may keep waiting.
   if (run.context.waitingStepId && currentNodeId) {
     const node = snapshot.nodes.find((entry) => entry.id === currentNodeId);
-    const output = { resumed_at: now().toISOString() };
+    const wait = node?.type === "action" && node.config.action === "wait" ? parseWait(node.config) : null;
+    if (wait?.kind === "invalid") {
+      await store.updateStep(run.context.waitingStepId, { status: "failed", error: INVALID_WAIT_ERROR, errorKind: "config", completedAt: now().toISOString() });
+      return finish("failed", { error: INVALID_WAIT_ERROR, context: state, currentNodeId });
+    }
+    let output: Record<string, unknown> = { resumed_at: now().toISOString() };
+    let status: StepStatus = "completed";
+    if (wait?.kind === "appointment") {
+      const due = appointmentWait(wait.config.until.offsetMinutes);
+      if (due.state === "future") {
+        await store.updateStep(run.context.waitingStepId, { output: { target_at: due.targetAt, resume_at: due.resumeAt } });
+        return finish("waiting", { currentNodeId, context: { ...state, waitingStepId: run.context.waitingStepId }, resumeAt: due.resumeAt });
+      }
+      output = due.output;
+      if (due.state === "missing") status = "skipped";
+    }
     await store.updateStep(run.context.waitingStepId, {
-      status: "completed",
+      status,
       output,
       completedAt: now().toISOString(),
     });
@@ -1311,11 +1360,42 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
     const action = node.type === "action" ? (node.config as unknown as ActionConfig) : null;
 
     if (action?.action === "wait") {
-      const resumeAt = new Date(now().getTime() + waitMilliseconds(action.duration, action.unit)).toISOString();
+      const wait = parseWait(node.config);
+      if (wait.kind === "invalid") {
+        await store.insertStep({
+          ...base,
+          status: "failed",
+          input: { ...node.config },
+          error: INVALID_WAIT_ERROR,
+          errorKind: "config",
+          completedAt: startedAt,
+        });
+        return finish("failed", { error: INVALID_WAIT_ERROR, context: state, currentNodeId: node.id });
+      }
+      if (wait.kind === "appointment") {
+        const input = { until: { ...wait.config.until } };
+        const due = appointmentWait(wait.config.until.offsetMinutes);
+        if (due.state === "future") {
+          const stepId = await store.insertStep({ ...base, status: "running", input, output: { target_at: due.targetAt, resume_at: due.resumeAt } });
+          return finish("waiting", { currentNodeId: node.id, context: { ...state, waitingStepId: stepId }, resumeAt: due.resumeAt });
+        }
+        await store.insertStep({
+          ...base,
+          status: due.state === "missing" ? "skipped" : "completed",
+          input,
+          output: due.output,
+          completedAt: startedAt,
+        });
+        recordOutput(node, due.output);
+        currentNodeId = nextNodeId(snapshot, node.id);
+        if (!(await persist())) return leaseLost();
+        continue;
+      }
+      const resumeAt = new Date(now().getTime() + waitMilliseconds(wait.config.duration, wait.config.unit)).toISOString();
       const stepId = await store.insertStep({
         ...base,
         status: "running",
-        input: { duration: action.duration, unit: action.unit },
+        input: { duration: wait.config.duration, unit: wait.config.unit },
         output: { resume_at: resumeAt },
       });
       return finish("waiting", {

@@ -359,6 +359,33 @@ export const WAIT_UNITS = ["minutes", "hours", "days"] as const;
 export type WaitUnit = (typeof WAIT_UNITS)[number];
 export const WAIT_LIMITS: Record<WaitUnit, number> = { minutes: 60 * 24 * 90, hours: 24 * 90, days: 90 };
 
+/** The only time an appointment-relative Wait can wait for: the start of the run's own appointment. */
+export const APPOINTMENT_WAIT_FIELD = "appointment.start";
+/** 90 days either side of the appointment, like WAIT_LIMITS. */
+export const APPOINTMENT_WAIT_MAX_OFFSET_MINUTES = 60 * 24 * 90;
+
+/** Wait until the run's appointment starts, shifted by whole minutes (negative: before; positive: after). */
+export interface AppointmentWaitUntil {
+  field: typeof APPOINTMENT_WAIT_FIELD;
+  offsetMinutes: number;
+}
+
+/** True for events whose run is about one appointment (its entity_id). */
+export function isAppointmentEvent(event: unknown): boolean {
+  return (APPOINTMENT_EVENTS as readonly unknown[]).includes(event);
+}
+
+/**
+ * When an appointment-relative Wait is due: the appointment's start plus the
+ * offset in absolute elapsed minutes (24 hours is 1,440 minutes on every day,
+ * DST or not). Null when there is no usable start.
+ */
+export function appointmentWaitTarget(start: unknown, offsetMinutes: number): Date | null {
+  if (typeof start !== "string" && !(start instanceof Date)) return null;
+  const ms = new Date(start).getTime();
+  return Number.isFinite(ms) ? new Date(ms + offsetMinutes * 60_000) : null;
+}
+
 export const ACTION_TYPES = {
   send_sms: { label: "Send SMS", description: "Text the lead from your primary REOS number." },
   send_messenger: { label: "Send Messenger", description: "Message the lead from your connected Facebook Page." },
@@ -479,7 +506,8 @@ export type ActionConfig =
       /** Set exactly when waiting. */
       completion?: typeof FAN_OUT_COMPLETION;
     }
-  | { action: "wait"; duration: number; unit: WaitUnit };
+  | { action: "wait"; duration: number; unit: WaitUnit }
+  | { action: "wait"; until: AppointmentWaitUntil };
 
 export interface TriggerConfig {
   event: TriggerEventType;
@@ -1058,14 +1086,64 @@ function validateAction(raw: Record<string, unknown>, mode: ValidationMode): Con
       };
     }
     case "wait": {
-      const unit = WAIT_UNITS.includes(raw.unit as WaitUnit) ? (raw.unit as WaitUnit) : "days";
-      const value = num(raw.duration);
-      const duration = value === null ? 0 : Math.round(value);
-      need(duration >= 1, "Wait at least 1 " + unit.replace(/s$/, "") + ".");
-      need(duration <= WAIT_LIMITS[unit], `Wait at most ${WAIT_LIMITS[unit]} ${unit}.`);
-      return { config: { action, duration: Math.max(0, Math.min(WAIT_LIMITS[unit], duration)), unit }, errors };
+      const wait = parseWait(raw);
+      if (mode === "strict") errors.push(...wait.errors);
+      return { config: wait.config as ActionConfig, errors };
     }
   }
+}
+
+/**
+ * A Wait step's config, read the same way by validation and by the engine.
+ *
+ *   duration: has `duration` and no `until`. Unchanged from before D.2,
+ *     including the lenient draft normalization; strict mode reports problems.
+ *   appointment: has `until` and nothing else, with a valid field and offset.
+ *   invalid: anything else (an `until` that doesn't validate, `until` together
+ *     with `duration`/`unit`, or neither). Invalid in every mode, and the
+ *     config keeps its shape so it reads as invalid again: an `until` Wait never
+ *     turns into a duration Wait, and the engine fails the run instead of
+ *     guessing a delay.
+ */
+export type ParsedWait =
+  | { kind: "duration"; config: { action: "wait"; duration: number; unit: WaitUnit }; errors: string[] }
+  | { kind: "appointment"; config: { action: "wait"; until: AppointmentWaitUntil }; errors: [] }
+  | { kind: "invalid"; config: Record<string, unknown>; errors: string[] };
+
+export function parseWait(raw: Record<string, unknown>): ParsedWait {
+  const hasUntil = Object.hasOwn(raw, "until") && raw.until !== undefined;
+  const hasDuration = (Object.hasOwn(raw, "duration") && raw.duration !== undefined) || (Object.hasOwn(raw, "unit") && raw.unit !== undefined);
+
+  if (!hasUntil) {
+    if (!Object.hasOwn(raw, "duration") || raw.duration === undefined) {
+      return { kind: "invalid", config: { action: "wait" }, errors: ["Choose how long to wait."] };
+    }
+    const unit = WAIT_UNITS.includes(raw.unit as WaitUnit) ? (raw.unit as WaitUnit) : "days";
+    const value = num(raw.duration);
+    const duration = value === null ? 0 : Math.round(value);
+    const errors: string[] = [];
+    if (duration < 1) errors.push("Wait at least 1 " + unit.replace(/s$/, "") + ".");
+    if (duration > WAIT_LIMITS[unit]) errors.push(`Wait at most ${WAIT_LIMITS[unit]} ${unit}.`);
+    return { kind: "duration", config: { action: "wait", duration: Math.max(0, Math.min(WAIT_LIMITS[unit], duration)), unit }, errors };
+  }
+
+  const until = raw.until && typeof raw.until === "object" && !Array.isArray(raw.until) ? (raw.until as Record<string, unknown>) : null;
+  const scalar = (value: unknown) => (typeof value === "string" ? value.slice(0, 60) : typeof value === "number" || typeof value === "boolean" ? value : null);
+  const keep = (source: Record<string, unknown>) => Object.fromEntries(Object.entries(source).slice(0, 10).map(([key, value]) => [key.slice(0, 60), scalar(value)]));
+  const { action: _action, until: _until, ...rest } = raw;
+  const kept: Record<string, unknown> = { ...keep(rest), action: "wait", until: until ? keep(until) : null };
+  const invalid = (message: string): ParsedWait => ({ kind: "invalid", config: kept, errors: [message] });
+
+  if (hasDuration) return invalid("Wait either for a duration or until the appointment, not both.");
+  if (!until) return invalid("Choose when to wait until.");
+  const extra = [...Object.keys(rest), ...Object.keys(until).filter((key) => key !== "field" && key !== "offsetMinutes")];
+  if (extra.length > 0) return invalid("This Wait has settings REOS doesn't recognize.");
+  if (until.field !== APPOINTMENT_WAIT_FIELD) return invalid("Wait until the appointment's start.");
+  const offset = until.offsetMinutes;
+  if (typeof offset !== "number" || !Number.isInteger(offset)) return invalid("Enter the offset from the appointment as a whole number of minutes.");
+  if (Math.abs(offset) > APPOINTMENT_WAIT_MAX_OFFSET_MINUTES) return invalid("Wait at most 90 days before or after the appointment.");
+  // `+ 0` turns -0 into 0.
+  return { kind: "appointment", config: { action: "wait", until: { field: APPOINTMENT_WAIT_FIELD, offsetMinutes: offset + 0 } }, errors: [] };
 }
 
 /** Parse untrusted config for a node type. Unknown keys are dropped in every mode. */

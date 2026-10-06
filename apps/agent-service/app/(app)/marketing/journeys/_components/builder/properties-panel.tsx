@@ -31,6 +31,7 @@ interface PropertiesPanelProps {
   journeyOptions: JourneyOption[];
   stepOptions: Array<StepOption & { nodeId: string }>;
   triggerEvent: TriggerEventType | null;
+  appointmentTriggersOnly: boolean;
   runsHref: string;
 }
 
@@ -51,6 +52,7 @@ export function PropertiesPanel({
   journeyOptions,
   stepOptions,
   triggerEvent,
+  appointmentTriggersOnly,
   runsHref,
 }: PropertiesPanelProps) {
   const className = `${styles.panel} ${hiddenOnSmall ? styles.panelHidden : ""}`;
@@ -119,6 +121,7 @@ export function PropertiesPanel({
             journeyOptions={journeyOptions}
             stepOptions={stepOptions.filter((option) => option.nodeId !== selectedNode.id)}
             triggerEvent={triggerEvent}
+            appointmentTriggersOnly={appointmentTriggersOnly}
           />
         </div>
         <div className={styles.panelFooter}>

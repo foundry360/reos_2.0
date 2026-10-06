@@ -21,6 +21,7 @@ import {
   conditionRules,
   fanOutChildKey,
   INPUT_NAME_PATTERN,
+  isAppointmentEvent,
   nodeReferenceKey,
   ORCHESTRATION_FIELDS,
   parseAgentJourneyTargets,
@@ -28,6 +29,7 @@ import {
   parseInputMappings,
   parseResultExports,
   parseResultMappings,
+  parseWait,
   parseStepField,
   RESULT_SOURCE_PATTERN,
   stepKey,
@@ -133,9 +135,16 @@ export function guaranteedPredecessors(graph: GraphShape, targetId: string): Set
   return result;
 }
 
-/** AI steps and non-wait actions record output a condition can read. */
+/** AI steps, non-wait actions and Waits until the appointment record output a condition can read. */
 export function producesStepOutput(node: Pick<SnapshotNode, "type" | "config">): boolean {
-  return node.type === "ai" || (node.type === "action" && node.config.action !== "wait");
+  return node.type === "ai" || (node.type === "action" && (node.config.action !== "wait" || isAppointmentWait(node)));
+}
+
+/** What a Wait until the appointment records (skipped_reason only when the appointment is gone). */
+export const APPOINTMENT_WAIT_OUTPUT_FIELDS = ["target_at", "resumed_at", "late", "skipped_reason"];
+
+function isAppointmentWait(node: Pick<SnapshotNode, "type" | "config">): boolean {
+  return node.type === "action" && node.config.action === "wait" && parseWait(node.config as Record<string, unknown>).kind === "appointment";
 }
 
 /** Output-producing steps guaranteed to have run before this condition. */
@@ -152,6 +161,7 @@ export function referenceableSteps<T extends Pick<SnapshotNode, "id" | "type" | 
  * statically (freeform AI steps, actions).
  */
 export function knownOutputFields(node: Pick<SnapshotNode, "type" | "config">): string[] | null {
+  if (isAppointmentWait(node)) return [...APPOINTMENT_WAIT_OUTPUT_FIELDS];
   const fanOut = fanOutOutputFields(node);
   if (fanOut) return fanOut;
   const received = receivedResultNames(node);
@@ -428,6 +438,12 @@ export function activationIssues(
       }
     }
     const config = node.config as Record<string, unknown>;
+    if (node.type === "action" && config.action === "wait" && Object.hasOwn(config, "until") && !triggerEvents(graph).every(isAppointmentEvent)) {
+      issues.push({
+        nodeId: node.id,
+        message: `${label(node)}: waiting until the appointment needs every trigger to be an appointment event, so each run belongs to one appointment.`,
+      });
+    }
     if (journeyId && node.type === "action" && config.action === "start_journey" && config.journeyId === journeyId) {
       issues.push({ nodeId: node.id, message: `${label(node)}: a journey can't start itself.` });
     }

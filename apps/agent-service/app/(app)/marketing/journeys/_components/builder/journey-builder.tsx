@@ -50,7 +50,7 @@ import { LeaveJourneyModal } from "./leave-journey-modal";
 import { NodePicker } from "./node-picker";
 import type { JourneyOption } from "./node-config-form";
 import { PropertiesPanel, type NodePatch } from "./properties-panel";
-import { fanOutChildKey, isTriggerEventType, nodeReferenceKey } from "@/lib/journeys/runtime/contracts";
+import { fanOutChildKey, isAppointmentEvent, isTriggerEventType, nodeReferenceKey } from "@/lib/journeys/runtime/contracts";
 import {
   exportableSteps,
   fanOutChildren,
@@ -219,6 +219,10 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
   const triggerEvent = useMemo(() => {
     const event = nodes.find((node) => node.data.nodeType === "trigger")?.data.config.event;
     return isTriggerEventType(event) ? event : null;
+  }, [nodes]);
+  const appointmentTriggersOnly = useMemo(() => {
+    const triggers = nodes.filter((node) => node.data.nodeType === "trigger");
+    return triggers.length > 0 && triggers.every((node) => isAppointmentEvent(node.data.config.event));
   }, [nodes]);
 
   useEffect(() => {
@@ -547,6 +551,7 @@ function JourneyBuilderCanvas({ journey, agentOptions, journeyOptions }: Journey
           journeyOptions={journeyOptions}
           stepOptions={stepOptions}
           triggerEvent={triggerEvent}
+          appointmentTriggersOnly={appointmentTriggersOnly}
           runsHref={`/marketing/journeys/${journey.id}/runs`}
         />
       </div>
