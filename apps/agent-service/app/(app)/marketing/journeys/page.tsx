@@ -1,9 +1,12 @@
+import { Suspense } from "react";
 import { CreateJourneyModal } from "./_components/create-journey-modal";
-import { JourneysTable } from "./_components/journeys-table";
+import { JourneySortMenu } from "./_components/journey-sort-menu";
+import { JourneysList } from "./_components/journeys-list";
 import { EmptyState } from "@/components/shell/empty-state";
 import { PageHeading } from "@/components/shell/page-heading";
 import { IconJourney } from "@/components/shell/sidebar-nav";
 import { listJourneys } from "@/lib/journeys/journey-repository";
+import { parseJourneySort, sortJourneys } from "@/lib/journeys/journey-sort";
 import { resolveCurrentTenant, workspaceUnavailableMessage } from "@/lib/tenant/current-tenant";
 import shell from "@/components/shell/shell.module.css";
 import styles from "./_components/journeys.module.css";
@@ -11,8 +14,13 @@ import styles from "./_components/journeys.module.css";
 const SUBTITLE =
   "Journeys let agents and teams automate customer engagement and business processes, from first touch to closing.";
 
-export default async function JourneyBuilderPage() {
+interface PageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}
+
+export default async function JourneyBuilderPage({ searchParams }: PageProps) {
   const { tenantId, reason } = await resolveCurrentTenant();
+  const sort = parseJourneySort((await searchParams).sort);
 
   const heading = (
     <PageHeading icon={<IconJourney />} title="Journey Builder" subtitle={SUBTITLE} tone="light" />
@@ -28,7 +36,7 @@ export default async function JourneyBuilderPage() {
   }
 
   const result = await listJourneys(tenantId);
-  const journeys = result.ok ? result.value : [];
+  const journeys = result.ok ? sortJourneys(result.value, sort) : [];
 
   return (
     <>
@@ -36,6 +44,9 @@ export default async function JourneyBuilderPage() {
         {heading}
         {journeys.length > 0 ? (
           <div className={shell.pageHeaderActions}>
+            <Suspense fallback={null}>
+              <JourneySortMenu sort={sort} />
+            </Suspense>
             <CreateJourneyModal />
           </div>
         ) : null}
@@ -59,7 +70,7 @@ export default async function JourneyBuilderPage() {
           }
         />
       ) : (
-        <JourneysTable journeys={journeys} />
+        <JourneysList journeys={journeys} />
       )}
     </>
   );

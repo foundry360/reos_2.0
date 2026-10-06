@@ -49,6 +49,11 @@ export interface JourneySummary {
   description: string;
   status: JourneyStatus;
   nodeCount: number;
+  /** Every node's type in flow order (left to right), triggers first. */
+  nodeTypes: JourneyNodeType[];
+  runCount: number;
+  createdByName: string | null;
+  createdByAvatarUrl: string | null;
   createdAt: string;
   updatedAt: string;
 }

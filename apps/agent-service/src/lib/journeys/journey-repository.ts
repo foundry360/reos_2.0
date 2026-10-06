@@ -116,7 +116,7 @@ export async function listJourneys(tenantId: string): Promise<RepositoryResult<J
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("journeys")
-    .select(`${JOURNEY_COLUMNS}, journey_nodes(count)`)
+    .select(`${JOURNEY_COLUMNS}, created_by_id, journey_nodes(type, position_x), journey_runs(count)`)
     .eq("tenant_id", tenantId)
     .order("updated_at", { ascending: false });
 
@@ -125,16 +125,45 @@ export async function listJourneys(tenantId: string): Promise<RepositoryResult<J
     return { ok: false, error: "Could not load journeys." };
   }
 
+  const rows = (data ?? []) as Array<
+    JourneyRow & {
+      created_by_id: string | null;
+      journey_nodes?: Array<{ type: string; position_x: number }>;
+      journey_runs?: Array<{ count: number }>;
+    }
+  >;
+
+  const creatorIds = [...new Set(rows.map((row) => row.created_by_id).filter((id): id is string => Boolean(id)))];
+  const creatorById = new Map<string, { name: string; avatarUrl: string | null }>();
+  if (creatorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .in("id", creatorIds);
+    for (const profile of profiles ?? []) {
+      const name = profile.display_name?.trim();
+      if (name) creatorById.set(profile.id, { name, avatarUrl: profile.avatar_url?.trim() || null });
+    }
+  }
+
   return {
     ok: true,
-    value: (data ?? []).map((row) => {
-      const journey = row as JourneyRow & { journey_nodes?: Array<{ count: number }> };
+    value: rows.map((journey) => {
+      const nodes = [...(journey.journey_nodes ?? [])].sort(
+        (a, b) => (a.type === "trigger" ? -1 : 0) - (b.type === "trigger" ? -1 : 0) || a.position_x - b.position_x,
+      );
+      const nodeTypes = nodes.map((node) => node.type).filter(isJourneyNodeType);
+      const creator = journey.created_by_id ? creatorById.get(journey.created_by_id) : undefined;
       return {
         id: journey.id,
         name: journey.name,
         description: journey.description ?? "",
         status: toStatus(journey.status),
-        nodeCount: journey.journey_nodes?.[0]?.count ?? 0,
+        nodeCount: nodes.length,
+        nodeTypes,
+        runCount: journey.journey_runs?.[0]?.count ?? 0,
+        createdByName: creator?.name ?? null,
+        createdByAvatarUrl: creator?.avatarUrl ?? null,
         createdAt: journey.created_at,
         updatedAt: journey.updated_at,
       };
