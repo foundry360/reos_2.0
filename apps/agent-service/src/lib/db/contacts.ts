@@ -832,6 +832,8 @@ export async function appendMessage(params: {
   contextLabel?: string | null;
   /** Records message.received for this inbound row in the same insert (migration 060). */
   emitReceived?: boolean;
+  /** Outbound only: "pending" for a message stored before it is sent (migration 064). */
+  sendStatus?: "pending";
 }): Promise<string | null> {
   const db = getSupabaseAdmin();
   if (!db) return null;
@@ -843,6 +845,7 @@ export async function appendMessage(params: {
     direction: params.direction,
     body: params.body,
     playbook: params.playbook ?? null,
+    ...(params.sendStatus && params.direction === "outbound" ? { send_status: params.sendStatus } : {}),
   };
   const headers = params.emitReceived && params.direction === "inbound" ? messageReceivedHeaders() : {};
   const insert = (values: Record<string, unknown>) =>
@@ -925,11 +928,17 @@ export async function getRecentMessages(
       .order("created_at", { ascending: false })
       .limit(limit)
       .returns<
-        Array<{ direction: string; body: string; context_label?: string | null; created_at?: string }>
+        Array<{
+          direction: string;
+          body: string;
+          context_label?: string | null;
+          created_at?: string;
+          send_status?: string | null;
+        }>
       >();
 
   // context_label arrives with migration 050; keep history working before it is applied.
-  const withLabels = await recent("direction, body, context_label, created_at");
+  const withLabels = await recent("direction, body, context_label, created_at, send_status");
   const data = withLabels.error ? (await recent("direction, body, created_at")).data : withLabels.data;
 
   if (!data) return [];
@@ -937,6 +946,8 @@ export async function getRecentMessages(
   return data
     .slice()
     .reverse()
+    // A reply the provider rejected, or one never confirmed sent (pending), was not said to the lead.
+    .filter((m) => m.send_status !== "failed" && m.send_status !== "pending")
     .map((m) => ({
       role: m.direction === "inbound" ? ("user" as const) : ("assistant" as const),
       content: m.context_label ? `[${m.context_label}] ${m.body}` : m.body,

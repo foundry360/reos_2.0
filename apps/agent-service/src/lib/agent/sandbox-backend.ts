@@ -230,6 +230,7 @@ export class SandboxBackend implements AgentBackend {
       playbook: params.playbook,
       createdAt: this.stamp(),
     });
+    return null;
   }
 
   async patchContact(_contactId: string, fields: Record<string, string | number | boolean | null>) {

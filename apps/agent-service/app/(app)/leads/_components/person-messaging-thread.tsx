@@ -7,12 +7,23 @@ import {
 } from "@/lib/messaging/send-person-message-action";
 import { createClient } from "@/lib/supabase/client";
 import { accountInitials } from "@/lib/user-display";
-import type {
-  PersonMessage,
-  PersonMessagingChannelOption,
-  PersonEmail,
+import {
+  composerAfterSend,
+  draftContent,
+  identityForSend,
+  newDraftIdentity,
+  type ComposeSendResult,
+  type DraftIdentity,
+} from "@/lib/messaging/compose-draft";
+import {
+  parseSendStatus,
+  type PersonMessage,
+  type PersonMessagingChannelOption,
+  type PersonEmail,
 } from "../_lib/person-detail-types";
+import { useNow } from "../_lib/use-now";
 import { PersonEmailPanel } from "./person-email-panel";
+import { SendStatusNote } from "./send-status-note";
 import styles from "@/components/shell/shell.module.css";
 
 type ChannelFilter = "all" | "sms" | "messenger" | "instagram" | "comments" | "email";
@@ -89,6 +100,7 @@ function mapMessageRow(row: {
   body: string;
   created_at: string;
   context_label?: string | null;
+  send_status?: string | null;
 }): PersonMessage | null {
   if (row.direction !== "inbound" && row.direction !== "outbound") return null;
   return {
@@ -98,6 +110,7 @@ function mapMessageRow(row: {
     body: row.body,
     createdAt: row.created_at,
     contextLabel: row.context_label ?? null,
+    sendStatus: parseSendStatus(row.send_status),
   };
 }
 
@@ -118,7 +131,7 @@ function mapRealtimeMessage(row: Record<string, unknown>): PersonMessage | null 
 
   if (!id || !channel || !direction || !body || !createdAt) return null;
   const contextLabel = typeof row.context_label === "string" ? row.context_label : null;
-  return { id, channel, direction, body, createdAt, contextLabel };
+  return { id, channel, direction, body, createdAt, contextLabel, sendStatus: parseSendStatus(row.send_status) };
 }
 
 function mergeMessages(
@@ -134,7 +147,8 @@ function mergeMessages(
       !prev ||
       prev.body !== message.body ||
       prev.createdAt !== message.createdAt ||
-      prev.direction !== message.direction
+      prev.direction !== message.direction ||
+      (prev.sendStatus ?? null) !== (message.sendStatus ?? null)
     ) {
       changed = true;
     }
@@ -333,6 +347,8 @@ export function PersonMessagingPanel({
   const [menuOpen, setMenuOpen] = useState(false);
   const [messages, setMessages] = useState(initialMessages);
   const [emails, setEmails] = useState(initialEmails);
+  const draftIdentityRef = useRef<DraftIdentity | null>(null);
+  const now = useNow();
 
   useEffect(() => {
     setMessages((current) => mergeMessages(current, initialMessages));
@@ -413,6 +429,21 @@ export function PersonMessagingPanel({
             );
             if (!next) return;
             setMessages((current) => replaceOptimistic(current, next));
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "messages",
+            filter: `contact_id=eq.${contactId}`,
+          },
+          (payload) => {
+            // An outbound message's send status arrives after its insert.
+            const next = mapRealtimeMessage(payload.new as Record<string, unknown>);
+            if (!next) return;
+            setMessages((current) => mergeMessages(current, [next]));
           },
         )
         .subscribe((status) => {
@@ -511,6 +542,12 @@ export function PersonMessagingPanel({
     if (!sendChannel || !draft.trim() || pending) return;
     stickToBottomRef.current = true;
     const body = draft.trim();
+    const identity = identityForSend(
+      draftIdentityRef.current ?? newDraftIdentity(crypto.randomUUID()),
+      draftContent(sendChannel, body),
+      () => crypto.randomUUID(),
+    );
+    draftIdentityRef.current = identity;
     const optimisticId = `optimistic:${Date.now()}`;
     const optimistic: PersonMessage = {
       id: optimisticId,
@@ -518,6 +555,7 @@ export function PersonMessagingPanel({
       direction: "outbound",
       body,
       createdAt: new Date().toISOString(),
+      sendStatus: "pending",
     };
 
     setError(null);
@@ -525,31 +563,32 @@ export function PersonMessagingPanel({
     setMessages((current) => mergeMessages(current, [optimistic]));
 
     startTransition(async () => {
-      const result = await sendPersonMessageAction({
-        contactId,
-        channel: sendChannel,
-        body,
-      });
-      if (!result.ok) {
-        setMessages((current) =>
-          current.filter((message) => message.id !== optimisticId),
-        );
-        setDraft(body);
-        setError(result.error ?? "Could not send message.");
-        return;
+      let result: ComposeSendResult;
+      try {
+        result = await sendPersonMessageAction({ contactId, channel: sendChannel, body, draftId: identity.id });
+      } catch {
+        // The request may have reached the server: the stored record (shown on refresh) is the truth.
+        result = { outcome: "not_confirmed", error: "", messageId: "", sendStatus: "unknown" };
       }
+      const next = composerAfterSend(result);
+      if (next.newIdentity) draftIdentityRef.current = null;
+      if (next.draft === "restore") setDraft(body);
+      setError(next.notice);
 
-      if (result.messageId) {
-        setMessages((current) =>
-          replaceOptimistic(current, {
-            id: result.messageId!,
-            channel: sendChannel,
-            direction: "outbound",
-            body,
-            createdAt: new Date().toISOString(),
-          }),
-        );
-      }
+      const bubble = next.bubble;
+      setMessages((current) => {
+        if (!bubble) return current.filter((message) => message.id !== optimisticId);
+        if (!bubble.messageId) {
+          return current.map((message) => (message.id === optimisticId ? { ...message, sendStatus: bubble.status } : message));
+        }
+        const stored = current.find((message) => message.id === bubble.messageId);
+        const withoutOptimistic = current.filter((message) => message.id !== optimisticId);
+        return mergeMessages(withoutOptimistic, [
+          stored
+            ? { ...stored, sendStatus: bubble.status }
+            : { id: bubble.messageId, channel: sendChannel, direction: "outbound", body, createdAt: optimistic.createdAt, sendStatus: bubble.status },
+        ]);
+      });
     });
   }
 
@@ -714,6 +753,9 @@ export function PersonMessagingPanel({
                   <p className={styles.personMessageBody}>{message.body}</p>
                   <div className={styles.personMessageMeta}>
                     <span>{formatMessageTime(message.createdAt)}</span>
+                    {!inbound ? (
+                      <SendStatusNote status={message.sendStatus} createdAt={message.createdAt} now={now} />
+                    ) : null}
                   </div>
                 </div>
                 {!inbound ? (

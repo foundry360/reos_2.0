@@ -1,9 +1,8 @@
 import { createPublicKey, verify } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getTelnyxCredentials } from "@/lib/admin/platform-credentials";
-import { getEnv } from "@/lib/env";
-import { handleInboundSms, parseTelnyxInboundSms } from "@/lib/handle-inbound";
-import { sendSmsMessage } from "@/lib/messaging/send-sms";
+import { getEnv, mustVerifyWebhookSignature } from "@/lib/env";
+import { handleInboundSms, parseTelnyxInboundSms, sendAgentSmsReply } from "@/lib/handle-inbound";
 
 const SIGNATURE_TOLERANCE_SECONDS = 300;
 
@@ -43,7 +42,7 @@ export async function POST(request: NextRequest) {
   const env = getEnv();
   const rawBody = await request.text();
 
-  if (!env.TELNYX_SKIP_SIGNATURE_VERIFY) {
+  if (mustVerifyWebhookSignature(env.TELNYX_SKIP_SIGNATURE_VERIFY)) {
     const { publicKey } = await getTelnyxCredentials();
     if (!publicKey) {
       return new NextResponse("Telnyx public key is not configured", { status: 500 });
@@ -70,19 +69,12 @@ export async function POST(request: NextRequest) {
   if (!sms) {
     return NextResponse.json({ ok: true });
   }
-  const { from, to } = sms;
-
   // Telnyx retries webhooks that don't get a fast 2xx, so the agent runs after the response.
   // A redelivered message (same Telnyx message id) is a duplicate and sends nothing.
   after(async () => {
     try {
       const result = await handleInboundSms(sms);
-      if (result.duplicate || !result.reply || !to) return;
-
-      const sent = await sendSmsMessage({ fromE164: to, toE164: from, body: result.reply });
-      if (!sent.ok) {
-        console.error("Telnyx reply send failed:", sent.error);
-      }
+      await sendAgentSmsReply(result, sms);
     } catch (error) {
       console.error("Telnyx inbound handling failed:", error);
     }

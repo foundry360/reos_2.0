@@ -9049,6 +9049,15 @@ html[data-theme="dark"] .dealMetaPill {
   color: color-mix(in srgb, #022342 55%, transparent);
 }
 
+.personMessageSendProblem {
+  color: #b42318;
+  font-weight: 600;
+}
+
+html[data-theme="dark"] .personMessageSendProblem {
+  color: #f97066;
+}
+
 html[data-theme="dark"] .personMessagingChannelTrigger {
   background: var(--shell-surface);
 }

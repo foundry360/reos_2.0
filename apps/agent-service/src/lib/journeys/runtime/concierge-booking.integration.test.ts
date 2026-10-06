@@ -233,6 +233,7 @@ async function cancelAppointment(appointmentId: string) {
   if (change.cancellationSequence === null) return { change, sent: null };
   const start = new Date(change.start);
   const sent = await sendAppointmentCancellation({
+    tenantId: tenant,
     appointmentId: change.id,
     summary: change.title ?? "Appointment",
     label: "Thu, Oct 8 at 3:00 PM",
@@ -296,7 +297,7 @@ describe("cancelling a concierge booking (migration 062)", () => {
     assert.equal(change.cancellationSequence, null);
     assert.equal(sent, null);
     const none = await sendAppointmentCancellation({
-      appointmentId: appointment, summary: "Consult", label: "-", start: new Date(), end: new Date(), sequence: 1, metadata: {},
+      tenantId: tenant, appointmentId: appointment, summary: "Consult", label: "-", start: new Date(), end: new Date(), sequence: 1, metadata: {},
     });
     assert.deepEqual(none, { inviteSent: false, leadSent: false, agentSent: false, errors: [] });
     assert.equal(providers.resend.calls.length, 0);

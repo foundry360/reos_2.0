@@ -23,7 +23,7 @@ import { executeSendMessage, type DirectMessageChannel } from "./send-message.ts
 const TENANT = "tenant-a";
 const LEAD = "contact-1";
 
-type Delivery = { tenantId: string; contactId: string; channel: DirectMessageChannel; body: string };
+type Delivery = { tenantId: string; contactId: string; channel: DirectMessageChannel; body: string; idempotencyKey: string };
 
 let store: MemoryJourneyStore;
 let deps: EngineDeps;
@@ -114,12 +114,19 @@ for (const { action, channel } of CHANNELS) {
       const run = await start(chain(trigger, dm(action), task));
 
       assert.deepEqual(deliveries, [
-        { tenantId: TENANT, contactId: LEAD, channel, body: "Hi Ana, thanks for reaching out!", automated: true },
+        {
+          tenantId: TENANT,
+          contactId: LEAD,
+          channel,
+          body: "Hi Ana, thanks for reaching out!",
+          automated: true,
+          idempotencyKey: `journey:${run.id}:dm`,
+        },
       ]);
       assert.deepEqual(dmSteps(), [
         {
           status: "completed",
-          output: { message_id: "msg-1", channel, body: "Hi Ana, thanks for reaching out!" },
+          output: { sent: true, message_id: "msg-1", provider_message_id: null, channel, body: "Hi Ana, thanks for reaching out!" },
           error: undefined,
           errorKind: undefined,
           attemptCount: 1,
@@ -160,12 +167,46 @@ for (const { action, channel } of CHANNELS) {
 
       assert.equal(deliveries.length, 2);
       assert.ok(deliveries.every((delivery) => delivery.channel === channel));
+      assert.deepEqual(
+        deliveries.map((delivery) => delivery.idempotencyKey),
+        [`journey:${run.id}:dm`, `journey:${run.id}:dm`],
+        "the retry is the same logical send",
+      );
       assert.deepEqual(dmSteps().map(({ status, errorKind, attemptCount }) => ({ status, errorKind, attemptCount })), [
         { status: "failed", errorKind: "transient", attemptCount: 1 },
         { status: "completed", errorKind: undefined, attemptCount: 2 },
       ]);
       assert.equal(theRun().status, "completed");
       assert.deepEqual(otherActions, ["create_task"]);
+    });
+
+    it("an ambiguous provider outcome fails the step without a retry, so the DM can't be sent twice", async () => {
+      const error = "The provider request timed out; the message may have been sent.";
+      replies.push({ ok: false, kind: "ambiguous", error });
+
+      const run = await start(chain(trigger, dm(action), task));
+
+      assert.deepEqual(dmSteps(), [{ status: "failed", output: undefined, error, errorKind: "config", attemptCount: 1 }]);
+      assert.equal(run.status, "failed");
+      assert.equal(run.resumeAt, null);
+      clock = new Date(clock.getTime() + RETRY_BACKOFF_MS[2]);
+      await resumeDueRuns(deps);
+      assert.equal(deliveries.length, 1, "no retry");
+      assert.deepEqual(otherActions, []);
+    });
+
+    it("a repeat of an already-sent step completes with the earlier message, as a delivery", async () => {
+      replies.push({ ok: true, messageId: "msg-earlier", recordType: "lead", providerMessageId: "m_1", deduplicated: true });
+
+      await start(chain(trigger, dm(action), task));
+
+      assert.deepEqual(dmSteps()[0].output, {
+        sent: true,
+        message_id: "msg-earlier",
+        provider_message_id: "m_1",
+        channel,
+        body: "Hi Ana, thanks for reaching out!",
+      });
     });
   });
 }
@@ -201,7 +242,7 @@ describe("Journey send_messenger: duplicate-action protection", () => {
     assert.deepEqual(dmSteps(), [
       {
         status: "completed",
-        output: { message_id: "msg-1", channel: "messenger", body: "Hi Ana, thanks for reaching out!" },
+        output: { sent: true, message_id: "msg-1", provider_message_id: null, channel: "messenger", body: "Hi Ana, thanks for reaching out!" },
         error: undefined,
         errorKind: undefined,
         attemptCount: 1,

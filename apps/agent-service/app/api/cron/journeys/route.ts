@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { reconcileOutboundEmails } from "@/lib/email/email-reconciliation";
+import { repairEmailSentActivities } from "@/lib/email/email-sent-activity";
 import { getEnv } from "@/lib/env";
 import { drainJourneyEventOutbox } from "@/lib/journeys/journey-event-dispatch";
 import { drainLeadStatusOutbox } from "@/lib/journeys/lead-status-dispatch";
@@ -33,12 +35,38 @@ async function drainJourneyEvents(): Promise<Record<string, unknown>> {
   }
 }
 
+/** Settles outbound emails stuck pending or unknown from Resend's record; never resends. */
+async function reconcileEmails(): Promise<Record<string, unknown>> {
+  try {
+    const summary = await reconcileOutboundEmails();
+    if (!summary || (summary.claimed === 0 && summary.errors === 0 && summary.purgedEvents === 0)) return {};
+    console.log(`Email reconciliation: ${JSON.stringify(summary)}`);
+    return { emailReconciliation: summary };
+  } catch (error) {
+    console.log(`Email reconciliation failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    return { emailReconciliation: { error: "Email reconciliation failed." } };
+  }
+}
+
+/** Writes "Email sent" activities still owed by sent emails; never touches send state. */
+async function repairSentActivities(): Promise<Record<string, unknown>> {
+  try {
+    const summary = await repairEmailSentActivities();
+    if (!summary || (summary.checked === 0 && summary.errors === 0)) return {};
+    console.log(`Email sent activity repair: ${JSON.stringify(summary)}`);
+    return { emailSentActivityRepair: summary };
+  } catch (error) {
+    console.log(`Email sent activity repair failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    return { emailSentActivityRepair: { error: "Email sent activity repair failed." } };
+  }
+}
+
 /** Resumes journey runs whose wait finished, whose retry is due, or whose inline execution was cut off. */
 async function handleJourneyWorker(request: NextRequest) {
   const cronSecret = getEnv().CRON_SECRET;
   const outbox =
     authorizeCronRequest(request.headers, cronSecret) === "ok"
-      ? { ...(await drainLeadStatusEvents()), ...(await drainJourneyEvents()) }
+      ? { ...(await drainLeadStatusEvents()), ...(await drainJourneyEvents()), ...(await reconcileEmails()), ...(await repairSentActivities()) }
       : {};
   const { status, body } = await handleJourneyWorkerRequest(request.headers, {
     cronSecret,

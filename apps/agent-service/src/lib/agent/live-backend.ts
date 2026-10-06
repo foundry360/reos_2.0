@@ -88,14 +88,16 @@ export function liveBackend(tenantId: string): AgentBackend {
           playbook,
           contextLabel,
           emitReceived: inbound,
+          sendStatus: inbound ? undefined : "pending",
         });
         if (inbound && messageId) dispatchJourneyEventsSoon(tenantId, contactId);
-        return;
+        return messageId;
       }
       appendToThread(tenantId, threadKey, {
         role: direction === "inbound" ? "user" : "assistant",
         content: body,
       });
+      return null;
     },
     patchContact: async (contactId, fields) => {
       await updateContactFields(contactId, fields);

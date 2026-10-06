@@ -6,44 +6,44 @@ import {
   parseRecipientList,
   resolveReplyToEmail,
 } from "@/lib/email/email-utils";
-import type { SendEmailInput, SendEmailResult } from "@/lib/email/email-types";
+import type { SendEmailInput } from "@/lib/email/email-types";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
-import { recordOutboundEmail } from "@/lib/email/record-outbound-email";
+import { sendComposedEmail } from "@/lib/email/compose-email";
 import {
   getResendSender,
   isResendEmailConfigured,
-  sendResendMessage,
 } from "@/lib/email/resend";
+import type { ComposeSendResult } from "@/lib/messaging/compose-draft";
 import { createClient } from "@/lib/supabase/server";
 import { resolveCurrentTenant } from "@/lib/tenant/current-tenant";
 import { isPlatformAdmin } from "@/lib/admin/auth";
 
-export async function sendEmailAction(input: SendEmailInput): Promise<SendEmailResult> {
+export async function sendEmailAction(input: SendEmailInput): Promise<ComposeSendResult> {
   const subject = input.subject.trim();
   const bodyHtml = input.bodyHtml.trim();
   const toRecipients = parseRecipientList(input.to);
   const ccRecipients = parseRecipientList(input.cc ?? "");
 
   if (toRecipients.length === 0) {
-    return { ok: false, error: "Enter at least one valid recipient." };
+    return { outcome: "not_attempted", error: "Enter at least one valid recipient." };
   }
   if (!subject) {
-    return { ok: false, error: "Subject is required." };
+    return { outcome: "not_attempted", error: "Subject is required." };
   }
   if (!bodyHtml || !htmlToPlainText(bodyHtml)) {
-    return { ok: false, error: "Email body cannot be empty." };
+    return { outcome: "not_attempted", error: "Email body cannot be empty." };
   }
 
   const { tenantId } = await resolveCurrentTenant();
   if (!tenantId) {
-    return { ok: false, error: "Your account is not linked to a workspace yet." };
+    return { outcome: "not_attempted", error: "Your account is not linked to a workspace yet." };
   }
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "You must be signed in to send email." };
+  if (!user) return { outcome: "not_attempted", error: "You must be signed in to send email." };
 
   let contactId = input.contactId?.trim() || null;
   let opportunityId = input.opportunityId?.trim() || null;
@@ -99,7 +99,7 @@ export async function sendEmailAction(input: SendEmailInput): Promise<SendEmailR
       : profile;
   const loginEmail = user.email?.trim().toLowerCase() ?? "";
   if (!loginEmail) {
-    return { ok: false, error: "Your REOS account does not have an email address." };
+    return { outcome: "not_attempted", error: "Your REOS account does not have an email address." };
   }
   const agentEmail = resolveReplyToEmail(
     loginEmail,
@@ -108,36 +108,21 @@ export async function sendEmailAction(input: SendEmailInput): Promise<SendEmailR
   const agentName =
     profileRow?.display_name?.trim() || loginEmail.split("@")[0] || "Agent";
 
-  const sent = await sendResendMessage({
-    to: toRecipients,
-    cc: ccRecipients,
-    subject,
-    bodyHtml,
-    replyTo: agentEmail,
-    agentName,
-  });
-
-  if (!sent.ok) {
-    return { ok: false, error: sent.error };
-  }
-
-  const emailId = await recordOutboundEmail({
+  const result = await sendComposedEmail(supabase, {
     tenantId,
     userId: user.id,
+    draftId: input.draftId,
     contactId,
     opportunityId,
     to: toRecipients,
     cc: ccRecipients,
     subject,
     bodyHtml,
+    threadId: input.threadId ?? null,
     replyTo: agentEmail,
-    threadId: input.threadId,
-    sent,
+    agentName,
   });
-
-  if (!emailId) {
-    return { ok: false, error: "Email was sent but could not be saved in REOS." };
-  }
+  if (result.outcome === "not_attempted" || result.outcome === "draft_conflict") return result;
 
   if (contactId) {
     const { data: contact } = await supabase
@@ -155,7 +140,7 @@ export async function sendEmailAction(input: SendEmailInput): Promise<SendEmailR
     revalidatePath(`/opportunities/${opportunityId}`);
   }
 
-  return { ok: true, emailId };
+  return result;
 }
 
 export async function getEmailComposeBootstrapAction(): Promise<{

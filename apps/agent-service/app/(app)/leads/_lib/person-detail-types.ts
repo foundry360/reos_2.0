@@ -5,6 +5,7 @@ import type {
   PersonTaskSummary,
 } from "@/lib/crm/person-activities";
 import type { CrmEmail, EmailRecipient } from "@/lib/email/email-types";
+import type { EmailDeliveryStatus } from "@/lib/messaging/send-status-label";
 
 export interface PersonEmail {
   id: string;
@@ -20,6 +21,12 @@ export interface PersonEmail {
   sentAt: string | null;
   receivedAt: string | null;
   threadId: string | null;
+  /** When the record was written: how long a pending email has been sending. */
+  createdAt?: string | null;
+  /** Outbound only; pending, failed and unknown are appointment emails not confirmed sent (migration 065). */
+  sendStatus?: MessageSendStatus | null;
+  /** Outbound only: what happened after Resend accepted it, from its signed events (migration 066). */
+  deliveryStatus?: EmailDeliveryStatus | null;
 }
 
 export interface PersonOpportunitySummary {
@@ -39,8 +46,15 @@ export interface PersonMessage {
   createdAt: string;
   /** e.g. "Commented on: 123 Main St, Scottsdale · $850K". */
   contextLabel?: string | null;
+  /** Outbound only (migration 064); null for inbound and for messages stored before send status existed. */
+  sendStatus?: MessageSendStatus | null;
 }
 
+export type MessageSendStatus = "pending" | "sent" | "failed" | "unknown";
+
+export function parseSendStatus(value: unknown): MessageSendStatus | null {
+  return value === "pending" || value === "sent" || value === "failed" || value === "unknown" ? value : null;
+}
 export type PersonMessagingChannel = "sms" | "messenger" | "instagram";
 
 export interface PersonMessagingChannelOption {

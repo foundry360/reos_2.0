@@ -1,5 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { getEnv, mustVerifyWebhookSignature } from "@/lib/env";
 import { handleInboundMetaMessage } from "@/lib/handle-inbound-meta";
 import { handleMetaComment } from "@/lib/handle-meta-comment";
 import {
@@ -36,7 +36,10 @@ export async function POST(request: NextRequest) {
   const signature = request.headers.get("x-hub-signature-256");
 
   const env = getEnv();
-  if (env.META_APP_SECRET) {
+  if (mustVerifyWebhookSignature(!env.META_APP_SECRET)) {
+    if (!env.META_APP_SECRET) {
+      return new NextResponse("Meta app secret is not configured", { status: 500 });
+    }
     if (!verifyMetaWebhookSignature(rawBody, signature)) {
       return new NextResponse("Invalid signature", { status: 403 });
     }

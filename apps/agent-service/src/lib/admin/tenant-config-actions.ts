@@ -464,34 +464,6 @@ export async function updateTenantAgentsAction(formData: FormData): Promise<Acti
   return { ok: true };
 }
 
-export async function updateTenantComplianceAction(formData: FormData): Promise<ActionResult> {
-  const admin = await requirePlatformAdmin();
-
-  const tenantId = readTenantId(formData);
-  if (!tenantId) return { ok: false, error: "Missing account id." };
-
-  const quietHoursStart = String(formData.get("quietHoursStart") ?? "").trim() || null;
-  const quietHoursEnd = String(formData.get("quietHoursEnd") ?? "").trim() || null;
-
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("tenant_agents")
-    .update({
-      compliance_strict: readCheckbox(formData, "complianceStrict"),
-      quiet_hours_start: quietHoursStart,
-      quiet_hours_end: quietHoursEnd,
-    })
-    .eq("tenant_id", tenantId);
-
-  if (error) return { ok: false, error: error.message };
-
-  const auditResult = await markTenantModified(tenantId, admin.id);
-  if (!auditResult.ok) return auditResult;
-
-  revalidateTenant(tenantId);
-  return { ok: true };
-}
-
 export async function updateTenantBillingAction(formData: FormData): Promise<ActionResult> {
   const admin = await requirePlatformAdmin();
 

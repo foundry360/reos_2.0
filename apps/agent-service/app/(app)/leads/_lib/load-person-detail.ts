@@ -26,7 +26,8 @@ import {
   fetchMetaSenderProfile,
 } from "@/lib/meta/profile";
 import type { MetaChannelMetadata } from "@/lib/meta/channel-account";
-import type { PersonDetailData } from "./person-detail-types";
+import { parseDeliveryStatus } from "@/lib/messaging/send-status-label";
+import { parseSendStatus, type PersonDetailData } from "./person-detail-types";
 
 export async function loadPersonDetail(
   id: string,
@@ -362,7 +363,7 @@ export async function loadPersonDetail(
   const emailsRes = await supabase
     .from("crm_emails")
     .select(
-      "id, direction, from_email, from_name, to_recipients, cc_recipients, subject, body_html, body_text, snippet, sent_at, received_at, thread_id",
+      "id, direction, from_email, from_name, to_recipients, cc_recipients, subject, body_html, body_text, snippet, sent_at, received_at, thread_id, status, delivery_status, created_at",
     )
     .eq("tenant_id", tenantId)
     .eq("contact_id", contact.id)
@@ -435,6 +436,7 @@ export async function loadPersonDetail(
       body: row.body ?? "",
       createdAt: row.created_at,
       contextLabel: typeof row.context_label === "string" ? row.context_label : null,
+      sendStatus: parseSendStatus(row.send_status),
     })),
     messagingChannels: messagingChannels.map((option) => ({
       channel: option.channel,
@@ -458,6 +460,9 @@ export async function loadPersonDetail(
       sentAt: row.sent_at,
       receivedAt: row.received_at,
       threadId: row.thread_id,
+      createdAt: row.created_at,
+      sendStatus: row.direction === "outbound" ? parseSendStatus(row.status) : null,
+      deliveryStatus: row.direction === "outbound" ? parseDeliveryStatus(row.delivery_status) : null,
     })),
     emailConnected,
   };

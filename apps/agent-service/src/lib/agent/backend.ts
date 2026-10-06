@@ -72,6 +72,11 @@ export interface AgentBackend {
   applyToolCalls(contactId: string | undefined, toolCalls: ToolCall[]): Promise<string | undefined>;
 
   loadMessages(params: { threadKey: string; contactId?: string }): Promise<StoredMessage[]>;
+  /**
+   * Stores a message; returns its id when it was stored on the contact, else null.
+   * Outbound messages are agent replies not sent yet: stored pending, and the
+   * caller records the provider's answer once it sends them.
+   */
   appendMessage(params: {
     threadKey: string;
     contactId?: string;
@@ -80,7 +85,7 @@ export interface AgentBackend {
     body: string;
     playbook?: string;
     contextLabel?: string | null;
-  }): Promise<void>;
+  }): Promise<string | null>;
   patchContact(contactId: string, fields: Record<string, string | number | boolean | null>): Promise<void>;
   reconcileContact(contactId: string, ids: { email?: string; phone?: string }): Promise<string>;
   playbookEnabled(playbook: string): Promise<boolean>;

@@ -39,6 +39,11 @@ export interface InboundAgentResult {
   contactId?: string;
   /** True when compliance blocked the agent (opt-out). */
   optedOut: boolean;
+  /**
+   * The stored reply, pending until the caller sends it and records the
+   * provider's answer (recordOutboundOutcome). Null when nothing was stored.
+   */
+  replyMessageId?: string | null;
 }
 
 function buildContextBlock(
@@ -170,9 +175,9 @@ export async function persistOutbound(
     reply: string;
     playbook: AgentPlaybook;
   },
-): Promise<void> {
-  if (!params.reply) return;
-  await backend.appendMessage({
+): Promise<string | null> {
+  if (!params.reply) return null;
+  return backend.appendMessage({
     threadKey: params.threadKey,
     contactId: params.contactId,
     channel: params.channel,
@@ -226,22 +231,22 @@ export async function runInboundAgent(params: {
     });
   };
 
-  const alreadyOptedOut = ctx.optedOut;
-  if (await applyCompliance(backend, ctx, body)) {
-    const reply = alreadyOptedOut ? "" : "You have been unsubscribed.";
+  const compliance = await applyCompliance(backend, ctx, body, inboundChannel);
+  if (compliance.blocked) {
     await saveInbound();
-    await persistOutbound(backend, {
+    const replyMessageId = await persistOutbound(backend, {
       threadKey,
       contactId: ctx.contactId,
       channel,
-      reply,
+      reply: compliance.reply,
       playbook: "none",
     });
     return {
-      reply,
+      reply: compliance.reply,
       playbook: "none",
       contactId: ctx.contactId,
-      optedOut: true,
+      optedOut: compliance.optedOut,
+      replyMessageId,
     };
   }
 
@@ -616,7 +621,7 @@ export async function runInboundAgent(params: {
     }
   }
 
-  await persistOutbound(backend, {
+  const replyMessageId = await persistOutbound(backend, {
     threadKey,
     contactId: ctx.contactId,
     channel,
@@ -631,6 +636,7 @@ export async function runInboundAgent(params: {
     playbook,
     contactId: ctx.contactId,
     optedOut: false,
+    replyMessageId,
   };
 }
 

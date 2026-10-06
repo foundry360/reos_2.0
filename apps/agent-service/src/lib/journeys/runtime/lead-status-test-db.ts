@@ -92,6 +92,11 @@ export interface TestDb {
 export interface TestDbOptions {
   /** Extra test-only schema, applied after the stand-in and migrations. */
   schema?: string;
+  /**
+   * Serve gt/gte/lt/lte filters. Off by default: some suites rely on range
+   * lookups failing (to reach code behind an availability check).
+   */
+  rangeFilters?: boolean;
 }
 
 const IDENTIFIER = /^[a-z_][a-z0-9_]*$/;
@@ -115,7 +120,9 @@ function columnExpr(value: string): string {
   return sql;
 }
 
-function parseFilter(column: string, raw: string, params: unknown[]): string {
+const RANGE_OPERATORS: Record<string, string> = { gt: ">", gte: ">=", lt: "<", lte: "<=" };
+
+function parseFilter(column: string, raw: string, params: unknown[], rangeFilters = false): string {
   const col = columnExpr(column);
   const dot = raw.indexOf(".");
   const operator = raw.slice(0, dot);
@@ -124,10 +131,19 @@ function parseFilter(column: string, raw: string, params: unknown[]): string {
     params.push(value);
     return `${col} ${operator === "eq" ? "=" : "<>"} $${params.length}`;
   }
+  if (operator === "ilike") {
+    params.push(value);
+    return `${col} ilike $${params.length}`;
+  }
   if (operator === "cs") {
     // Array contains; the value is a Postgres array literal such as {manual}.
     params.push(value);
     return `${col} @> $${params.length}`;
+  }
+  const comparison = rangeFilters ? RANGE_OPERATORS[operator] : undefined;
+  if (comparison) {
+    params.push(value);
+    return `${col} ${comparison} $${params.length}`;
   }
   if (operator === "is" && value === "null") return `${col} is null`;
   if (operator === "not" && value === "is.null") return `${col} is not null`;
@@ -140,6 +156,17 @@ function parseFilter(column: string, raw: string, params: unknown[]): string {
     return `${col} in (${placeholders.join(", ")})`;
   }
   throw new Error(`Unsupported filter: ${column}=${raw}`);
+}
+
+/** or=(col.op.value,col.op.value): one level, no nested groups, no commas inside values. */
+function parseOrFilter(raw: string, params: unknown[]): string {
+  if (!raw.startsWith("(") || !raw.endsWith(")")) throw new Error(`Unsupported or filter: ${raw}`);
+  const terms = raw.slice(1, -1).split(",").map((term) => {
+    const dot = term.indexOf(".");
+    if (dot <= 0) throw new Error(`Unsupported or filter: ${raw}`);
+    return parseFilter(term.slice(0, dot), term.slice(dot + 1), params);
+  });
+  return `(${terms.join(" or ")})`;
 }
 
 function selectList(select: string | null): string {
@@ -220,7 +247,7 @@ function rowsResponse(request: Request, rows: unknown[], status = 200): Response
   });
 }
 
-function postgrestFetch(pg: PGlite, authUsers: Map<string, { email: string }>): typeof fetch {
+function postgrestFetch(pg: PGlite, authUsers: Map<string, { email: string }>, rangeFilters: boolean): typeof fetch {
   return async (input, init) => {
     const request = new Request(input, init);
     const url = new URL(request.url);
@@ -260,7 +287,8 @@ function postgrestFetch(pg: PGlite, authUsers: Map<string, { email: string }>): 
       const whereSql = () => {
         const where: string[] = [];
         url.searchParams.forEach((value, name) => {
-          if (!NOT_FILTERS.has(name)) where.push(parseFilter(name, value, params));
+          if (name === "or") where.push(parseOrFilter(value, params));
+          else if (!NOT_FILTERS.has(name)) where.push(parseFilter(name, value, params, rangeFilters));
         });
         return where.length ? ` where ${where.join(" and ")}` : "";
       };
@@ -335,7 +363,7 @@ export async function createTestDb(options: TestDbOptions = {}): Promise<TestDb>
   for (const migration of MIGRATIONS) await pg.exec(readFileSync(migration, "utf8"));
   if (options.schema) await pg.exec(options.schema);
   const authUsers = new Map<string, { email: string }>();
-  const fetchImpl = postgrestFetch(pg, authUsers);
+  const fetchImpl = postgrestFetch(pg, authUsers, options.rangeFilters ?? false);
   const tables = (
     await pg.query<{ name: string }>("select format('public.%I', tablename) as name from pg_tables where schemaname = 'public'")
   ).rows.map((row) => row.name);

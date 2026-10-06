@@ -135,8 +135,9 @@ function metaDm(rec: Recorder, sends: MetaSends, mid: string | null, text = "Hi,
     resolveContact: async () => ctx("messenger"),
     sendText: async (params) => {
       sends.calls.push({ recipientId: params.recipientId, text: params.text });
-      return { ok: true };
+      return { ok: true, messageId: null };
     },
+    recordOutcome: async () => {},
     turn: rec.turn,
   });
 }
@@ -437,7 +438,8 @@ describe("Meta DM redelivery", () => {
         loadPageToken: async () => null,
         fetchProfile: async () => null,
         resolveContact: async () => ctx("instagram"),
-        sendText: async () => ({ ok: true }),
+        sendText: async () => ({ ok: true, messageId: null }),
+        recordOutcome: async () => {},
         turn: rec.turn,
       },
     );

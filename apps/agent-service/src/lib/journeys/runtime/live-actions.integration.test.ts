@@ -130,8 +130,21 @@ async function rejectsWith(promise: Promise<ActionResult>, kind: "config" | "tra
   });
 }
 
+/** A message from the lead on a Meta channel, `minutesAgo` before now (opens Meta's 24-hour window). */
+async function addInbound(contactId: string, channel: "messenger" | "instagram", minutesAgo = 5) {
+  await db.query(
+    `insert into public.messages (tenant_id, contact_id, channel, direction, body, created_at)
+     values ($1, $2, $3, 'inbound', 'Hi there', now() - make_interval(mins => $4))`,
+    [tenant, contactId, channel, minutesAgo],
+  );
+}
+
+function outbound<T = Record<string, unknown>>(): Promise<T[]> {
+  return db.query<T>("select * from public.messages where direction = 'outbound' order by created_at");
+}
+
 /** Runs `work` with `privilege` on `table` revoked from the service role, the way a failing write looks. */
-async function withoutPrivilege<T>(table: string, privilege: "insert", work: () => Promise<T>): Promise<T> {
+async function withoutPrivilege<T>(table: string, privilege: "insert" | "update", work: () => Promise<T>): Promise<T> {
   await db.query(`revoke ${privilege} on public.${table} from service_role`);
   try {
     return await work();
@@ -168,24 +181,42 @@ describe("test environment", () => {
 describe("send_sms (live executor → deliverMessageToContact → Telnyx)", () => {
   const sms = { action: "send_sms", body: "  Hi {{first_name}}, this is REOS.  " } as const;
 
-  it("texts the lead's number from the primary number and logs the message", async () => {
+  it("texts the lead's number from the primary number and records the message as sent with Telnyx's id", async () => {
     const lead = await newLead();
     await addIdentity(lead, "sms", "555-010-2030");
     await addPrimaryNumber();
+    const input = await inputFor(lead);
 
-    const result = await execute(sms, await inputFor(lead));
+    const result = await execute(sms, input);
 
     assert.deepEqual(
       providers.telnyx.calls.map(({ apiKey, from, to, text }) => ({ apiKey, from, to, text })),
       [{ apiKey: TEST_KEYS.telnyx, from: PRIMARY_NUMBER, to: "+15550102030", text: "Hi Ana, this is REOS." }],
     );
-    const messages = await rows<{ id: string; tenant_id: string; contact_id: string; channel: string; direction: string; body: string }>("messages");
+    const messages = await rows<{
+      id: string;
+      tenant_id: string;
+      contact_id: string;
+      channel: string;
+      direction: string;
+      body: string;
+      send_status: string;
+      provider_message_id: string;
+      idempotency_key: string;
+    }>("messages");
     assert.equal(messages.length, 1);
     assert.deepEqual(
       { tenant: messages[0].tenant_id, contact: messages[0].contact_id, channel: messages[0].channel, direction: messages[0].direction, body: messages[0].body },
       { tenant, contact: lead, channel: "sms", direction: "outbound", body: "Hi Ana, this is REOS." },
     );
-    assert.deepEqual(result, { status: "completed", output: { message_id: messages[0].id, channel: "sms", body: "Hi Ana, this is REOS." } });
+    assert.deepEqual(
+      [messages[0].send_status, messages[0].provider_message_id, messages[0].idempotency_key],
+      ["sent", "telnyx-msg-1", `journey:${input.runId}:node`],
+    );
+    assert.deepEqual(result, {
+      status: "completed",
+      output: { sent: true, message_id: messages[0].id, provider_message_id: "telnyx-msg-1", channel: "sms", body: "Hi Ana, this is REOS." },
+    });
   });
 
   it("a lead without an SMS identity is a config failure; Telnyx isn't called", async () => {
@@ -197,27 +228,64 @@ describe("send_sms (live executor → deliverMessageToContact → Telnyx)", () =
     assert.equal((await rows("messages")).length, 0);
   });
 
-  it("a Telnyx 5xx is a transient failure and nothing is logged", async () => {
+  it("a Telnyx 5xx leaves the outcome unknown: the step fails without retry and the message is kept as unknown", async () => {
     const lead = await newLead();
     await addIdentity(lead, "sms", "+15550102030");
     await addPrimaryNumber();
     providers.telnyx.respondNext(503, { errors: [{ title: "Service Unavailable", detail: "Telnyx is temporarily unavailable." }] });
 
-    await rejectsWith(execute(sms, await inputFor(lead)), "transient", "Telnyx is temporarily unavailable.");
+    await rejectsWith(
+      execute(sms, await inputFor(lead)),
+      "config",
+      "The provider didn't confirm the send (Telnyx is temporarily unavailable.); it may have been sent.",
+    );
     assert.equal(providers.telnyx.calls.length, 1);
-    assert.equal((await rows("messages")).length, 0);
+    const messages = await outbound<{ send_status: string; body: string; provider_message_id: string | null }>();
+    assert.deepEqual(
+      messages.map((m) => [m.send_status, m.body, m.provider_message_id]),
+      [["unknown", "Hi Ana, this is REOS.", null]],
+    );
   });
 
-  it("once Telnyx accepts the SMS, a failed message log still reports the send (no second send)", async () => {
+  it("a Telnyx 4xx is a rejection: a transient failure (retryable) and the message is kept as failed", async () => {
+    const lead = await newLead();
+    await addIdentity(lead, "sms", "+15550102030");
+    await addPrimaryNumber();
+    providers.telnyx.respondNext(422, { errors: [{ title: "Invalid destination", detail: "The destination number is not valid." }] });
+
+    await rejectsWith(execute(sms, await inputFor(lead)), "transient", "The destination number is not valid.");
+    const messages = await outbound<{ send_status: string; send_error: string }>();
+    assert.deepEqual(messages.map((m) => [m.send_status, m.send_error]), [["failed", "The destination number is not valid."]]);
+  });
+
+  it("if the message can't be recorded before sending, nothing is sent (transient)", async () => {
     const lead = await newLead();
     await addIdentity(lead, "sms", "+15550102030");
     await addPrimaryNumber();
 
-    const result = await withoutPrivilege("messages", "insert", async () => execute(sms, await inputFor(lead)));
-
-    assert.deepEqual(result, { status: "completed", output: { message_id: null, channel: "sms", body: "Hi Ana, this is REOS." } });
-    assert.equal(providers.telnyx.calls.length, 1);
+    await withoutPrivilege("messages", "insert", async () =>
+      rejectsWith(execute(sms, await inputFor(lead)), "transient", "The message couldn't be recorded, so it wasn't sent."),
+    );
+    assert.equal(providers.telnyx.calls.length, 0);
     assert.equal((await rows("messages")).length, 0);
+  });
+
+  it("once Telnyx accepts, a failed outcome write still reports the send; the row stays pending and a retry never resends", async () => {
+    const lead = await newLead();
+    await addIdentity(lead, "sms", "+15550102030");
+    await addPrimaryNumber();
+    const input = await inputFor(lead);
+
+    const result = await withoutPrivilege("messages", "update", () => execute(sms, input));
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.output.sent, true);
+    assert.equal(result.output.provider_message_id, "telnyx-msg-1");
+    assert.equal(providers.telnyx.calls.length, 1);
+    assert.deepEqual((await outbound<{ send_status: string }>()).map((m) => m.send_status), ["pending"]);
+
+    await rejectsWith(execute(sms, input), "config", /may have been sent/);
+    assert.equal(providers.telnyx.calls.length, 1, "an unconfirmed send is never sent again");
   });
 });
 
@@ -226,9 +294,10 @@ describe("send_sms (live executor → deliverMessageToContact → Telnyx)", () =
 describe("send_messenger (live executor → executeSendMessage → deliverMessageToContact → Meta)", () => {
   const messenger = { action: "send_messenger", body: "  Hi {{first_name}}, thanks for messaging us!  " } as const;
 
-  it("DMs the lead's Messenger identity with the Page token and logs the message", async () => {
+  it("DMs the lead's Messenger identity with the Page token and records the message as sent with Meta's id", async () => {
     const lead = await newLead();
     await addIdentity(lead, "messenger", "psid-123");
+    await addInbound(lead, "messenger");
     await connectMeta("messenger", { pageId: "page-1", accountId: "page-1", token: "page-token-messenger" });
 
     const result = await execute(messenger, await inputFor(lead));
@@ -236,16 +305,41 @@ describe("send_messenger (live executor → executeSendMessage → deliverMessag
     assert.deepEqual(providers.meta.calls, [
       { accessToken: "page-token-messenger", recipientId: "psid-123", text: "Hi Ana, thanks for messaging us!", messagingType: "RESPONSE" },
     ]);
-    const messages = await rows<{ id: string; tenant_id: string; contact_id: string; channel: string; direction: string }>("messages");
+    const messages = await outbound<{ id: string; tenant_id: string; contact_id: string; channel: string; send_status: string; provider_message_id: string }>();
     assert.equal(messages.length, 1);
     assert.deepEqual(
-      [messages[0].tenant_id, messages[0].contact_id, messages[0].channel, messages[0].direction],
-      [tenant, lead, "messenger", "outbound"],
+      [messages[0].tenant_id, messages[0].contact_id, messages[0].channel, messages[0].send_status, messages[0].provider_message_id],
+      [tenant, lead, "messenger", "sent", "m_meta_1"],
     );
     assert.deepEqual(result, {
       status: "completed",
-      output: { message_id: messages[0].id, channel: "messenger", body: "Hi Ana, thanks for messaging us!" },
+      output: { sent: true, message_id: messages[0].id, provider_message_id: "m_meta_1", channel: "messenger", body: "Hi Ana, thanks for messaging us!" },
     });
+  });
+
+  it("outside Meta's 24-hour window the DM is skipped, not sent", async () => {
+    const lead = await newLead();
+    await addIdentity(lead, "messenger", "psid-123");
+    await addInbound(lead, "messenger", 25 * 60);
+    await connectMeta("messenger", { pageId: "page-1", accountId: "page-1", token: "page-token-messenger" });
+
+    const result = await execute(messenger, await inputFor(lead));
+
+    assert.deepEqual(result, { status: "skipped", output: { sent: false, channel: "messenger" }, reason: "outside_messaging_window" });
+    assert.equal(providers.meta.calls.length, 0);
+    assert.equal((await outbound()).length, 0);
+  });
+
+  it("an Instagram message doesn't open the Messenger window", async () => {
+    const lead = await newLead();
+    await addIdentity(lead, "messenger", "psid-123");
+    await addInbound(lead, "instagram");
+    await connectMeta("messenger", { pageId: "page-1", accountId: "page-1", token: "page-token-messenger" });
+
+    const result = await execute(messenger, await inputFor(lead));
+
+    assert.equal(result.status, "skipped");
+    assert.equal(providers.meta.calls.length, 0);
   });
 
   it("a Facebook commenter without a Messenger identity is a config failure; Meta isn't called", async () => {
@@ -265,9 +359,10 @@ describe("send_instagram (live executor → executeSendMessage → deliverMessag
   const instagram = { action: "send_instagram", body: "Hi {{first_name}}, thanks for the DM!" } as const;
   const account = { pageId: "page-ig", accountId: "ig-business-1", token: "page-token-instagram" };
 
-  it("DMs the lead's Instagram identity with the linked Page token and logs the message", async () => {
+  it("DMs the lead's Instagram identity with the linked Page token and records the message as sent", async () => {
     const lead = await newLead();
     await addIdentity(lead, "instagram", "igsid-456");
+    await addInbound(lead, "instagram");
     await connectMeta("instagram", account);
 
     const result = await execute(instagram, await inputFor(lead));
@@ -275,15 +370,15 @@ describe("send_instagram (live executor → executeSendMessage → deliverMessag
     assert.deepEqual(providers.meta.calls, [
       { accessToken: "page-token-instagram", recipientId: "igsid-456", text: "Hi Ana, thanks for the DM!", messagingType: "RESPONSE" },
     ]);
-    const messages = await rows<{ id: string; tenant_id: string; contact_id: string; channel: string; direction: string }>("messages");
+    const messages = await outbound<{ id: string; tenant_id: string; contact_id: string; channel: string; send_status: string }>();
     assert.equal(messages.length, 1);
     assert.deepEqual(
-      [messages[0].tenant_id, messages[0].contact_id, messages[0].channel, messages[0].direction],
-      [tenant, lead, "instagram", "outbound"],
+      [messages[0].tenant_id, messages[0].contact_id, messages[0].channel, messages[0].send_status],
+      [tenant, lead, "instagram", "sent"],
     );
     assert.deepEqual(result, {
       status: "completed",
-      output: { message_id: messages[0].id, channel: "instagram", body: "Hi Ana, thanks for the DM!" },
+      output: { sent: true, message_id: messages[0].id, provider_message_id: "m_meta_1", channel: "instagram", body: "Hi Ana, thanks for the DM!" },
     });
   });
 
@@ -297,19 +392,27 @@ describe("send_instagram (live executor → executeSendMessage → deliverMessag
     assert.equal((await rows("messages")).length, 0);
   });
 
-  it("a Meta error response is a transient failure and nothing is logged", async () => {
+  it("a Meta 5xx leaves the outcome unknown: the step fails without retry and the message is kept as unknown", async () => {
     const lead = await newLead();
     await addIdentity(lead, "instagram", "igsid-456");
+    await addInbound(lead, "instagram");
     await connectMeta("instagram", account);
     providers.meta.respondNext(500, { error: { message: "An unexpected error has occurred. Please retry your request later." } });
 
-    await rejectsWith(
-      execute(instagram, await inputFor(lead)),
-      "transient",
-      "An unexpected error has occurred. Please retry your request later.",
-    );
+    await rejectsWith(execute(instagram, await inputFor(lead)), "config", /^The provider didn't confirm the send \(An unexpected error/);
     assert.equal(providers.meta.calls.length, 1);
-    assert.equal((await rows("messages")).length, 0);
+    assert.deepEqual((await outbound<{ send_status: string }>()).map((m) => m.send_status), ["unknown"]);
+  });
+
+  it("a Meta error response (4xx) is a rejection: transient and kept as failed", async () => {
+    const lead = await newLead();
+    await addIdentity(lead, "instagram", "igsid-456");
+    await addInbound(lead, "instagram");
+    await connectMeta("instagram", account);
+    providers.meta.respondNext(400, { error: { message: "(#100) No matching user found" } });
+
+    await rejectsWith(execute(instagram, await inputFor(lead)), "transient", "(#100) No matching user found");
+    assert.deepEqual((await outbound<{ send_status: string }>()).map((m) => m.send_status), ["failed"]);
   });
 });
 
@@ -339,7 +442,11 @@ describe("send_email (live executor → agent resolution → Resend → crm_emai
     assert.match(sent.from, new RegExp(TEST_FROM_EMAIL.replace(".", "\\.")));
     assert.equal(sent.replyTo, "jordan@agency.test");
     assert.equal(sent.subject, "Welcome, Ana");
-    assert.equal(sent.html, "<p>Hi Ana,</p>\n<p>Thanks for reaching out.</p>");
+    assert.ok(sent.html.startsWith("<p>Hi Ana,</p>\n<p>Thanks for reaching out.</p>\n"), sent.html);
+    const link = /<a href="(http:\/\/localhost:3000\/api\/email\/unsubscribe\?token=[^"]+)">Unsubscribe<\/a>/.exec(sent.html)?.[1];
+    assert.ok(link, "the email carries an unsubscribe link");
+    assert.deepEqual(sent.headers, { "List-Unsubscribe": `<${link}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" });
+    assert.equal(sent.idempotencyKey, `journey:${input.runId}:node`);
 
     const emails = await rows<{ id: string; tenant_id: string; contact_id: string; subject: string; provider: string; provider_message_id: string; direction: string; metadata: Record<string, unknown> }>("crm_emails");
     assert.equal(emails.length, 1);
@@ -349,7 +456,10 @@ describe("send_email (live executor → agent resolution → Resend → crm_emai
     );
     assert.equal(emails[0].metadata.journey_run_id, input.runId);
     assert.equal(emails[0].metadata.reply_to, "jordan@agency.test");
-    assert.deepEqual(result, { status: "completed", output: { email_id: emails[0].id, to: "ana@example.com", subject: "Welcome, Ana" } });
+    assert.deepEqual(result, {
+      status: "completed",
+      output: { sent: true, email_id: emails[0].id, provider_message_id: "resend-email-1", to: "ana@example.com", subject: "Welcome, Ana" },
+    });
   });
 
   it("a lead without a valid email is a config failure; Resend isn't called", async () => {
@@ -361,14 +471,31 @@ describe("send_email (live executor → agent resolution → Resend → crm_emai
     assert.equal((await rows("crm_emails")).length, 0);
   });
 
-  it("a Resend 5xx is a transient failure and nothing is recorded", async () => {
+  it("a Resend 5xx is an unknown outcome: the step fails without retry, the email is kept as unknown, and a repeat never resends", async () => {
     await agentWithProfile();
     const lead = await newLead({ email: "ana@example.com", assigned_agent_id: AGENT });
+    const input = await inputFor(lead);
     providers.resend.respondNext(500, { name: "internal_server_error", message: "Resend is temporarily unavailable." });
 
-    await rejectsWith(execute(email, await inputFor(lead)), "transient", "Resend is temporarily unavailable.");
+    await rejectsWith(execute(email, input), "config", "The provider didn't confirm the send (Resend is temporarily unavailable.); it may have been sent.");
+    const [row] = await rows<{ status: string; idempotency_key: string }>("crm_emails");
+    assert.deepEqual([row.status, row.idempotency_key], ["unknown", `journey:${input.runId}:node`]);
+
+    await rejectsWith(execute(email, input), "config", /wasn't confirmed, so it wasn't sent again/);
     assert.equal(providers.resend.calls.length, 1);
-    assert.equal((await rows("crm_emails")).length, 0);
+    assert.equal((await rows("crm_emails")).length, 1);
+  });
+
+  it("a Resend timeout is an unknown outcome; a 2xx without an id is never recorded as sent", async () => {
+    await agentWithProfile();
+    const lead = await newLead({ email: "ana@example.com", assigned_agent_id: AGENT });
+    providers.resend.throwNext(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }));
+    await rejectsWith(execute(email, await inputFor(lead)), "config", "The provider request timed out; the message may have been sent.");
+
+    providers.resend.respondNext(200, {});
+    await rejectsWith(execute(email, await inputFor(lead)), "config", /without an email id/);
+    const emails = await rows<{ status: string; provider_message_id: string | null }>("crm_emails");
+    assert.deepEqual(emails.map((row) => [row.status, row.provider_message_id]), [["unknown", null], ["unknown", null]]);
   });
 });
 

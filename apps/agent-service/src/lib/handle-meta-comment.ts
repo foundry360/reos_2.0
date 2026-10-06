@@ -10,6 +10,8 @@ import { loadPageAccessToken } from "@/lib/handle-inbound-meta";
 import { triageComment } from "@/lib/meta/comment-triage";
 import { describePostForAgent, getPostContext } from "@/lib/meta/post-context";
 import { sendMetaPrivateReply } from "@/lib/meta/send";
+import { recordReplyOutcome } from "@/lib/messaging/outbound-messages";
+import { failureForThrown, outcomeOf } from "@/lib/messaging/provider-outcome";
 import type { MetaCommentEvent } from "@/lib/meta/webhook";
 import { runInboundAgent } from "@/lib/run-inbound-agent";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -221,11 +223,18 @@ export async function handleMetaComment(
       return { ok: true, contactId, agent: "no_reply" };
     }
 
-    const sent = await sendMetaPrivateReply({
-      pageAccessToken: pageToken,
-      commentId: event.commentId,
-      text: result.reply,
-    });
+    let sent: Awaited<ReturnType<typeof sendMetaPrivateReply>>;
+    try {
+      sent = await sendMetaPrivateReply({
+        pageAccessToken: pageToken,
+        commentId: event.commentId,
+        text: result.reply,
+      });
+    } catch (error) {
+      sent = failureForThrown(error);
+    }
+    // The agent loop stored the reply pending; record what Meta said about it.
+    await recordReplyOutcome(tenantId, result.replyMessageId, outcomeOf(sent.ok ? { ok: true, providerMessageId: sent.messageId } : sent));
     if (!sent.ok) {
       console.error("Meta private reply failed:", sent.error);
       await finish({

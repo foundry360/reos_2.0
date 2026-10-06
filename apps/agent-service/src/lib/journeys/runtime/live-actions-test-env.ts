@@ -18,7 +18,7 @@
  * Not a *.test.ts file, so the test glob never runs it on its own.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createRequire, registerHooks, syncBuiltinESMExports } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { TestDb } from "./lead-status-test-db.ts";
@@ -90,10 +90,10 @@ syncBuiltinESMExports();
 
 // ---------- 3. Provider fakes ----------
 
-interface ScriptedResponse {
-  status: number;
-  body: unknown;
-}
+type ScriptedResponse =
+  | { kind: "json"; status: number; body: unknown }
+  | { kind: "raw"; status: number; text: string }
+  | { kind: "throw"; error: Error };
 
 class FakeProvider<Call> {
   calls: Call[] = [];
@@ -101,13 +101,28 @@ class FakeProvider<Call> {
 
   /** The next request gets this response instead of the default success. */
   respondNext(status: number, body: unknown) {
-    this.queue.push({ status, body });
+    this.queue.push({ kind: "json", status, body });
   }
 
-  reply(call: Call, success: (count: number) => unknown): Response {
+  /** The next request gets a non-JSON body (an HTML error page, an empty body). */
+  respondRawNext(status: number, text: string) {
+    this.queue.push({ kind: "raw", status, text });
+  }
+
+  /**
+   * The next request reaches the provider (it is recorded as a call) and then
+   * throws, as a timeout or a reset connection after the request was sent does.
+   */
+  throwNext(error: Error) {
+    this.queue.push({ kind: "throw", error });
+  }
+
+  reply(call: Call, success: (count: number) => unknown, successStatus = 200): Response {
     this.calls.push(call);
     const scripted = this.queue.shift();
-    return jsonResponse(scripted?.status ?? 200, scripted ? scripted.body : success(this.calls.length));
+    if (scripted?.kind === "throw") throw scripted.error;
+    if (scripted?.kind === "raw") return new Response(scripted.text, { status: scripted.status });
+    return jsonResponse(scripted?.status ?? successStatus, scripted ? scripted.body : success(this.calls.length));
   }
 
   reset() {
@@ -133,7 +148,24 @@ export interface ResendCall {
   html: string;
   /** Decoded attachments (calendar invites). */
   attachments: { filename: string; contentType: string; content: string }[];
+  /** Email headers from the payload (List-Unsubscribe). */
+  headers: Record<string, string> | undefined;
+  /** The Idempotency-Key request header. */
+  idempotencyKey: string | null;
+  /** Resend tags from the payload (reos_email_id). */
+  tags: { name: string; value: string }[] | undefined;
 }
+
+export interface ResendRetrieveCall {
+  apiKey: string | null;
+  id: string;
+}
+
+/**
+ * Resend's record of each email, by Resend id, for GET /emails/{id}. An id with
+ * no record answers 404 unless a response is scripted. Cleared by providers.reset().
+ */
+export const resendRecords = new Map<string, { lastEvent: string; tags?: { name: string; value: string }[] }>();
 
 export interface MetaCall {
   accessToken: string | null;
@@ -145,11 +177,14 @@ export interface MetaCall {
 export const providers = {
   telnyx: new FakeProvider<TelnyxCall>(),
   resend: new FakeProvider<ResendCall>(),
+  resendRetrieve: new FakeProvider<ResendRetrieveCall>(),
   meta: new FakeProvider<MetaCall>(),
   reset() {
     this.telnyx.reset();
     this.resend.reset();
+    this.resendRetrieve.reset();
     this.meta.reset();
+    resendRecords.clear();
   },
 };
 
@@ -195,6 +230,8 @@ globalThis.fetch = async (input, init) => {
       subject: string;
       html: string;
       attachments?: { filename: string; content: string; content_type: string }[];
+      headers?: Record<string, string>;
+      tags?: { name: string; value: string }[];
     };
     const attachments = (body.attachments ?? []).map((attachment) => ({
       filename: attachment.filename,
@@ -202,8 +239,33 @@ globalThis.fetch = async (input, init) => {
       content: Buffer.from(attachment.content, "base64").toString("utf8"),
     }));
     return providers.resend.reply(
-      { apiKey: bearer(request), from: body.from, to: body.to, replyTo: body.reply_to, subject: body.subject, html: body.html, attachments },
+      {
+        apiKey: bearer(request),
+        from: body.from,
+        to: body.to,
+        replyTo: body.reply_to,
+        subject: body.subject,
+        html: body.html,
+        attachments,
+        headers: body.headers,
+        idempotencyKey: request.headers.get("idempotency-key"),
+        tags: body.tags,
+      },
       (count) => ({ id: `resend-email-${count}` }),
+    );
+  }
+
+  const retrieve = /^\/emails\/([^/]+)$/.exec(url.pathname);
+  if (url.origin === "https://api.resend.com" && retrieve && request.method === "GET") {
+    const id = decodeURIComponent(retrieve[1]);
+    const record = resendRecords.get(id);
+    return providers.resendRetrieve.reply(
+      { apiKey: bearer(request), id },
+      () =>
+        record
+          ? { object: "email", id, last_event: record.lastEvent, tags: record.tags ?? [] }
+          : { statusCode: 404, name: "not_found", message: "Email not found" },
+      record ? 200 : 404,
     );
   }
 
@@ -254,6 +316,30 @@ registerHooks({
 
 // ---------- Test schema ----------
 
+/** The real migration 064 (outbound send status, idempotency key, email unsubscribe), applied on top of the stand-in. */
+export const OUTBOUND_TRUTH_MIGRATION = readFileSync(
+  new URL("../../../../../../supabase/migrations/064_outbound_message_truth.sql", import.meta.url),
+  "utf8",
+);
+
+/** The real migration 065 (crm_emails as the outbound record of appointment email). */
+export const APPOINTMENT_EMAIL_MIGRATION = readFileSync(
+  new URL("../../../../../../supabase/migrations/065_appointment_email_truth.sql", import.meta.url),
+  "utf8",
+);
+
+/** The real migration 066 (Resend delivery events and email reconciliation). */
+export const EMAIL_RECONCILIATION_MIGRATION = readFileSync(
+  new URL("../../../../../../supabase/migrations/066_email_delivery_reconciliation.sql", import.meta.url),
+  "utf8",
+);
+
+/** The real migration 067 (one "Email sent" activity per sent email, with repair). */
+export const EMAIL_SENT_ACTIVITY_MIGRATION = readFileSync(
+  new URL("../../../../../../supabase/migrations/067_email_sent_activity.sql", import.meta.url),
+  "utf8",
+);
+
 /**
  * The tables and columns the real action executors read and write, beyond the
  * lead-status stand-in. Shapes follow the production columns those code paths use.
@@ -300,8 +386,14 @@ create table public.messages (
   body text not null,
   playbook text,
   context_label text,
+  provider_message_id text,
   created_at timestamptz not null default now()
 );
+
+-- Migration 060's provider id uniqueness.
+create unique index messages_provider_message_id_key
+  on public.messages (tenant_id, channel, provider_message_id)
+  where provider_message_id is not null;
 
 create table public.platform_secrets (
   key text primary key,
@@ -379,6 +471,7 @@ create table public.crm_emails (
   status text,
   sent_at timestamptz,
   metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
   unique (tenant_id, provider, provider_message_id)
 );
 
@@ -401,4 +494,7 @@ create table public.notification_preferences (
   messages_in_app boolean not null default true,
   system_in_app boolean not null default true
 );
-`;
+${OUTBOUND_TRUTH_MIGRATION}
+${APPOINTMENT_EMAIL_MIGRATION}
+${EMAIL_RECONCILIATION_MIGRATION}
+${EMAIL_SENT_ACTIVITY_MIGRATION}`;

@@ -10,6 +10,10 @@ import { createTestDb, type TestDb } from "./lead-status-test-db.ts";
 const MIGRATION_060 = new URL("../../../../../../supabase/migrations/060_journey_events.sql", import.meta.url);
 const MIGRATION_061 = new URL("../../../../../../supabase/migrations/061_journey_lifecycle_events.sql", import.meta.url);
 const MIGRATION_062 = new URL("../../../../../../supabase/migrations/062_appointment_status.sql", import.meta.url);
+const MIGRATION_064 = new URL("../../../../../../supabase/migrations/064_outbound_message_truth.sql", import.meta.url);
+const MIGRATION_065 = new URL("../../../../../../supabase/migrations/065_appointment_email_truth.sql", import.meta.url);
+const MIGRATION_066 = new URL("../../../../../../supabase/migrations/066_email_delivery_reconciliation.sql", import.meta.url);
+const MIGRATION_067 = new URL("../../../../../../supabase/migrations/067_email_sent_activity.sql", import.meta.url);
 
 /** Production shapes of the columns the triggers and producers use. */
 export const JOURNEY_EVENTS_STAND_IN = `
@@ -56,6 +60,34 @@ create table public.contact_activities (
   related_entity_type text,
   related_entity_id uuid
 );
+
+-- Migration 039's shape (status check included) that migration 065 changes.
+create table public.crm_emails (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants (id) on delete cascade,
+  user_id uuid,
+  contact_id uuid references public.contacts (id) on delete set null,
+  opportunity_id uuid,
+  provider text not null,
+  provider_message_id text,
+  thread_id text,
+  direction text not null check (direction in ('outbound', 'inbound')),
+  from_email text not null,
+  from_name text,
+  to_recipients jsonb not null default '[]'::jsonb,
+  cc_recipients jsonb not null default '[]'::jsonb,
+  subject text not null,
+  body_html text,
+  body_text text,
+  snippet text,
+  status text not null default 'sent'
+    check (status in ('draft', 'queued', 'sent', 'failed', 'received')),
+  sent_at timestamptz,
+  received_at timestamptz,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  unique (tenant_id, provider, provider_message_id)
+);
 `;
 
 /**
@@ -85,7 +117,7 @@ alter table public.contact_activities
   add column if not exists metadata jsonb;
 `;
 
-/** `extraSchema`: more stand-in columns or tables a test's code path needs, applied before migrations 060–062. */
+/** `extraSchema`: more stand-in columns or tables a test's code path needs, applied before migrations 060–067. */
 export async function createJourneyEventsTestDb(extraSchema = ""): Promise<TestDb> {
   return createTestDb({
     schema: [
@@ -95,6 +127,10 @@ export async function createJourneyEventsTestDb(extraSchema = ""): Promise<TestD
       readFileSync(MIGRATION_060, "utf8"),
       readFileSync(MIGRATION_061, "utf8"),
       readFileSync(MIGRATION_062, "utf8"),
+      readFileSync(MIGRATION_064, "utf8"),
+      readFileSync(MIGRATION_065, "utf8"),
+      readFileSync(MIGRATION_066, "utf8"),
+      readFileSync(MIGRATION_067, "utf8"),
     ].join("\n"),
   });
 }

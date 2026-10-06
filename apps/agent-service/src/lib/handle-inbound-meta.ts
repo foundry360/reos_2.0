@@ -11,6 +11,8 @@ import { fetchMetaSenderProfile } from "@/lib/meta/profile";
 import { sendMetaTextMessage } from "@/lib/meta/send";
 import type { MetaWebhookMessage } from "@/lib/meta/webhook";
 import { runProviderInboundTurn, type InboundTurnDeps } from "@/lib/inbound-turn";
+import { recordReplyOutcome } from "@/lib/messaging/outbound-messages";
+import { failureForThrown, outcomeOf, type OutboundOutcome } from "@/lib/messaging/provider-outcome";
 
 export interface HandleMetaInboundResult {
   ok: boolean;
@@ -50,6 +52,7 @@ export interface MetaInboundDeps {
   fetchProfile: typeof fetchMetaSenderProfile;
   resolveContact: typeof resolveInboundContact;
   sendText: typeof sendMetaTextMessage;
+  recordOutcome: typeof recordReplyOutcome;
   turn?: InboundTurnDeps;
 }
 
@@ -59,6 +62,7 @@ const liveMetaDeps: MetaInboundDeps = {
   fetchProfile: fetchMetaSenderProfile,
   resolveContact: resolveInboundContact,
   sendText: sendMetaTextMessage,
+  recordOutcome: recordReplyOutcome,
 };
 
 /** Persist inbound DMs and Page-sent echoes; run agents on inbound only. */
@@ -144,6 +148,8 @@ export async function handleInboundMetaMessage(
         .eq("channel", message.channel)
         .eq("direction", "outbound")
         .eq("body", message.text)
+        // A send Meta rejected produces no echo; a matching echo is a different, real message.
+        .or("send_status.is.null,send_status.neq.failed")
         .gte("created_at", since)
         .limit(1)
         .maybeSingle();
@@ -189,20 +195,29 @@ export async function handleInboundMetaMessage(
   }
   const result = turn.result;
 
+  // The reply is stored pending by the agent loop; record what Meta said about it, sent or not.
   let sent = false;
-  if (result.reply && pageToken) {
-    const sendResult = await deps.sendText({
-      pageAccessToken: pageToken,
-      recipientId: message.contactExternalId,
-      text: result.reply,
-    });
-    if (sendResult.ok) {
-      sent = true;
+  if (result.reply) {
+    let outcome: OutboundOutcome;
+    if (pageToken) {
+      let sendResult: Awaited<ReturnType<typeof sendMetaTextMessage>>;
+      try {
+        sendResult = await deps.sendText({
+          pageAccessToken: pageToken,
+          recipientId: message.contactExternalId,
+          text: result.reply,
+        });
+      } catch (error) {
+        sendResult = failureForThrown(error);
+      }
+      outcome = outcomeOf(sendResult.ok ? { ok: true, providerMessageId: sendResult.messageId } : sendResult);
+      sent = sendResult.ok;
+      if (!sendResult.ok) console.error("Meta agent reply send failed:", sendResult.outcome, sendResult.error);
     } else {
-      console.error("Meta agent reply send failed:", sendResult.error);
+      console.warn("Meta agent reply skipped: missing page access token");
+      outcome = { status: "failed", error: "The page isn't connected (no access token), so the reply wasn't sent." };
     }
-  } else if (result.reply && !pageToken) {
-    console.warn("Meta agent reply skipped: missing page access token");
+    await deps.recordOutcome(tenantId, result.replyMessageId, outcome);
   }
 
   return {

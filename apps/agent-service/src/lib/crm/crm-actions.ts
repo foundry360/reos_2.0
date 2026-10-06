@@ -1955,6 +1955,7 @@ async function changeCalendarAppointmentStatus(
       .maybeSingle();
     const start = new Date(change.start);
     const cancellation = await sendAppointmentCancellation({
+      tenantId: tenant.tenantId,
       appointmentId: change.id,
       summary: change.title?.trim() || "Consult",
       label: formatSlotLabel(change.start, tenantRow?.timezone?.trim() || DEFAULT_TIME_ZONE),

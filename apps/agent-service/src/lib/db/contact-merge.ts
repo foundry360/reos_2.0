@@ -2,7 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { withStatusOrigin } from "@/lib/crm/status-origin";
 
 const MERGE_SELECT =
-  "id, tenant_id, first_name, last_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out, record_type, contact_type, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences, created_at";
+  "id, tenant_id, first_name, last_name, email, lead_status, lead_temperature, ai_summary, agent_brief, recommended_next_action, qualification_score, intent, ready_to_book, appt_booked, handoff, opted_out, email_unsubscribed_at, record_type, contact_type, target_location, property_type, budget, timeline, financing_status, must_haves, motivation, preferences, created_at";
 
 type MergeContactRow = {
   id: string;
@@ -21,6 +21,7 @@ type MergeContactRow = {
   appt_booked: boolean | null;
   handoff: boolean | null;
   opted_out: boolean | null;
+  email_unsubscribed_at: string | null;
   record_type: string | null;
   contact_type: string | null;
   target_location: string | null;
@@ -212,8 +213,29 @@ async function dropDuplicateConciergeBookings(db: AdminClient, winnerId: string,
 }
 
 /**
+ * The survivor keeps every opt-out either record has: SMS/DM opt-out if either
+ * opted out, and the earliest email unsubscribe. Null when the winner already has them.
+ */
+function mergedConsent(
+  winner: MergeContactRow,
+  loser: MergeContactRow,
+): { opted_out?: true; email_unsubscribed_at?: string } | null {
+  const patch: { opted_out?: true; email_unsubscribed_at?: string } = {};
+  if (!winner.opted_out && loser.opted_out) patch.opted_out = true;
+  const unsubscribedAt = [winner.email_unsubscribed_at, loser.email_unsubscribed_at]
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0];
+  if (unsubscribedAt && unsubscribedAt !== winner.email_unsubscribed_at) {
+    patch.email_unsubscribed_at = unsubscribedAt;
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/**
  * Move identities + related rows from loser onto winner, fill empty CRM fields,
- * then delete the loser contact.
+ * then delete the loser contact. The loser's opt-outs are applied to the winner
+ * first; when that can't be saved the merge doesn't happen (returns null), so
+ * an opt-out is never lost with the deleted record.
  */
 export async function mergeContacts(
   winnerId: string,
@@ -231,6 +253,15 @@ export async function mergeContacts(
   if (winner.tenant_id !== loser.tenant_id) {
     console.error("mergeContacts refused: tenant mismatch", winnerId, loserId);
     return winnerId;
+  }
+
+  const consent = mergedConsent(winner, loser);
+  if (consent) {
+    const { error } = await db.from("contacts").update(consent).eq("id", winnerId).eq("tenant_id", winner.tenant_id);
+    if (error) {
+      console.error("mergeContacts refused: opt-out not saved on the winner:", error.code ?? error.message);
+      return null;
+    }
   }
 
   // Move identities (skip channel+external_id already on winner).
@@ -378,7 +409,8 @@ export async function reconcileContactByEmailOrPhone(
     for (const other of matches) {
       const { winner, loser } = pickCanonicalContact(winnerRow, other);
       const merged = await mergeContacts(winner.id, loser.id);
-      winnerId = merged ?? winner.id;
+      if (!merged) return currentId;
+      winnerId = merged;
       winnerRow = (await loadContact(winnerId)) ?? winner;
       if (!winnerRow) return winnerId;
     }

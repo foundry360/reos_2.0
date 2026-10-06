@@ -2,15 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveAgentRecipient, resolveAssignedAgentUserId } from "@/lib/calendar/appointment-invites";
 import { logSystemContactActivity } from "@/lib/crm/log-system-activity";
 import { withStatusOrigin } from "@/lib/crm/status-origin";
+import { unsubscribeBlocks, type EmailPurpose } from "@/lib/email/email-purpose";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
-import { recordOutboundEmail } from "@/lib/email/record-outbound-email";
-import { sendResendMessage } from "@/lib/email/resend";
+import { sendLedgeredEmail } from "@/lib/email/send-ledgered-email";
+import { automatedEmailUnsubscribe } from "@/lib/email/unsubscribe";
 import { deliverMessageToContact } from "@/lib/messaging/deliver-message";
 import { notifyMembers } from "@/lib/notifications/notify-members";
 import { renderTemplate, type ActionConfig } from "./contracts";
 import { JourneyStepError, type ActionExecutor, type ActionInput, type ActionResult } from "./engine";
 import { executeNotifyTeam } from "./notify-team";
-import { executeSendMessage, suppressedSend } from "./send-message";
+import { deliveryResult, executeSendMessage, journeySendKey, suppressedSend } from "./send-message";
 import { executeUpdateLead, type LeadUpdateStore } from "./update-lead";
 
 function requireContact(input: ActionInput): { contactId: string; lead: Record<string, unknown> } {
@@ -41,6 +42,9 @@ function textToHtml(text: string): string {
 }
 
 const JOURNEY_LABEL = "Journey";
+
+/** Every journey email is marketing, whatever it says (a journey-built reminder included). */
+const JOURNEY_EMAIL_PURPOSE: EmailPurpose = "marketing";
 
 function createLeadUpdateStore(db: SupabaseClient): LeadUpdateStore {
   return {
@@ -82,10 +86,9 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
             channel: "sms",
             body,
             automated: true,
+            idempotencyKey: journeySendKey(input),
           });
-          if (!sent.ok && sent.suppressed) return suppressedSend("sms", sent.suppressed);
-          if (!sent.ok) throw new JourneyStepError(sent.error, sent.kind);
-          return { status: "completed", output: { message_id: sent.messageId, channel: "sms", body } };
+          return deliveryResult("sms", body, sent);
         }
 
         case "send_messenger":
@@ -100,16 +103,22 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
         case "send_email": {
           const { contactId, lead } = requireContact(input);
           // Read now rather than from the run's loaded lead, which can predate a Wait.
-          // There is no email unsubscribe; only handoff stops a journey email.
           const { data: current, error: currentError } = await db
             .from("contacts")
-            .select("handoff")
+            .select("handoff, email_unsubscribed_at")
             .eq("id", contactId)
             .eq("tenant_id", input.tenantId)
             .maybeSingle();
           if (currentError) throw new JourneyStepError(currentError.message, "transient");
           if (!current) throw new JourneyStepError("This run isn't linked to a lead in this workspace.", "config");
+          if (current.email_unsubscribed_at && unsubscribeBlocks(JOURNEY_EMAIL_PURPOSE)) {
+            return suppressedSend("email", "unsubscribed");
+          }
           if (current.handoff) return suppressedSend("email", "handoff");
+          const unsubscribe = automatedEmailUnsubscribe(input.tenantId, contactId);
+          if (!unsubscribe) {
+            throw new JourneyStepError("Unsubscribe links can't be created, so journey email is off until that's configured.", "config");
+          }
           const to = typeof lead.email === "string" ? lead.email.trim().toLowerCase() : "";
           if (!to || !isValidEmailAddress(to)) {
             throw new JourneyStepError("The lead has no valid email address.", "config");
@@ -124,34 +133,40 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
             throw new JourneyStepError("No agent with an email address is available to send from.", "config");
           }
           const subject = renderTemplate(action.subject, names(lead)).trim();
-          const bodyHtml = textToHtml(renderTemplate(action.body, names(lead)));
+          const bodyHtml = `${textToHtml(renderTemplate(action.body, names(lead)))}\n${unsubscribe.footerHtml}`;
           const recipient = { email: to, name: [names(lead).first_name, names(lead).last_name].filter(Boolean).join(" ") || null };
-          const sent = await sendResendMessage({
+          // The step's key names one email: its record and thread exist before Resend is called.
+          const key = journeySendKey(input);
+          const sent = await sendLedgeredEmail({
+            tenantId: input.tenantId,
+            contactId,
+            userId: null,
+            opportunityId: (input.opportunity?.id as string | undefined) ?? null,
+            idempotencyKey: key,
+            purpose: JOURNEY_EMAIL_PURPOSE,
+            threadId: key,
             to: [recipient],
             cc: [],
             subject,
             bodyHtml,
             replyTo: agent.email,
             agentName: agent.name || "Agent",
-          });
-          if (!sent.ok) {
-            const kind = /not configured/i.test(sent.error) ? "config" : "transient";
-            throw new JourneyStepError(sent.error, kind);
-          }
-          const emailId = await recordOutboundEmail({
-            tenantId: input.tenantId,
-            userId: null,
-            contactId,
-            opportunityId: (input.opportunity?.id as string | undefined) ?? null,
-            to: [recipient],
-            cc: [],
-            subject,
-            bodyHtml,
-            replyTo: agent.email,
-            sent,
+            headers: unsubscribe.headers,
             metadata: { journey_run_id: input.runId },
           });
-          return { status: "completed", output: { email_id: emailId, to, subject } };
+          switch (sent.status) {
+            case "sent":
+              return { status: "completed", output: { sent: true, email_id: sent.emailId, provider_message_id: sent.providerMessageId, to, subject } };
+            case "failed":
+              throw new JourneyStepError(sent.error, "transient");
+            case "not_sent":
+              throw new JourneyStepError(sent.error, sent.kind);
+            case "conflict":
+              throw new JourneyStepError("This step's email record holds a different email, so nothing was sent.", "config");
+            default:
+              // Unknown or pending: it may have been sent, so the step fails without a retry that could send it twice.
+              throw new JourneyStepError(sent.error, "config");
+          }
         }
 
         case "assign_lead": {

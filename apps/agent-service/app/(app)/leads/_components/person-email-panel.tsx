@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { PersonEmail } from "../_lib/person-detail-types";
+import { parseDeliveryStatus, presentDeliveryStatus, presentSendStatus } from "@/lib/messaging/send-status-label";
+import { parseSendStatus, type PersonEmail } from "../_lib/person-detail-types";
+import { useNow } from "../_lib/use-now";
+import { SendStatusNote } from "./send-status-note";
 import { EmptyState } from "@/components/shell/empty-state";
 import { useEmailCompose } from "@/components/email/email-compose-provider";
 import {
@@ -74,10 +77,14 @@ function mapEmailRow(row: {
   sent_at: string | null;
   received_at: string | null;
   thread_id: string | null;
+  status: string | null;
+  delivery_status?: string | null;
+  created_at: string | null;
 }): PersonEmail {
+  const direction = row.direction === "inbound" ? "inbound" : "outbound";
   return {
     id: row.id,
-    direction: row.direction === "inbound" ? "inbound" : "outbound",
+    direction,
     fromEmail: row.from_email,
     fromName: row.from_name,
     toRecipients: Array.isArray(row.to_recipients) ? row.to_recipients : [],
@@ -89,6 +96,9 @@ function mapEmailRow(row: {
     sentAt: row.sent_at,
     receivedAt: row.received_at,
     threadId: row.thread_id,
+    createdAt: row.created_at,
+    sendStatus: direction === "outbound" ? parseSendStatus(row.status) : null,
+    deliveryStatus: direction === "outbound" ? parseDeliveryStatus(row.delivery_status) : null,
   };
 }
 
@@ -171,6 +181,7 @@ export function PersonEmailPanel({
   const { openCompose } = useEmailCompose();
   const [expandedThreadId, setExpandedThreadId] = useState<string | null>(null);
   const [emails, setEmails] = useState(initialEmails);
+  const now = useNow();
 
   useEffect(() => {
     setEmails(initialEmails);
@@ -187,7 +198,7 @@ export function PersonEmailPanel({
       const { data, error } = await supabase
         .from("crm_emails")
         .select(
-          "id, direction, from_email, from_name, to_recipients, cc_recipients, subject, body_html, body_text, snippet, sent_at, received_at, thread_id",
+          "id, direction, from_email, from_name, to_recipients, cc_recipients, subject, body_html, body_text, snippet, sent_at, received_at, thread_id, status, delivery_status, created_at",
         )
         .eq("contact_id", contactId)
         .order("sent_at", { ascending: false, nullsFirst: false })
@@ -260,7 +271,7 @@ export function PersonEmailPanel({
             const threadSummary =
               messageCount > 1
                 ? `${messageCount} messages · Latest ${formatEmailTimeShort(latestTime)}`
-                : `${email.direction === "outbound" ? "Sent" : "Received"} · ${formatEmailTimeShort(latestTime)}`;
+                : `${email.direction === "outbound" ? (presentSendStatus(email.sendStatus, email.createdAt, now)?.label ?? presentDeliveryStatus(email.deliveryStatus)?.label ?? "Sent") : "Received"} · ${formatEmailTimeShort(latestTime)}`;
 
             return (
               <div
@@ -382,6 +393,14 @@ export function PersonEmailPanel({
                                   {outbound
                                     ? `To ${formatRecipientList(message.toRecipients)}`
                                     : `From ${message.fromEmail}`}
+                                  {outbound ? (
+                                    <SendStatusNote
+                                      status={message.sendStatus}
+                                      createdAt={message.createdAt}
+                                      now={now}
+                                      deliveryStatus={message.deliveryStatus}
+                                    />
+                                  ) : null}
                                 </p>
                                 <div
                                   className={styles.emailDetailBody}

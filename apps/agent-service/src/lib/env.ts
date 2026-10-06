@@ -20,6 +20,8 @@ const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().email().optional(),
   RESEND_FROM_NAME: z.string().optional(),
+  /** Resend webhook signing secret (whsec_…); the Resend webhook refuses every event without it. */
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
@@ -37,6 +39,8 @@ const envSchema = z.object({
   JAAS_PRIVATE_KEY: z.string().optional(),
   /** Optional HMAC secret for /api/meetings/join links. */
   MEETING_JOIN_SECRET: z.string().optional(),
+  /** HMAC secret for email unsubscribe links. Required in production; development falls back (see unsubscribe-token.ts). */
+  EMAIL_UNSUBSCRIBE_SECRET: z.string().optional(),
   PLATFORM_SECRETS_ENCRYPTION_KEY: z.string().optional(),
   GHL_WEBHOOK_SECRET: z.string().optional(),
   CRON_SECRET: z.string().optional(),
@@ -46,6 +50,20 @@ export type Env = z.infer<typeof envSchema>;
 
 export function getEnv(): Env {
   return envSchema.parse(process.env);
+}
+
+/** A production build (next start / Vercel, previews included). Development-only bypasses are off here. */
+export function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
+/**
+ * Whether a webhook must verify its signature. Inbound messages change consent
+ * (STOP / START), so production always verifies; elsewhere `skip` (an explicit
+ * skip flag, or no secret configured) turns verification off for local work.
+ */
+export function mustVerifyWebhookSignature(skip: boolean): boolean {
+  return isProductionRuntime() || !skip;
 }
 
 export function isOpenAIConfigured(env: Env = getEnv()): boolean {

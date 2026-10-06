@@ -10,9 +10,6 @@ export interface TenantAgentConfig {
   intakeEnabled: boolean;
   researcherEnabled: boolean;
   scoutEnabled: boolean;
-  complianceStrict: boolean;
-  quietHoursStart: string | null;
-  quietHoursEnd: string | null;
 }
 
 export interface TenantChannelStatus {
@@ -89,7 +86,7 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
     supabase
       .from("tenant_agents")
       .select(
-        "concierge_enabled, scheduler_enabled, follow_up_enabled, intake_enabled, researcher_enabled, scout_enabled, compliance_strict, quiet_hours_start, quiet_hours_end",
+        "concierge_enabled, scheduler_enabled, follow_up_enabled, intake_enabled, researcher_enabled, scout_enabled",
       )
       .eq("tenant_id", tenantId)
       .maybeSingle(),
@@ -197,9 +194,6 @@ export async function getTenantConfig(tenantId: string): Promise<TenantConfig | 
       intakeEnabled: agents?.intake_enabled ?? true,
       researcherEnabled: agents?.researcher_enabled ?? false,
       scoutEnabled: agents?.scout_enabled ?? false,
-      complianceStrict: agents?.compliance_strict ?? true,
-      quietHoursStart: agents?.quiet_hours_start ?? null,
-      quietHoursEnd: agents?.quiet_hours_end ?? null,
     },
   };
 }

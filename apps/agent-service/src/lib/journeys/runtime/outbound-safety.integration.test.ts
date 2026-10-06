@@ -197,14 +197,17 @@ describe("SMS opt-out at send time", () => {
     assert.equal((await rows("tasks")).length, 1);
   });
 
-  it("opt-out only stops SMS: email, Messenger, and Instagram still go out", async () => {
+  it("opt-out stops automated SMS, Messenger, and Instagram; email has its own unsubscribe and still goes out", async () => {
     const lead = await reachableLead({ opted_out: true });
     store.saveJourney(tenant, "j", linear("lead.created", [SMS, EMAIL, MESSENGER, INSTAGRAM]));
     await dispatchJourneyEvent(deps, leadEvent(lead));
     const run = onlyRun("j");
     assert.equal(run.status, "completed");
-    assert.deepEqual(sends(), { sms: 0, email: 1, meta: 2 });
-    assert.deepEqual(stepsOf(run.id).map((step) => step.status), ["skipped", "completed", "completed", "completed"]);
+    assert.deepEqual(sends(), { sms: 0, email: 1, meta: 0 });
+    assert.deepEqual(
+      stepsOf(run.id).map((step) => [step.status, step.output?.skipped_reason]),
+      [["skipped", "opted_out"], ["completed", undefined], ["skipped", "opted_out"], ["skipped", "opted_out"]],
+    );
   });
 
   it("opting out during a Wait stops the SMS after it, even though the run's loaded lead is stale", async () => {

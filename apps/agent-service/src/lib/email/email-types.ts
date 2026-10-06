@@ -70,12 +70,8 @@ export interface SendEmailInput {
   contactId?: string;
   opportunityId?: string;
   threadId?: string;
-}
-
-export interface SendEmailResult {
-  ok: boolean;
-  error?: string;
-  emailId?: string;
+  /** The composer's draft identity: the idempotency boundary of this email. */
+  draftId: string;
 }
 
 export interface EmailComposeBootstrap {

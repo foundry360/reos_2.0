@@ -33,6 +33,8 @@ export interface LeadAgentResult {
   playbook: "lead_agent" | "none";
   contactId?: string;
   optedOut: boolean;
+  /** The stored reply, pending until the caller sends it (see InboundAgentResult). */
+  replyMessageId?: string | null;
 }
 
 const MAX_TOOL_ROUNDS = 5;
@@ -178,14 +180,14 @@ export async function runLeadAgent(params: {
     });
   };
 
-  const alreadyOptedOut = ctx.optedOut;
-  if (await applyCompliance(backend, ctx, body)) {
+  const compliance = await applyCompliance(backend, ctx, body, inboundChannel);
+  if (compliance.blocked) {
     await saveInbound();
-    const reply = alreadyOptedOut ? "" : "You have been unsubscribed.";
-    if (reply) {
-      await backend.appendMessage({ threadKey, contactId: ctx.contactId, channel, direction: "outbound", body: reply, playbook: "none" });
-    }
-    return { reply, playbook: "none", contactId: ctx.contactId, optedOut: true };
+    const { reply } = compliance;
+    const replyMessageId = reply
+      ? await backend.appendMessage({ threadKey, contactId: ctx.contactId, channel, direction: "outbound", body: reply, playbook: "none" })
+      : null;
+    return { reply, playbook: "none", contactId: ctx.contactId, optedOut: compliance.optedOut, replyMessageId };
   }
 
   const enabled = await Promise.all(
@@ -341,16 +343,16 @@ export async function runLeadAgent(params: {
   if (state.email) ctx.email = state.email;
 
   await backend.recordTurn({ contactId: ctx.contactId, model, reply, toolEvents: state.events });
-  if (reply) {
-    await backend.appendMessage({
-      threadKey,
-      contactId: ctx.contactId,
-      channel,
-      direction: "outbound",
-      body: reply,
-      playbook: "lead_agent",
-    });
-  }
+  const replyMessageId = reply
+    ? await backend.appendMessage({
+        threadKey,
+        contactId: ctx.contactId,
+        channel,
+        direction: "outbound",
+        body: reply,
+        playbook: "lead_agent",
+      })
+    : null;
 
-  return { reply, playbook: "lead_agent", contactId: ctx.contactId, optedOut: false };
+  return { reply, playbook: "lead_agent", contactId: ctx.contactId, optedOut: false, replyMessageId };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NewLeadModal } from "../../../app/(app)/leads/_components/new-lead-modal";
@@ -10,6 +10,13 @@ import {
   sendEmailAction,
 } from "@/lib/email/send-email-action";
 import { useEmailCompose } from "@/components/email/email-compose-provider";
+import {
+  composerAfterSend,
+  identityForSend,
+  newDraftIdentity,
+  type ComposeSendResult,
+  type DraftIdentity,
+} from "@/lib/messaging/compose-draft";
 import { EmailRichTextEditor } from "@/components/email/email-rich-text-editor";
 import {
   contactPrefillRecipient,
@@ -41,6 +48,7 @@ export function EmailComposeWidget() {
   const [success, setSuccess] = useState<string | null>(null);
   const [unknownRecipientEmail, setUnknownRecipientEmail] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const draftIdentityRef = useRef<DraftIdentity | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -98,23 +106,40 @@ export function EmailComposeWidget() {
   function send() {
     setError(null);
     setSuccess(null);
+    const request = {
+      to: draft.to,
+      cc: draft.cc,
+      subject: draft.subject,
+      bodyHtml: draft.bodyHtml,
+      contactId: context.contactId,
+      opportunityId: context.opportunityId,
+      threadId: context.threadId,
+    };
+    const identity = identityForSend(
+      draftIdentityRef.current ?? newDraftIdentity(crypto.randomUUID()),
+      JSON.stringify(request),
+      () => crypto.randomUUID(),
+    );
+    draftIdentityRef.current = identity;
     startTransition(async () => {
-      const result = await sendEmailAction({
-        to: draft.to,
-        cc: draft.cc,
-        subject: draft.subject,
-        bodyHtml: draft.bodyHtml,
-        contactId: context.contactId,
-        opportunityId: context.opportunityId,
-        threadId: context.threadId,
-      });
-      if (!result.ok) {
-        setError(result.error ?? "Could not send email.");
+      let result: ComposeSendResult;
+      try {
+        result = await sendEmailAction({ ...request, draftId: identity.id });
+      } catch {
+        // The request may have reached the server: the stored record (shown on refresh) is the truth.
+        result = { outcome: "not_confirmed", error: "", messageId: "", sendStatus: "unknown" };
+      }
+      const next = composerAfterSend(result);
+      if (next.newIdentity) draftIdentityRef.current = null;
+      if (result.outcome !== "not_attempted" && result.outcome !== "draft_conflict") router.refresh();
+      if (result.outcome !== "sent") {
+        // A not-confirmed email isn't left ready to send again; its text stays on the person's email record.
+        if (next.draft === "clear") resetDraft();
+        setError(next.notice ?? "Could not send email.");
         return;
       }
       setSuccess("Email sent.");
       resetDraft();
-      router.refresh();
       window.setTimeout(() => {
         closeCompose();
         setSuccess(null);
