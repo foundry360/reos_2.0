@@ -21,6 +21,7 @@ import type {
   RunWriteResult,
   StepPatch,
 } from "./engine.ts";
+import { inRunScope, runScopeOf, type RunScope } from "./run-insert-conflict.ts";
 
 const ACTIVE_STATUSES: readonly string[] = ["running", "waiting", "paused"];
 
@@ -100,13 +101,20 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
       );
   }
 
-  async hasActiveRun(tenantId: string, journeyId: string, contactId: string) {
+  async hasActiveRun(tenantId: string, journeyId: string, contactId: string | null, appointmentId?: string | null) {
+    const scope = runScopeOf(appointmentId ? { contactId, entityType: "appointment", entityId: appointmentId } : { contactId });
+    return scope !== null && this.activeInScope(tenantId, journeyId, scope);
+  }
+
+  /** Mirrors migration 063's two active-run indexes. */
+  private activeInScope(tenantId: string, journeyId: string, scope: RunScope, exceptRunId?: string) {
     return [...this.runs.values()].some(
       (run) =>
+        run.id !== exceptRunId &&
         run.tenantId === tenantId &&
         run.journeyId === journeyId &&
-        run.contactId === contactId &&
-        ACTIVE_STATUSES.includes(run.status),
+        ACTIVE_STATUSES.includes(run.status) &&
+        inRunScope(run, scope),
     );
   }
 
@@ -120,16 +128,10 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     if (aiStep !== null && [...this.runs.values()].some((run) => run.tenantId === input.tenantId && aiStepOf(run) === aiStep)) {
       return { run: null, created: false, aiStepChildExists: true };
     }
-    // Mirrors journey_runs_one_active_per_contact_idx (migration 056).
-    const active = [...this.runs.values()].some(
-      (run) =>
-        input.contactId !== null &&
-        run.tenantId === input.tenantId &&
-        run.journeyId === input.journeyId &&
-        run.contactId === input.contactId &&
-        ACTIVE_STATUSES.includes(run.status),
-    );
-    if (active) return { run: null, created: false, alreadyActive: true };
+    const scope = runScopeOf(input);
+    if (scope && this.activeInScope(input.tenantId, input.journeyId, scope)) {
+      return { run: null, created: false, alreadyActive: true };
+    }
     const run: MemoryRun = {
       // A uuid like journey_runs.id, so lineage (root_run_id) validates the same way.
       id: randomUUID(),
@@ -185,17 +187,8 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     if (!run || run.tenantId !== tenantId || run.status !== "failed" || run.currentNodeId !== expectedNodeId) {
       return "not_failed";
     }
-    // Mirrors journey_runs_one_active_per_contact_idx (migration 056).
-    const active = [...this.runs.values()].some(
-      (other) =>
-        other.id !== run.id &&
-        run.contactId !== null &&
-        other.tenantId === run.tenantId &&
-        other.journeyId === run.journeyId &&
-        other.contactId === run.contactId &&
-        ACTIVE_STATUSES.includes(other.status),
-    );
-    if (active) return "active_run";
+    const scope = runScopeOf(run);
+    if (scope && this.activeInScope(run.tenantId, run.journeyId, scope, run.id)) return "active_run";
     run.status = "waiting";
     run.resumeAt = resumeAt;
     run.completedAt = null;

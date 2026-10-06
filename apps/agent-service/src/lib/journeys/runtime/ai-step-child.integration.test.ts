@@ -30,6 +30,7 @@ drop table public.journey_runs cascade;
 ${migration("048_journeys.sql")}
 ${migration("054_journey_runtime.sql")}
 ${migration("056_journey_runs_one_active_run.sql")}
+${migration("063_journey_runs_appointment_scope.sql")}
 ${migration("058_journey_archive.sql")}
 ${migration("059_journey_runs_one_child_per_ai_step.sql")}
 `;

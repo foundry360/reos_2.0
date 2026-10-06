@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isJourneyNodeType, isJourneyStatus, type JourneyConnection } from "@/lib/journeys/journey-types";
 import { validateNodeConfig, type TriggerEventType } from "./contracts";
 import type { JourneySnapshot, SnapshotNode } from "./graph";
-import { runInsertConflict } from "./run-insert-conflict";
+import { runInsertConflict, runScopeOf, type RunScope } from "./run-insert-conflict";
 import type {
   CandidateJourney,
   JourneyRuntimeStore,
@@ -21,6 +21,19 @@ const RUN_COLUMNS =
 
 const LEAD_COLUMNS =
   "id, first_name, last_name, email, lead_status, lead_temperature, intent, qualification_score, ready_to_book, appt_booked, handoff, opted_out, assigned_agent_id, record_type, target_location, property_type, budget, timeline, financing_status";
+
+/** Counts the journey's active runs in `scope`; the predicates of migration 063's two indexes. */
+export function scopedActiveRuns(db: SupabaseClient, tenantId: string, journeyId: string, scope: RunScope) {
+  const query = db
+    .from("journey_runs")
+    .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
+    .eq("journey_id", journeyId)
+    .in("status", ["running", "waiting", "paused"]);
+  return scope.kind === "appointment"
+    ? query.eq("entity_type", "appointment").eq("entity_id", scope.appointmentId)
+    : query.neq("entity_type", "appointment").eq("contact_id", scope.contactId);
+}
 
 type RunRow = {
   id: string;
@@ -178,14 +191,10 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
       });
     },
 
-    async hasActiveRun(tenantId, journeyId, contactId) {
-      const { count, error } = await db
-        .from("journey_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("journey_id", journeyId)
-        .eq("contact_id", contactId)
-        .in("status", ["running", "waiting", "paused"]);
+    async hasActiveRun(tenantId, journeyId, contactId, appointmentId) {
+      const scope = runScopeOf(appointmentId ? { contactId, entityType: "appointment", entityId: appointmentId } : { contactId });
+      if (!scope) return false;
+      const { count, error } = await scopedActiveRuns(db, tenantId, journeyId, scope);
       if (error) fail("hasActiveRun", error);
       return (count ?? 0) > 0;
     },

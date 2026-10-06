@@ -21,6 +21,7 @@ import {
   type RunStatus,
   type StepStatus,
 } from "./engine.ts";
+import { runScopeOf } from "./run-insert-conflict.ts";
 
 export interface RetryRun {
   status: RunStatus;
@@ -100,11 +101,21 @@ export interface RunRetryLookups {
   findRun(
     tenantId: string,
     runId: string,
-  ): Promise<(RetryRun & { journeyId: string; contactId: string | null; context: RunState | null }) | null>;
+  ): Promise<
+    | (RetryRun & {
+        journeyId: string;
+        contactId: string | null;
+        entityType?: string | null;
+        entityId?: string | null;
+        context: RunState | null;
+      })
+    | null
+  >;
   latestStep(tenantId: string, runId: string): Promise<RetryStep | null>;
   /** Null when the journey isn't in this workspace. */
   journeyStatus(tenantId: string, journeyId: string): Promise<JourneyStatus | null>;
-  hasActiveRun(tenantId: string, journeyId: string, contactId: string): Promise<boolean>;
+  /** Same contract as JourneyRuntimeStore.hasActiveRun. */
+  hasActiveRun(tenantId: string, journeyId: string, contactId: string | null, appointmentId?: string | null): Promise<boolean>;
 }
 
 export type RunRetryResult =
@@ -135,7 +146,16 @@ export async function retryJourneyRun(
   if (reason) return blocked(reason);
   const nodeId = run.currentNodeId as string;
 
-  if (run.contactId && (await lookups.hasActiveRun(tenantId, run.journeyId, run.contactId))) {
+  const scope = runScopeOf(run);
+  if (
+    scope &&
+    (await lookups.hasActiveRun(
+      tenantId,
+      run.journeyId,
+      run.contactId,
+      scope.kind === "appointment" ? scope.appointmentId : null,
+    ))
+  ) {
     return blocked("active_run");
   }
 

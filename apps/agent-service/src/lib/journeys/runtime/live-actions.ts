@@ -10,7 +10,7 @@ import { notifyMembers } from "@/lib/notifications/notify-members";
 import { renderTemplate, type ActionConfig } from "./contracts";
 import { JourneyStepError, type ActionExecutor, type ActionInput, type ActionResult } from "./engine";
 import { executeNotifyTeam } from "./notify-team";
-import { executeSendMessage } from "./send-message";
+import { executeSendMessage, suppressedSend } from "./send-message";
 import { executeUpdateLead, type LeadUpdateStore } from "./update-lead";
 
 function requireContact(input: ActionInput): { contactId: string; lead: Record<string, unknown> } {
@@ -81,7 +81,9 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
             contactId,
             channel: "sms",
             body,
+            automated: true,
           });
+          if (!sent.ok && sent.suppressed) return suppressedSend("sms", sent.suppressed);
           if (!sent.ok) throw new JourneyStepError(sent.error, sent.kind);
           return { status: "completed", output: { message_id: sent.messageId, channel: "sms", body } };
         }
@@ -97,6 +99,17 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
 
         case "send_email": {
           const { contactId, lead } = requireContact(input);
+          // Read now rather than from the run's loaded lead, which can predate a Wait.
+          // There is no email unsubscribe; only handoff stops a journey email.
+          const { data: current, error: currentError } = await db
+            .from("contacts")
+            .select("handoff")
+            .eq("id", contactId)
+            .eq("tenant_id", input.tenantId)
+            .maybeSingle();
+          if (currentError) throw new JourneyStepError(currentError.message, "transient");
+          if (!current) throw new JourneyStepError("This run isn't linked to a lead in this workspace.", "config");
+          if (current.handoff) return suppressedSend("email", "handoff");
           const to = typeof lead.email === "string" ? lead.email.trim().toLowerCase() : "";
           if (!to || !isValidEmailAddress(to)) {
             throw new JourneyStepError("The lead has no valid email address.", "config");

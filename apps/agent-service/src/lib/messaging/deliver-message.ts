@@ -6,10 +6,16 @@ import { sendSmsMessage } from "@/lib/messaging/send-sms";
 
 export type MessagingChannel = "sms" | "messenger" | "instagram";
 
+/** Why a message to the contact must not be sent right now: SMS opt-out, or a human took over (handoff). */
+export type MessageSuppression = "opted_out" | "handoff";
+
 export type DeliverMessageResult =
   | { ok: true; messageId: string | null; recordType: string | null }
-  /** "config": the record or workspace can't receive this message; "transient": the provider failed. */
-  | { ok: false; error: string; kind: "config" | "transient" };
+  /**
+   * "config": the record or workspace can't receive this message; "transient": the provider failed.
+   * `suppressed` is set when the contact's current state forbids the message; nothing was sent.
+   */
+  | { ok: false; error: string; kind: "config" | "transient"; suppressed?: MessageSuppression };
 
 export function normalizeSmsExternalId(value: string): string {
   const digits = value.replace(/\D/g, "");
@@ -23,26 +29,35 @@ export function normalizeSmsExternalId(value: string): string {
  * Sends a message to a contact on SMS/Messenger/Instagram and logs it to the
  * conversation. `db` decides the trust boundary: the signed-in user's client
  * for manual sends, the service role for server-side automation.
+ *
+ * `automated` (journey sends) also refuses while the contact is handed off to
+ * a human; a person on the team can still message a handed-off contact. The
+ * contact is read here, just before the provider call, so the check uses its
+ * current state.
  */
 export async function deliverMessageToContact(
   db: SupabaseClient,
-  input: { tenantId: string; contactId: string; channel: MessagingChannel; body: string },
+  input: { tenantId: string; contactId: string; channel: MessagingChannel; body: string; automated?: boolean },
 ): Promise<DeliverMessageResult> {
   const { tenantId, channel, body } = input;
 
   const { data: contact, error: contactError } = await db
     .from("contacts")
-    .select("id, record_type, opted_out")
+    .select(input.automated ? "id, record_type, opted_out, handoff" : "id, record_type, opted_out")
     .eq("id", input.contactId)
     .eq("tenant_id", tenantId)
-    .maybeSingle();
+    .maybeSingle<{ id: string; record_type: string | null; opted_out: boolean | null; handoff?: boolean | null }>();
 
   if (contactError || !contact) {
     return { ok: false, error: "Client not found.", kind: "config" };
   }
 
   if (contact.opted_out && channel === "sms") {
-    return { ok: false, error: "This contact has opted out of SMS.", kind: "config" };
+    return { ok: false, error: "This contact has opted out of SMS.", kind: "config", suppressed: "opted_out" };
+  }
+
+  if (input.automated && contact.handoff) {
+    return { ok: false, error: "This contact is handed off to the team.", kind: "config", suppressed: "handoff" };
   }
 
   const { data: identity } = await db

@@ -1,12 +1,12 @@
 /**
  * Test-only database for the lead status outbox: PGlite (real Postgres in
  * process) with a minimal stand-in for the Supabase schema, the real migrations
- * 055 and 056 applied on top, and a tiny PostgREST bridge so real supabase-js queries
+ * 055, 056, 057 and 063 applied on top, and a tiny PostgREST bridge so real supabase-js queries
  * (including their request headers and role) run against it the way PostgREST
  * runs them: one transaction per request, request.jwt.claims and request.headers
  * set locally, and the request's role switched in.
  *
- * Supports only what the tests use: GET, POST (insert), PATCH, and DELETE
+ * Supports only what the tests use: GET, HEAD (exact count), POST (insert), PATCH, and DELETE
  * (with an exact count) with eq/neq/in/cs/is/not.is.null filters, order and limit, single-object responses,
  * RPC, and the auth admin "get user" endpoint backed by `authUsers`.
  */
@@ -19,6 +19,7 @@ const MIGRATIONS = [
   new URL("../../../../../../supabase/migrations/055_lead_status_events.sql", import.meta.url),
   new URL("../../../../../../supabase/migrations/056_journey_runs_one_active_run.sql", import.meta.url),
   new URL("../../../../../../supabase/migrations/057_lead_status_events_max_attempts.sql", import.meta.url),
+  new URL("../../../../../../supabase/migrations/063_journey_runs_appointment_scope.sql", import.meta.url),
 ];
 
 const SUPABASE_STAND_IN = `
@@ -56,6 +57,9 @@ create table public.journey_runs (
   status text not null default 'running'
     check (status in ('running', 'waiting', 'completed', 'failed', 'cancelled', 'paused')),
   idempotency_key text,
+  -- Defaulted here only so tests can insert bare runs; required in production.
+  entity_type text not null default 'contact',
+  entity_id uuid,
   -- Same uniqueness as migration 054; nullable here so tests can insert bare origin runs.
   unique (tenant_id, idempotency_key)
 );
@@ -267,6 +271,13 @@ function postgrestFetch(pg: PGlite, authUsers: Map<string, { email: string }>): 
           `${orderBy(url.searchParams.get("order"))}${limitSql(url.searchParams.get("limit"))}`;
         const result = await inRequest(pg, auth, headers, (tx) => tx.query(sql, params));
         return rowsResponse(request, result.rows);
+      }
+
+      // select(..., { count: "exact", head: true }): only the count, in content-range.
+      if (request.method === "HEAD") {
+        const sql = `select count(*)::int as count from public.${table}${whereSql()}`;
+        const result = await inRequest(pg, auth, headers, (tx) => tx.query<{ count: number }>(sql, params));
+        return new Response(null, { status: 200, headers: { "content-range": `*/${result.rows[0].count}` } });
       }
 
       if (request.method === "POST") {

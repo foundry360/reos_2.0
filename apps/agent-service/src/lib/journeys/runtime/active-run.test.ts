@@ -1,6 +1,6 @@
 /**
  * One active run per (tenant, journey, contact): the runtime result when the
- * active-run index rejects an insert, and the real index (migration 056) on PGlite.
+ * active-run index rejects an insert, and the real index (migrations 056 and 063) on PGlite.
  */
 
 import assert from "node:assert/strict";
@@ -11,7 +11,13 @@ import { dispatchJourneyEvent, type ActionExecutor, type EngineDeps, type Journe
 import type { JourneySnapshot } from "./graph.ts";
 import { createTestDb, type TestDb } from "./lead-status-test-db.ts";
 import { MemoryJourneyStore } from "./memory-store.ts";
-import { ACTIVE_RUN_INDEX, IDEMPOTENCY_CONSTRAINT, runInsertConflict } from "./run-insert-conflict.ts";
+import {
+  APPOINTMENT_ACTIVE_RUN_INDEX,
+  CONTACT_ACTIVE_RUN_INDEX,
+  IDEMPOTENCY_CONSTRAINT,
+  LEGACY_ACTIVE_RUN_INDEX,
+  runInsertConflict,
+} from "./run-insert-conflict.ts";
 
 const TENANT = "tenant-a";
 const OTHER_TENANT = "tenant-b";
@@ -206,10 +212,14 @@ describe("one active run per journey and contact (runtime)", () => {
 
 describe("runInsertConflict", () => {
   it("names the rule from the PostgREST error", () => {
-    assert.equal(
-      runInsertConflict({ code: "23505", message: `duplicate key value violates unique constraint "${ACTIVE_RUN_INDEX}"`, details: null }),
-      "active_run",
-    );
+    for (const index of [CONTACT_ACTIVE_RUN_INDEX, APPOINTMENT_ACTIVE_RUN_INDEX, LEGACY_ACTIVE_RUN_INDEX]) {
+      assert.equal(
+        runInsertConflict({ code: "23505", message: `duplicate key value violates unique constraint "${index}"`, details: null }),
+        "active_run",
+        index,
+      );
+    }
+    assert.equal(runInsertConflict({ code: "23505", message: "", details: "Key (tenant_id, journey_id, entity_id)=(a, b, c) already exists." }), "active_run");
     assert.equal(
       runInsertConflict({ code: "23505", message: `duplicate key value violates unique constraint "${IDEMPOTENCY_CONSTRAINT}"`, details: null }),
       "idempotency",
@@ -220,12 +230,12 @@ describe("runInsertConflict", () => {
 
   it("anything else is not a known run conflict", () => {
     assert.equal(runInsertConflict({ code: "23505", message: 'duplicate key value violates unique constraint "journey_runs_pkey"', details: "Key (id)=(x) already exists." }), null);
-    assert.equal(runInsertConflict({ code: "23503", message: ACTIVE_RUN_INDEX, details: null }), null);
+    assert.equal(runInsertConflict({ code: "23503", message: CONTACT_ACTIVE_RUN_INDEX, details: null }), null);
     assert.equal(runInsertConflict(null), null);
   });
 });
 
-describe("journey_runs_one_active_per_contact_idx in Postgres (migration 056)", () => {
+describe("contact-scoped active-run index in Postgres (migration 056, narrowed by 063)", () => {
   let db: TestDb;
   let tenant: string;
   let contact: string;

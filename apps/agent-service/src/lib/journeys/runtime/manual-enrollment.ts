@@ -18,7 +18,8 @@ export interface ManualEnrollmentLookups {
   findJourney(tenantId: string, journeyId: string): Promise<{ status: JourneyStatus; version: number } | null>;
   /** Trigger events of that version's snapshot, or null when the snapshot is missing. */
   versionTriggerEvents(tenantId: string, journeyId: string, version: number): Promise<string[] | null>;
-  hasActiveRun(tenantId: string, journeyId: string, contactId: string): Promise<boolean>;
+  /** Same contract as JourneyRuntimeStore.hasActiveRun; enrollment always asks for the contact scope. */
+  hasActiveRun(tenantId: string, journeyId: string, contactId: string | null, appointmentId?: string | null): Promise<boolean>;
 }
 
 export type ManualEnrollmentResult =

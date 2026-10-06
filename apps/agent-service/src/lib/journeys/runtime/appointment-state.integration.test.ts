@@ -62,8 +62,6 @@ alter table public.contacts
   add column timeline text,
   add column financing_status text;
 alter table public.journey_runs
-  add column entity_type text not null default 'contact',
-  add column entity_id uuid,
   add column current_node_id text,
   add column context jsonb not null default '{}'::jsonb,
   add column error text,
@@ -624,7 +622,7 @@ describe("appointment state event delivery", () => {
     assert.equal(runs().length, 0);
   });
 
-  it("already_active is unchanged: a second completion while the journey is waiting for the same contact is dropped", async () => {
+  it("a second appointment's completion starts its own run while the first appointment's run is still waiting (migration 063 scope)", async () => {
     journey("Follow-up", "appointment.completed", [], [wait, task("Check in")]);
     const lead = await newLead();
     const first = await newAppointment(lead, { start: "2026-10-06T10:00:00.000Z" });
@@ -632,8 +630,9 @@ describe("appointment state event delivery", () => {
     assert.ok((await setStatus(first, "completed", member, new Date("2026-10-06T12:00:00.000Z"))).ok);
     assert.deepEqual(await deliver(), ["appointment.completed:started"]);
     assert.ok((await setStatus(second, "completed", member, new Date("2026-10-06T12:00:00.000Z"))).ok);
-    assert.deepEqual(await deliver(), ["appointment.completed:already_active"]);
-    assert.equal(runs().length, 1);
+    assert.deepEqual(await deliver(), ["appointment.completed:started"]);
+    assert.deepEqual(runs().map((run) => run.entityId).sort(), [first, second].sort());
+    assert.ok(runs().every((run) => run.status === "waiting"));
     assert.ok((await events()).every((row) => row.dispatched_at));
   });
 });

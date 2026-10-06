@@ -45,6 +45,7 @@ import {
   type SnapshotNode,
 } from "./graph.ts";
 import { journeyAIStepOutput, type JourneyAIExecutor, type JourneyAIRequest } from "./ai.ts";
+import { runScopeOf } from "./run-insert-conflict.ts";
 import {
   agentJourneyOption,
   allowedAgentJourneys,
@@ -220,12 +221,17 @@ export function appointmentIdOf(source: { entityType?: string | null; entityId?:
 export interface JourneyRuntimeStore {
   /** Active journeys in the tenant whose current version listens for this event. */
   findCandidateJourneys(tenantId: string, event: TriggerEventType): Promise<CandidateJourney[]>;
-  hasActiveRun(tenantId: string, journeyId: string, contactId: string): Promise<boolean>;
+  /**
+   * Whether the journey has an active (running, waiting, paused) run in the
+   * scope: the appointment's when `appointmentId` is given, otherwise the
+   * contact's contact-scoped runs (see runScopeOf).
+   */
+  hasActiveRun(tenantId: string, journeyId: string, contactId: string | null, appointmentId?: string | null): Promise<boolean>;
   /**
    * Inserts unless (tenant, idempotencyKey) exists (returns that run, created
-   * false), the contact already has an active run of the journey
-   * (alreadyActive), or it is an AI step's child and that step already has one
-   * (aiStepChildExists).
+   * false), the run's scope (its appointment, else its contact) already has an
+   * active run of the journey (alreadyActive), or it is an AI step's child and
+   * that step already has one (aiStepChildExists).
    */
   createRun(run: NewRun): Promise<CreateRunResult>;
   /** Atomically leases a running/waiting run that isn't leased; marks it running. */
@@ -666,7 +672,10 @@ export async function dispatchJourneyEvent(
       continue;
     }
 
-    if (event.contactId && (await deps.store.hasActiveRun(event.tenantId, candidate.journeyId, event.contactId))) {
+    if (
+      runScopeOf(event) &&
+      (await deps.store.hasActiveRun(event.tenantId, candidate.journeyId, event.contactId, appointmentIdOf(event)))
+    ) {
       outcomes.push({
         journeyId: candidate.journeyId,
         version: candidate.version,
@@ -691,7 +700,7 @@ export async function dispatchJourneyEvent(
       resumeAt: now().toISOString(),
     });
 
-    // Another event started a run for this contact after the check above.
+    // Another event started a run in the same scope after the check above.
     if (result.alreadyActive) {
       outcomes.push({ journeyId: candidate.journeyId, version: candidate.version, runId: null, result: "already_active" });
       continue;

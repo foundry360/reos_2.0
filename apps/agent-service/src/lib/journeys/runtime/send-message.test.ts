@@ -113,7 +113,9 @@ for (const { action, channel } of CHANNELS) {
     it("delivers the rendered DM on its channel, records the output, and the journey completes", async () => {
       const run = await start(chain(trigger, dm(action), task));
 
-      assert.deepEqual(deliveries, [{ tenantId: TENANT, contactId: LEAD, channel, body: "Hi Ana, thanks for reaching out!" }]);
+      assert.deepEqual(deliveries, [
+        { tenantId: TENANT, contactId: LEAD, channel, body: "Hi Ana, thanks for reaching out!", automated: true },
+      ]);
       assert.deepEqual(dmSteps(), [
         {
           status: "completed",

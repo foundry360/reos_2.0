@@ -6,7 +6,8 @@ import { isJourneyStatus } from "./journey-types";
 import { JOURNEY_ARCHIVED_ERROR, type RunState } from "./runtime/engine";
 import type { ManualEnrollmentLookups } from "./runtime/manual-enrollment";
 import { RETRY_BLOCK_MESSAGES, retryJourneyRun, type RunRetryLookups } from "./runtime/run-retry";
-import { createSupabaseJourneyStore } from "./runtime/supabase-store";
+import { runScopeOf } from "./runtime/run-insert-conflict";
+import { createSupabaseJourneyStore, scopedActiveRuns } from "./runtime/supabase-store";
 
 export type JourneyRunStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "paused";
 export type JourneyStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -273,7 +274,7 @@ export async function createRunRetryLookups(): Promise<RunRetryLookups> {
     async findRun(tenantId, runId) {
       const { data, error } = await supabase
         .from("journey_runs")
-        .select("journey_id, contact_id, status, current_node_id, context")
+        .select("journey_id, contact_id, entity_type, entity_id, status, current_node_id, context")
         .eq("tenant_id", tenantId)
         .eq("id", runId)
         .maybeSingle();
@@ -282,6 +283,8 @@ export async function createRunRetryLookups(): Promise<RunRetryLookups> {
       return {
         journeyId: data.journey_id as string,
         contactId: data.contact_id as string | null,
+        entityType: data.entity_type as string | null,
+        entityId: data.entity_id as string | null,
         status: data.status as JourneyRunStatus,
         currentNodeId: data.current_node_id as string | null,
         context: (data.context as RunState | null) ?? null,
@@ -315,14 +318,12 @@ export async function createRunRetryLookups(): Promise<RunRetryLookups> {
       if (error) fail("journey lookup", error.message);
       return data && isJourneyStatus(data.status) ? data.status : null;
     },
-    async hasActiveRun(tenantId, journeyId, contactId) {
-      const { count, error } = await supabase
-        .from("journey_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("journey_id", journeyId)
-        .eq("contact_id", contactId)
-        .in("status", ACTIVE_STATUSES);
+    async hasActiveRun(tenantId, journeyId, contactId, appointmentId) {
+      const scope = runScopeOf(
+        appointmentId ? { contactId, entityType: "appointment", entityId: appointmentId } : { contactId },
+      );
+      if (!scope) return false;
+      const { count, error } = await scopedActiveRuns(supabase, tenantId, journeyId, scope);
       if (error) fail("active run lookup", error.message);
       return (count ?? 0) > 0;
     },
@@ -399,14 +400,12 @@ export async function createManualEnrollmentLookups(): Promise<ManualEnrollmentL
       if (error) fail("version lookup", error.message);
       return data ? ((data.trigger_events as string[] | null) ?? []) : null;
     },
-    async hasActiveRun(tenantId, journeyId, contactId) {
-      const { count, error } = await supabase
-        .from("journey_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", tenantId)
-        .eq("journey_id", journeyId)
-        .eq("contact_id", contactId)
-        .in("status", ACTIVE_STATUSES);
+    async hasActiveRun(tenantId, journeyId, contactId, appointmentId) {
+      const scope = runScopeOf(
+        appointmentId ? { contactId, entityType: "appointment", entityId: appointmentId } : { contactId },
+      );
+      if (!scope) return false;
+      const { count, error } = await scopedActiveRuns(supabase, tenantId, journeyId, scope);
       if (error) fail("active run lookup", error.message);
       return (count ?? 0) > 0;
     },

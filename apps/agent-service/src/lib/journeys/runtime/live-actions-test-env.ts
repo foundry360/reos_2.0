@@ -261,6 +261,7 @@ registerHooks({
 export const LIVE_ACTIONS_SCHEMA = `
 alter table public.contacts
   add column opted_out boolean not null default false,
+  add column if not exists handoff boolean not null default false,
   add column assigned_agent_id uuid;
 
 create table public.contact_identities (

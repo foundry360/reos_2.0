@@ -26,7 +26,7 @@ const migration = (name: string) => readFileSync(new URL(`../../../../../../supa
 
 /** The columns migrations 060 and 061 need beyond the live-actions schema. */
 const LIFECYCLE_COLUMNS = `
-alter table public.contacts add column handoff boolean not null default false;
+alter table public.contacts add column if not exists handoff boolean not null default false;
 alter table public.contact_activities
   add column ends_at timestamptz,
   add column source text,

@@ -6,7 +6,7 @@
  * Pure module (relative imports only) so it runs under node --test.
  */
 
-import type { DeliverMessageResult } from "../../messaging/deliver-message.ts";
+import type { DeliverMessageResult, MessageSuppression } from "../../messaging/deliver-message.ts";
 import { renderTemplate, type ActionConfig } from "./contracts.ts";
 import { JourneyStepError, type ActionInput, type ActionResult } from "./engine.ts";
 
@@ -17,7 +17,18 @@ export type DeliverDirectMessage = (input: {
   contactId: string;
   channel: DirectMessageChannel;
   body: string;
+  automated: true;
 }) => Promise<DeliverMessageResult>;
+
+/**
+ * A customer-facing send the contact's current state forbids (SMS opt-out, or
+ * handoff to a human): nothing was sent and the step is skipped, not failed, so
+ * the run goes on to its next step. `sent: false` and no message id, so a
+ * condition on the step's output never reads it as delivered.
+ */
+export function suppressedSend(channel: "sms" | "email" | DirectMessageChannel, reason: MessageSuppression): ActionResult {
+  return { status: "skipped", output: { sent: false, channel }, reason };
+}
 
 export async function executeSendMessage(
   channel: DirectMessageChannel,
@@ -33,7 +44,8 @@ export async function executeSendMessage(
     last_name: typeof input.lead.last_name === "string" ? input.lead.last_name : null,
   };
   const body = renderTemplate(action.body, names).trim();
-  const sent = await deliver({ tenantId: input.tenantId, contactId: input.contactId, channel, body });
+  const sent = await deliver({ tenantId: input.tenantId, contactId: input.contactId, channel, body, automated: true });
+  if (!sent.ok && sent.suppressed) return suppressedSend(channel, sent.suppressed);
   if (!sent.ok) throw new JourneyStepError(sent.error, sent.kind);
   return { status: "completed", output: { message_id: sent.messageId, channel, body } };
 }
