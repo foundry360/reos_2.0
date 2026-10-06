@@ -195,6 +195,7 @@ describe("multiple messages", () => {
     message("2026-10-01T12:30:00.000Z", "outbound");
     assert.equal(await branch(), "no");
     message("2026-10-01T12:45:00.000Z", "inbound");
+    store.runs.clear();
     assert.equal(await branch(), "yes");
   });
 });
@@ -263,6 +264,7 @@ describe("operators", () => {
 
   it("is never empty for a known lead", async () => {
     assert.equal(await branch(replied("is_not_empty", null)), "yes");
+    store.runs.clear();
     assert.equal(await branch(replied("is_empty", null)), "no");
   });
 });

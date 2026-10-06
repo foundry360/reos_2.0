@@ -449,6 +449,7 @@ describe("engine: multi-rule conditions", () => {
 
   it("makes no reply lookup when no rule uses it", async () => {
     await runOnce({ logic: "any", rules: [status("Qualified"), temperature("Hot")] });
+    store.runs.clear();
     await runOnce({ ...TRUE_RULE });
     assert.equal(repliedLookups, 0);
   });

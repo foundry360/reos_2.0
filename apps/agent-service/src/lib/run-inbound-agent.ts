@@ -202,6 +202,8 @@ export async function runInboundAgent(params: {
   backend?: AgentBackend;
   /** Override the configured OpenAI model (evals). */
   model?: string;
+  /** The caller already stored this inbound message (provider claim); don't store it again. */
+  inboundPersisted?: boolean;
 }): Promise<InboundAgentResult> {
   const { ctx, body, channel } = params;
   const inboundChannel = params.inboundChannel ?? channel;
@@ -213,10 +215,8 @@ export async function runInboundAgent(params: {
   }
 
   const backend = params.backend ?? liveBackend(tenantId);
-
-  const alreadyOptedOut = ctx.optedOut;
-  if (await applyCompliance(backend, ctx, body)) {
-    const reply = alreadyOptedOut ? "" : "You have been unsubscribed.";
+  const saveInbound = async () => {
+    if (params.inboundPersisted) return;
     await persistInbound(backend, {
       threadKey,
       contactId: ctx.contactId,
@@ -224,6 +224,12 @@ export async function runInboundAgent(params: {
       userBody: body,
       contextLabel: params.inboundContextLabel,
     });
+  };
+
+  const alreadyOptedOut = ctx.optedOut;
+  if (await applyCompliance(backend, ctx, body)) {
+    const reply = alreadyOptedOut ? "" : "You have been unsubscribed.";
+    await saveInbound();
     await persistOutbound(backend, {
       threadKey,
       contactId: ctx.contactId,
@@ -239,7 +245,7 @@ export async function runInboundAgent(params: {
     };
   }
 
-  // Peek last assistant line before routing (inbound not persisted yet).
+  // Peek last assistant line before routing (a claimed inbound is already stored, as a user line).
   const historyPeek = await loadHistory(backend, threadKey, ctx.contactId);
   const lastAssistant = [...historyPeek]
     .reverse()
@@ -306,13 +312,7 @@ export async function runInboundAgent(params: {
   }
 
   // Always store the lead's message first so a later LLM failure still shows in CRM.
-  await persistInbound(backend, {
-    threadKey,
-    contactId: ctx.contactId,
-    channel: inboundChannel,
-    userBody: body,
-    contextLabel: params.inboundContextLabel,
-  });
+  await saveInbound();
 
   if (playbook === "none") {
     return {

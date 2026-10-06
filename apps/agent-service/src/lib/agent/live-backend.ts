@@ -13,7 +13,7 @@ import { appendToThread, getThread } from "@/lib/conversation-store";
 import { appendMessage, getRecentMessages, updateContactFields } from "@/lib/db/contacts";
 import { reconcileContactByEmailOrPhone } from "@/lib/db/contact-merge";
 import { isSupabaseConfigured } from "@/lib/env";
-import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
+import { dispatchJourneyEventsSoon } from "@/lib/journeys/journey-event-dispatch";
 import { getContactPropertyInterest } from "@/lib/meta/post-context";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { AgentBackend, RecordedTurn, ToolEvent } from "@/lib/agent/backend";
@@ -44,17 +44,7 @@ export function liveBackend(tenantId: string): AgentBackend {
         leadName: params.leadName,
         summary: params.title,
       });
-      if (result.ok) {
-        emitJourneyEvent({
-          tenantId,
-          type: "appointment.booked",
-          sourceId: result.appointmentId,
-          contactId: result.contactId,
-          entityType: "appointment",
-          entityId: result.appointmentId,
-          payload: { start: result.start, end: result.end, booked_by: "agent" },
-        });
-      }
+      if (result.ok) dispatchJourneyEventsSoon(tenantId, result.contactId);
       return result;
     },
     reschedule: (params) =>
@@ -81,18 +71,18 @@ export function liveBackend(tenantId: string): AgentBackend {
     },
     appendMessage: async ({ threadKey, contactId, channel, direction, body, playbook, contextLabel }) => {
       if (persisted(contactId)) {
-        const messageId = await appendMessage({ tenantId, contactId, channel, direction, body, playbook, contextLabel });
-        if (direction === "inbound" && messageId) {
-          emitJourneyEvent({
-            tenantId,
-            type: "message.received",
-            sourceId: messageId,
-            contactId,
-            entityType: "message",
-            entityId: messageId,
-            payload: { channel, body: body.slice(0, 1000) },
-          });
-        }
+        const inbound = direction === "inbound";
+        const messageId = await appendMessage({
+          tenantId,
+          contactId,
+          channel,
+          direction,
+          body,
+          playbook,
+          contextLabel,
+          emitReceived: inbound,
+        });
+        if (inbound && messageId) dispatchJourneyEventsSoon(tenantId, contactId);
         return;
       }
       appendToThread(tenantId, threadKey, {

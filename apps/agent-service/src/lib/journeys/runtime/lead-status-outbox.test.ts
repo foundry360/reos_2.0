@@ -771,13 +771,14 @@ describe("run idempotency across journey versions", () => {
     assert.equal(new Set(runs().map((run) => run.idempotencyKey)).size, 3);
   });
 
-  it("other journey events keep the versioned key", () => {
-    for (const type of ["lead.created", "manual", "message.received", "appointment.booked", "task.completed"] as const) {
+  it("manual enrollment keeps the versioned key; durable outbox events leave the version out", () => {
+    assert.equal(idempotencyKey({ type: "manual", sourceId: "src-1" }, JOURNEY, 1), `manual:src-1:${JOURNEY}:v1`);
+    assert.equal(idempotencyKey({ type: "manual", sourceId: "src-1" }, JOURNEY, 2), `manual:src-1:${JOURNEY}:v2`);
+    for (const type of ["lead.status_changed", "lead.created", "message.received", "appointment.booked", "task.completed"] as const) {
       const event = { type, sourceId: "src-1" };
-      assert.equal(idempotencyKey(event, JOURNEY, 1), `${type}:src-1:${JOURNEY}:v1`);
-      assert.equal(idempotencyKey(event, JOURNEY, 2), `${type}:src-1:${JOURNEY}:v2`);
+      assert.equal(idempotencyKey(event, JOURNEY, 1), `${type}:src-1:${JOURNEY}`);
+      assert.equal(idempotencyKey(event, JOURNEY, 7), `${type}:src-1:${JOURNEY}`);
     }
-    assert.equal(idempotencyKey({ type: "lead.status_changed", sourceId: "src-1" }, JOURNEY, 7), `lead.status_changed:src-1:${JOURNEY}`);
   });
 });
 

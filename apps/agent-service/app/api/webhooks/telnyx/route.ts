@@ -2,22 +2,10 @@ import { createPublicKey, verify } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getTelnyxCredentials } from "@/lib/admin/platform-credentials";
 import { getEnv } from "@/lib/env";
-import { handleInboundSms } from "@/lib/handle-inbound";
+import { handleInboundSms, parseTelnyxInboundSms } from "@/lib/handle-inbound";
 import { sendSmsMessage } from "@/lib/messaging/send-sms";
 
 const SIGNATURE_TOLERANCE_SECONDS = 300;
-
-interface TelnyxMessageEvent {
-  data?: {
-    event_type?: string;
-    payload?: {
-      direction?: string;
-      text?: string;
-      from?: { phone_number?: string };
-      to?: Array<{ phone_number?: string }>;
-    };
-  };
-}
 
 function verifyTelnyxSignature(input: {
   rawBody: string;
@@ -71,27 +59,25 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let event: TelnyxMessageEvent;
+  let event: unknown;
   try {
-    event = JSON.parse(rawBody) as TelnyxMessageEvent;
+    event = JSON.parse(rawBody) as unknown;
   } catch {
     return new NextResponse("Invalid JSON", { status: 400 });
   }
 
-  const payload = event.data?.payload;
-  if (event.data?.event_type !== "message.received" || payload?.direction !== "inbound") {
+  const sms = parseTelnyxInboundSms(event);
+  if (!sms) {
     return NextResponse.json({ ok: true });
   }
-
-  const from = payload.from?.phone_number ?? "";
-  const to = payload.to?.[0]?.phone_number ?? "";
-  const body = payload.text ?? "";
+  const { from, to } = sms;
 
   // Telnyx retries webhooks that don't get a fast 2xx, so the agent runs after the response.
+  // A redelivered message (same Telnyx message id) is a duplicate and sends nothing.
   after(async () => {
     try {
-      const result = await handleInboundSms({ from, body, to });
-      if (!result.reply || !to) return;
+      const result = await handleInboundSms(sms);
+      if (result.duplicate || !result.reply || !to) return;
 
       const sent = await sendSmsMessage({ fromE164: to, toE164: from, body: result.reply });
       if (!sent.ok) {

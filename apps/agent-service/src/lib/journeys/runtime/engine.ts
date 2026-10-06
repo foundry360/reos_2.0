@@ -361,7 +361,15 @@ const CHANGES_ENTITIES = new Set(["update_lead", "assign_lead"]);
  * version, so one event starts a journey at most once even if the journey was
  * saved (new version) between deliveries.
  */
-const ONCE_PER_JOURNEY_EVENTS = new Set<string>(["lead.status_changed", "journey.started"]);
+const ONCE_PER_JOURNEY_EVENTS = new Set<string>([
+  "lead.status_changed",
+  "journey.started",
+  // Durable journey events (migration 060).
+  "lead.created",
+  "message.received",
+  "appointment.booked",
+  "task.completed",
+]);
 
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
   const key = `${event.type}:${event.sourceId}:${journeyId}`;

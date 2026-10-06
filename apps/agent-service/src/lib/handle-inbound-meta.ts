@@ -10,7 +10,7 @@ import type { MetaChannelMetadata } from "@/lib/meta/channel-account";
 import { fetchMetaSenderProfile } from "@/lib/meta/profile";
 import { sendMetaTextMessage } from "@/lib/meta/send";
 import type { MetaWebhookMessage } from "@/lib/meta/webhook";
-import { runInboundAgent } from "@/lib/run-inbound-agent";
+import { runProviderInboundTurn, type InboundTurnDeps } from "@/lib/inbound-turn";
 
 export interface HandleMetaInboundResult {
   ok: boolean;
@@ -44,9 +44,27 @@ export async function loadPageAccessToken(
   return metadata.access_token?.trim() || null;
 }
 
+export interface MetaInboundDeps {
+  resolveTenantId: typeof resolveInboundTenantId;
+  loadPageToken: typeof loadPageAccessToken;
+  fetchProfile: typeof fetchMetaSenderProfile;
+  resolveContact: typeof resolveInboundContact;
+  sendText: typeof sendMetaTextMessage;
+  turn?: InboundTurnDeps;
+}
+
+const liveMetaDeps: MetaInboundDeps = {
+  resolveTenantId: resolveInboundTenantId,
+  loadPageToken: loadPageAccessToken,
+  fetchProfile: fetchMetaSenderProfile,
+  resolveContact: resolveInboundContact,
+  sendText: sendMetaTextMessage,
+};
+
 /** Persist inbound DMs and Page-sent echoes; run agents on inbound only. */
 export async function handleInboundMetaMessage(
   message: MetaWebhookMessage,
+  deps: MetaInboundDeps = liveMetaDeps,
 ): Promise<HandleMetaInboundResult> {
   if (!isSupabaseConfigured()) {
     return { ok: false, skipped: "supabase_not_configured" };
@@ -58,12 +76,12 @@ export async function handleInboundMetaMessage(
     to: message.pageOrAccountId,
   };
 
-  const tenantId = await resolveInboundTenantId(inbound);
+  const tenantId = await deps.resolveTenantId(inbound);
   if (!tenantId) {
     return { ok: false, skipped: "tenant_or_contact_unresolved" };
   }
 
-  const pageToken = await loadPageAccessToken(
+  const pageToken = await deps.loadPageToken(
     tenantId,
     message.channel,
     message.pageOrAccountId,
@@ -76,14 +94,14 @@ export async function handleInboundMetaMessage(
     avatarUrl: string | null;
   } | null = null;
   if (message.direction === "inbound" && pageToken) {
-    profile = await fetchMetaSenderProfile(
+    profile = await deps.fetchProfile(
       message.contactExternalId,
       pageToken,
       message.channel,
     );
   }
 
-  const ctx = await resolveInboundContact(
+  const ctx = await deps.resolveContact(
     inbound,
     profile ?? undefined,
     { createIfMissing: message.direction === "inbound" },
@@ -160,16 +178,20 @@ export async function handleInboundMetaMessage(
     };
   }
 
-  // Inbound: compliance → coordinator → LLM → persist → Graph reply
-  const result = await runInboundAgent({
-    ctx,
-    body: text,
-    channel: message.channel,
-  });
+  // Inbound: claim (mid) → compliance → coordinator → LLM → persist → Graph reply.
+  // A redelivered mid is a duplicate: no AI turn and no reply.
+  const turn = await runProviderInboundTurn(
+    { ctx, body: text, channel: message.channel, providerMessageId: message.mid },
+    deps.turn,
+  );
+  if (turn.status === "duplicate") {
+    return { ok: true, contactId: ctx.contactId, tenantId, skipped: "duplicate" };
+  }
+  const result = turn.result;
 
   let sent = false;
   if (result.reply && pageToken) {
-    const sendResult = await sendMetaTextMessage({
+    const sendResult = await deps.sendText({
       pageAccessToken: pageToken,
       recipientId: message.contactExternalId,
       text: result.reply,

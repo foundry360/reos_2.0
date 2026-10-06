@@ -180,6 +180,36 @@ async function loadContact(contactId: string): Promise<MergeContactRow | null> {
   return data as MergeContactRow;
 }
 
+type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
+
+/**
+ * A concierge consult is unique per contact and start (migration 060), so the
+ * loser's booking of a start the winner already holds can't move. It is the
+ * same consult booked twice; left in place it would fail the whole
+ * contact_activities move, and the loser's delete would take every one of its
+ * activities with it.
+ */
+async function dropDuplicateConciergeBookings(db: AdminClient, winnerId: string, loserId: string): Promise<void> {
+  const { data, error } = await db
+    .from("contact_activities")
+    .select("id, contact_id, occurred_at")
+    .in("contact_id", [winnerId, loserId])
+    .eq("activity_type", "appointment")
+    .eq("source", "concierge");
+  if (error) {
+    console.error("mergeContacts concierge booking lookup failed:", error.message);
+    return;
+  }
+  const rows = (data ?? []) as Array<{ id: string; contact_id: string; occurred_at: string }>;
+  const held = new Set(rows.filter((row) => row.contact_id === winnerId).map((row) => Date.parse(row.occurred_at)));
+  const duplicates = rows
+    .filter((row) => row.contact_id === loserId && held.has(Date.parse(row.occurred_at)))
+    .map((row) => row.id);
+  if (duplicates.length === 0) return;
+  const { error: deleteError } = await db.from("contact_activities").delete().in("id", duplicates);
+  if (deleteError) console.error("mergeContacts duplicate concierge booking delete failed:", deleteError.message);
+}
+
 /**
  * Move identities + related rows from loser onto winner, fill empty CRM fields,
  * then delete the loser contact.
@@ -233,6 +263,8 @@ export async function mergeContacts(
     }
   }
 
+  await dropDuplicateConciergeBookings(db, winnerId, loserId);
+
   // Re-point dependent rows.
   for (const table of [
     "messages",
@@ -240,6 +272,8 @@ export async function mergeContacts(
     "tasks",
     "contact_activities",
     "journey_runs",
+    // Pending events follow the contact instead of being deleted with the loser.
+    "journey_events",
   ] as const) {
     const { error } = await db
       .from(table)

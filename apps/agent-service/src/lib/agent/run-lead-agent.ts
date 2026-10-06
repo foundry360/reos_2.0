@@ -157,6 +157,8 @@ export async function runLeadAgent(params: {
   includesPostContext?: boolean;
   backend?: AgentBackend;
   model?: string;
+  /** The caller already stored this inbound message (provider claim); don't store it again. */
+  inboundPersisted?: boolean;
 }): Promise<LeadAgentResult> {
   const { ctx, body, channel } = params;
   const tenantId = ctx.accountId ?? "default-tenant";
@@ -164,8 +166,9 @@ export async function runLeadAgent(params: {
   const backend = params.backend ?? liveBackend(tenantId);
   const inboundChannel = params.inboundChannel ?? channel;
 
-  const saveInbound = () =>
-    backend.appendMessage({
+  const saveInbound = async () => {
+    if (params.inboundPersisted) return;
+    await backend.appendMessage({
       threadKey,
       contactId: ctx.contactId,
       channel: inboundChannel,
@@ -173,6 +176,7 @@ export async function runLeadAgent(params: {
       body,
       contextLabel: params.inboundContextLabel,
     });
+  };
 
   const alreadyOptedOut = ctx.optedOut;
   if (await applyCompliance(backend, ctx, body)) {

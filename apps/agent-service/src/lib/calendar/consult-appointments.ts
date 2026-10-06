@@ -1,6 +1,10 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { markConsultBooked } from "@/lib/db/contacts";
 import {
+  appointmentBookedHeaders,
+  withJourneyEventHeaders,
+} from "@/lib/journeys/journey-event-headers";
+import {
   CONSULT_MINUTES,
   DEFAULT_TIME_ZONE,
   LOOKAHEAD_DAYS,
@@ -254,6 +258,42 @@ export type BookReosConsultResult =
   | { ok: false; error: string };
 
 /**
+ * A repeated or concurrent request for a consult this contact already has at
+ * this start time: report that booking instead of creating a second one. CRM
+ * updates and invites were done by the request that created it.
+ */
+async function existingConsultBooking(
+  db: NonNullable<ReturnType<typeof getSupabaseAdmin>>,
+  params: { tenantId: string; contactId: string; startIso: string; endIso: string; label: string; email: string | null },
+): Promise<BookReosConsultResult> {
+  const { data } = await db
+    .from("contact_activities")
+    .select("id")
+    .eq("tenant_id", params.tenantId)
+    .eq("contact_id", params.contactId)
+    .eq("activity_type", "appointment")
+    .eq("source", "concierge")
+    .eq("occurred_at", params.startIso)
+    .maybeSingle();
+  if (!data?.id) {
+    return { ok: false, error: "Could not create the appointment." };
+  }
+  const invited = Boolean(params.email && isValidEmailAddress(params.email));
+  return {
+    ok: true,
+    appointmentId: data.id,
+    contactId: params.contactId,
+    start: params.startIso,
+    end: params.endIso,
+    label: params.label,
+    inviteSent: invited,
+    leadInviteSent: invited,
+    attendeeEmail: params.email,
+    confirmation: `Already booked ${params.label} on the REOS calendar.`,
+  };
+}
+
+/**
  * Persist a Concierge consult on the REOS calendar, then update CRM.
  * Does not call Google Calendar.
  */
@@ -356,11 +396,25 @@ export async function bookReosConsultSlot(params: {
     related_entity_id: contact.id,
   };
 
-  let { data: activity, error } = await db
-    .from("contact_activities")
-    .insert(payload)
-    .select("id")
-    .single();
+  // The insert records appointment.booked in the same transaction (migration 060).
+  const insertAppointment = (values: Record<string, unknown>) =>
+    withJourneyEventHeaders(
+      db.from("contact_activities").insert(values).select("id").single(),
+      appointmentBookedHeaders("agent"),
+    );
+
+  let { data: activity, error } = await insertAppointment(payload);
+
+  if (error?.code === "23505") {
+    return existingConsultBooking(db, {
+      tenantId: params.tenantId,
+      contactId: contact.id,
+      startIso,
+      endIso,
+      label,
+      email,
+    });
+  }
 
   if (error && /ends_at|source|schema cache|column/i.test(error.message)) {
     const {
@@ -368,15 +422,11 @@ export async function bookReosConsultSlot(params: {
       source: _s,
       ...withoutTiming
     } = payload;
-    ({ data: activity, error } = await db
-      .from("contact_activities")
-      .insert({
-        ...withoutTiming,
-        // Preserve start time even without ends_at column.
-        occurred_at: startIso,
-      })
-      .select("id")
-      .single());
+    ({ data: activity, error } = await insertAppointment({
+      ...withoutTiming,
+      // Preserve start time even without ends_at column.
+      occurred_at: startIso,
+    }));
   }
 
   if (error && /related_entity|schema cache|column/i.test(error.message)) {
@@ -385,11 +435,7 @@ export async function bookReosConsultSlot(params: {
       related_entity_id: _i,
       ...withoutRelated
     } = payload;
-    ({ data: activity, error } = await db
-      .from("contact_activities")
-      .insert(withoutRelated)
-      .select("id")
-      .single());
+    ({ data: activity, error } = await insertAppointment(withoutRelated));
   }
 
   if (error || !activity?.id) {

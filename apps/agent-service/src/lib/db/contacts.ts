@@ -13,7 +13,12 @@ import {
   syncIntakeOpportunityStage,
 } from "@/lib/opportunities/create-from-booking";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
+import { dispatchJourneyEventsSoon } from "@/lib/journeys/journey-event-dispatch";
+import {
+  leadCreatedHeaders,
+  messageReceivedHeaders,
+  withJourneyEventHeaders,
+} from "@/lib/journeys/journey-event-headers";
 import { withStatusOrigin, type StatusOriginContext } from "@/lib/crm/status-origin";
 
 export interface InboundChannel {
@@ -295,16 +300,16 @@ async function intakeContact(
     }
   }
 
-  const { error: identityError } = await db.from("contact_identities").insert({
-    contact_id: contact.id,
+  const attached = await attachIntakeIdentity(db, {
+    contactId: contact.id,
     channel,
-    external_id: identityKey,
+    externalId: identityKey,
   });
-
-  if (identityError) {
-    console.error("Intake identity error:", identityError);
-    return null;
+  if (attached === "conflict") {
+    // Another delivery created this sender's contact first; continue with that one.
+    return findIdentityContact(tenantId, channel, externalId);
   }
+  if (attached === "failed") return null;
 
   await notifyTenantNewLead({
     tenantId,
@@ -327,20 +332,41 @@ async function intakeContact(
   // New Intake opportunity when the lead engages (stays a Lead until consult booked).
   await syncIntakeOpportunityStage(contact.id);
 
-  emitJourneyEvent({
-    tenantId,
-    type: "lead.created",
-    sourceId: contact.id,
-    contactId: contact.id,
-    entityType: "contact",
-    entityId: contact.id,
-    payload: {
-      channel: notificationChannel(channel),
-      source: channel.endsWith("_comment") ? "comment" : "message",
-    },
-  });
+  dispatchJourneyEventsSoon(tenantId, contact.id);
 
   return toContactContext(contact as ContactRow, externalId);
+}
+
+type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
+
+/**
+ * Gives a just-created intake contact its first identity. That insert is what
+ * makes the contact a new lead: it records lead.created in the same transaction
+ * (migration 060). If it fails, the contact is removed again, so a contact that
+ * lost a first-touch race (identities are unique) leaves nothing behind.
+ */
+export async function attachIntakeIdentity(
+  db: AdminClient,
+  params: { contactId: string; channel: IdentityChannel; externalId: string },
+): Promise<"attached" | "conflict" | "failed"> {
+  const { error } = await withJourneyEventHeaders(
+    db.from("contact_identities").insert({
+      contact_id: params.contactId,
+      channel: params.channel,
+      external_id: params.externalId,
+    }),
+    leadCreatedHeaders(
+      params.channel.endsWith("_comment") ? "comment" : "message",
+      notificationChannel(params.channel),
+    ),
+  );
+  if (!error) return "attached";
+
+  const { error: cleanupError } = await db.from("contacts").delete().eq("id", params.contactId);
+  if (cleanupError) console.error("Intake contact cleanup error:", cleanupError.code);
+  if (error.code === "23505") return "conflict";
+  console.error("Intake identity error:", error);
+  return "failed";
 }
 
 /** Resolve tenant + contact for an inbound message. Creates contact on first touch (Intake). */
@@ -804,6 +830,8 @@ export async function appendMessage(params: {
   body: string;
   playbook?: string;
   contextLabel?: string | null;
+  /** Records message.received for this inbound row in the same insert (migration 060). */
+  emitReceived?: boolean;
 }): Promise<string | null> {
   const db = getSupabaseAdmin();
   if (!db) return null;
@@ -816,8 +844,9 @@ export async function appendMessage(params: {
     body: params.body,
     playbook: params.playbook ?? null,
   };
+  const headers = params.emitReceived && params.direction === "inbound" ? messageReceivedHeaders() : {};
   const insert = (values: Record<string, unknown>) =>
-    db.from("messages").insert(values).select("id").single();
+    withJourneyEventHeaders(db.from("messages").insert(values).select("id").single(), headers);
 
   let { data, error } = await insert(
     params.contextLabel ? { ...row, context_label: params.contextLabel } : row,
@@ -832,6 +861,52 @@ export async function appendMessage(params: {
     return null;
   }
   return data?.id ?? null;
+}
+
+export type InboundMessageClaim =
+  | { status: "claimed"; messageId: string }
+  | { status: "duplicate" }
+  | { status: "failed" };
+
+/**
+ * Stores an inbound provider message once. The insert is the webhook's claim:
+ * (tenant, channel, provider message id) is unique, so a redelivery of the same
+ * provider message is "duplicate" and must do nothing else. The same insert
+ * records message.received (migration 060).
+ */
+export async function claimInboundMessage(params: {
+  tenantId: string;
+  contactId: string;
+  channel: string;
+  body: string;
+  providerMessageId: string;
+}): Promise<InboundMessageClaim> {
+  const db = getSupabaseAdmin();
+  if (!db) return { status: "failed" };
+
+  const { data, error } = await withJourneyEventHeaders(
+    db
+      .from("messages")
+      .insert({
+        tenant_id: params.tenantId,
+        contact_id: params.contactId,
+        channel: params.channel,
+        direction: "inbound",
+        body: params.body,
+        playbook: null,
+        provider_message_id: params.providerMessageId,
+      })
+      .select("id")
+      .single(),
+    messageReceivedHeaders(),
+  );
+
+  if (error?.code === "23505") return { status: "duplicate" };
+  if (error || !data?.id) {
+    console.error("Inbound message claim error:", error?.code ?? "no row");
+    return { status: "failed" };
+  }
+  return { status: "claimed", messageId: data.id };
 }
 
 export async function getRecentMessages(

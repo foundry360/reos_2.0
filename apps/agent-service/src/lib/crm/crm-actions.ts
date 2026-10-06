@@ -44,9 +44,13 @@ import {
   formatSlotLabel,
 } from "@/lib/calendar/consult-slots";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
-import { emitJourneyEvent } from "@/lib/journeys/emit-journey-event";
+import { dispatchJourneyEventsSoon } from "@/lib/journeys/journey-event-dispatch";
+import {
+  appointmentBookedHeaders,
+  leadCreatedHeaders,
+  withJourneyEventHeaders,
+} from "@/lib/journeys/journey-event-headers";
 import { dispatchLeadStatusEventsSoon } from "@/lib/journeys/lead-status-dispatch";
-import { randomUUID } from "node:crypto";
 
 export interface CrmActionResult {
   ok: boolean;
@@ -55,18 +59,9 @@ export interface CrmActionResult {
   kind?: PersonKind;
 }
 
-/** Task completions can repeat, so each occurrence gets its own id. */
-function emitTaskCompleted(tenantId: string, taskId: string, contactId: string | null, title: string) {
-  if (!contactId) return;
-  emitJourneyEvent({
-    tenantId,
-    type: "task.completed",
-    sourceId: randomUUID(),
-    contactId,
-    entityType: "task",
-    entityId: taskId,
-    payload: { task_id: taskId, title },
-  });
+/** The tasks trigger recorded task.completed with the status change (migration 060); deliver it now. */
+function dispatchTaskCompleted(tenantId: string, contactId: string | null) {
+  if (contactId) dispatchJourneyEventsSoon(tenantId, contactId);
 }
 
 function parsePersonKind(value: FormDataEntryValue | null): PersonKind {
@@ -309,20 +304,23 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
     }
   }
 
-  const { data: contact, error: contactError } = await supabase
-    .from("contacts")
-    .insert({
-      tenant_id: tenant.tenantId,
-      first_name: firstName || null,
-      last_name: lastName || null,
-      email: email || null,
-      lead_status: kind === "contact" ? "Converted" : status,
-      record_type: kind,
-      contact_type: contactType,
-      assigned_agent_id: assignedAgentId,
-    })
-    .select("id")
-    .single();
+  const { data: contact, error: contactError } = await withJourneyEventHeaders(
+    supabase
+      .from("contacts")
+      .insert({
+        tenant_id: tenant.tenantId,
+        first_name: firstName || null,
+        last_name: lastName || null,
+        email: email || null,
+        lead_status: kind === "contact" ? "Converted" : status,
+        record_type: kind,
+        contact_type: contactType,
+        assigned_agent_id: assignedAgentId,
+      })
+      .select("id")
+      .single(),
+    leadCreatedHeaders("manual"),
+  );
 
   if (contactError || !contact) {
     return { ok: false, error: contactError?.message ?? `Could not create ${label}.` };
@@ -372,15 +370,7 @@ export async function createLeadAction(formData: FormData): Promise<CrmActionRes
       firstName,
       lastName,
     });
-    emitJourneyEvent({
-      tenantId: tenant.tenantId,
-      type: "lead.created",
-      sourceId: contact.id,
-      contactId: contact.id,
-      entityType: "contact",
-      entityId: contact.id,
-      payload: { source: "manual" },
-    });
+    dispatchJourneyEventsSoon(tenant.tenantId, contact.id);
     revalidatePath("/", "layout");
   } else {
     await notifySelf({
@@ -1445,7 +1435,7 @@ export async function updateTaskStatusAction(
     href: "/tasks",
   });
   if (status === "done") {
-    emitTaskCompleted(tenant.tenantId, id, existing.contact_id, existing.title);
+    dispatchTaskCompleted(tenant.tenantId, existing.contact_id);
   }
 
   revalidatePath("/tasks");
@@ -1564,7 +1554,7 @@ export async function updateTaskAction(formData: FormData): Promise<CrmActionRes
       href: "/tasks",
     });
     if (status === "done") {
-      emitTaskCompleted(tenant.tenantId, id, existing.contact_id, title);
+      dispatchTaskCompleted(tenant.tenantId, existing.contact_id);
     }
   }
 
@@ -1742,28 +1732,23 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
     }
   }
 
-  let { data: activity, error } = await supabase
-    .from("contact_activities")
-    .insert(payload)
-    .select("id")
-    .single();
+  // A meeting records appointment.booked in the same insert (migration 060).
+  const insertActivity = (values: Record<string, unknown>) =>
+    withJourneyEventHeaders(
+      supabase.from("contact_activities").insert(values).select("id").single(),
+      isMeeting ? appointmentBookedHeaders("team") : {},
+    );
+
+  let { data: activity, error } = await insertActivity(payload);
 
   if (error && /metadata|schema cache|column/i.test(error.message) && payload.metadata) {
     const { metadata: _m, ...withoutMeta } = payload;
-    ({ data: activity, error } = await supabase
-      .from("contact_activities")
-      .insert(withoutMeta)
-      .select("id")
-      .single());
+    ({ data: activity, error } = await insertActivity(withoutMeta));
   }
 
   if (error && /ends_at|source|schema cache|column/i.test(error.message)) {
     const { ends_at: _e, source: _s, ...withoutTiming } = payload;
-    ({ data: activity, error } = await supabase
-      .from("contact_activities")
-      .insert(withoutTiming)
-      .select("id")
-      .single());
+    ({ data: activity, error } = await insertActivity(withoutTiming));
   }
 
   if (error && /related_entity|schema cache|column/i.test(error.message)) {
@@ -1772,11 +1757,7 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
       related_entity_id: _i,
       ...legacyPayload
     } = payload;
-    ({ data: activity, error } = await supabase
-      .from("contact_activities")
-      .insert(legacyPayload)
-      .select("id")
-      .single());
+    ({ data: activity, error } = await insertActivity(legacyPayload));
   }
 
   if (error || !activity) {
@@ -1784,15 +1765,7 @@ export async function createActivityAction(formData: FormData): Promise<CrmActio
   }
 
   if (isMeeting && activity.id) {
-    emitJourneyEvent({
-      tenantId: tenant.tenantId,
-      type: "appointment.booked",
-      sourceId: activity.id,
-      contactId,
-      entityType: "appointment",
-      entityId: activity.id,
-      payload: { start: occurredAt, end: endDate?.toISOString() ?? null, booked_by: "team" },
-    });
+    dispatchJourneyEventsSoon(tenant.tenantId, contactId);
     const leadName = [contact.first_name, contact.last_name]
       .map((part) => part?.trim())
       .filter(Boolean)

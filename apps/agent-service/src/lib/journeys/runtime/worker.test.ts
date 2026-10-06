@@ -381,7 +381,7 @@ describe("canonical journey: trigger → task → wait → SMS → completed", (
     assert.equal(run().journeyId, JOURNEY);
     assert.equal(run().contactId, CONTACT);
     assert.equal(run().journeyVersion, 1);
-    assert.equal(run().idempotencyKey, `lead.created:${CONTACT}:${JOURNEY}:v1`);
+    assert.equal(run().idempotencyKey, `lead.created:${CONTACT}:${JOURNEY}`);
 
     // First action ran inline, once, and its step is recorded as completed.
     assert.deepEqual(executed, [{ action: "create_task", runId, nodeId: "task", contactId: CONTACT }]);
