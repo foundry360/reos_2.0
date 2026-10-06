@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { markConsultBooked } from "@/lib/db/contacts";
 import {
   appointmentBookedHeaders,
+  appointmentRescheduledHeaders,
   withJourneyEventHeaders,
 } from "@/lib/journeys/journey-event-headers";
 import {
@@ -562,20 +563,24 @@ export async function rescheduleReosAppointment(params: {
   const sequence = (typeof prior.invite_sequence === "number" ? prior.invite_sequence : 0) + 1;
   const history = Array.isArray(prior.reschedules) ? prior.reschedules : [];
 
-  const { error: updateError } = await db
-    .from("contact_activities")
-    .update({
-      occurred_at: startIso,
-      ends_at: endIso,
-      body: [appt.body?.trim(), `Rescheduled from ${previousLabel} to ${label}.`].filter(Boolean).join("\n"),
-      metadata: {
-        ...prior,
-        invite_sequence: sequence,
-        reschedules: [...history, { from: appt.occurred_at, to: startIso, at: now.toISOString() }],
-      },
-    })
-    .eq("id", appt.id)
-    .eq("tenant_id", params.tenantId);
+  // A start-time change records appointment.rescheduled in the same transaction (migration 061).
+  const { error: updateError } = await withJourneyEventHeaders(
+    db
+      .from("contact_activities")
+      .update({
+        occurred_at: startIso,
+        ends_at: endIso,
+        body: [appt.body?.trim(), `Rescheduled from ${previousLabel} to ${label}.`].filter(Boolean).join("\n"),
+        metadata: {
+          ...prior,
+          invite_sequence: sequence,
+          reschedules: [...history, { from: appt.occurred_at, to: startIso, at: now.toISOString() }],
+        },
+      })
+      .eq("id", appt.id)
+      .eq("tenant_id", params.tenantId),
+    appointmentRescheduledHeaders("agent"),
+  );
   if (updateError) {
     console.error("Reschedule update failed:", updateError.message);
     return { ok: false, error: "Could not move the appointment." };

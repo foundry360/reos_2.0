@@ -40,6 +40,27 @@ export const TRIGGER_EVENTS = {
     description: "A task linked to a lead is marked done.",
     implemented: true,
   },
+  "opportunity.stage_changed": {
+    label: "Opportunity stage changed",
+    description:
+      "A lead's opportunity is created at a stage or moves to a different stage. Filter on the new stage, e.g. Closed Won.",
+    implemented: true,
+  },
+  "appointment.rescheduled": {
+    label: "Appointment rescheduled",
+    description: "An existing appointment or meeting moves to a different start time.",
+    implemented: true,
+  },
+  "lead.assigned": {
+    label: "Lead assigned",
+    description: "A lead is assigned to an agent, or reassigned to a different one.",
+    implemented: true,
+  },
+  "lead.handoff_requested": {
+    label: "Handoff requested",
+    description: "A lead is flagged for handoff to a person (by the AI agent, a team member, or a journey).",
+    implemented: true,
+  },
   "lead.updated": {
     label: "Lead updated",
     description: "Planned: any lead field changes.",
@@ -144,6 +165,27 @@ export const CONDITION_FIELDS: Record<string, FieldDefinition> = {
     options: LEAD_STATUSES,
     events: ["lead.status_changed"],
   },
+  // Point-in-time values from the event; the opportunity, appointment, or lead may have changed since.
+  "trigger.from_stage": {
+    label: "Previous stage",
+    type: "enum",
+    options: OPPORTUNITY_STAGES,
+    events: ["opportunity.stage_changed"],
+  },
+  "trigger.to_stage": {
+    label: "New stage",
+    type: "enum",
+    options: OPPORTUNITY_STAGES,
+    events: ["opportunity.stage_changed"],
+  },
+  "trigger.rescheduled_by": {
+    label: "Rescheduled by",
+    type: "enum",
+    options: ["agent", "team", "system"],
+    events: ["appointment.rescheduled"],
+  },
+  "trigger.from_agent_id": { label: "Previous agent", type: "string", events: ["lead.assigned"] },
+  "trigger.to_agent_id": { label: "New agent", type: "string", events: ["lead.assigned"] },
 };
 
 /** steps.<node key>.output.<field> reads a previous step's recorded output. */

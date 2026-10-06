@@ -1,28 +1,40 @@
 /**
- * Delivers journey_events outbox rows (lead.created, message.received,
- * appointment.booked, task.completed; written by the triggers in migration 060)
- * to journeys through the normal dispatchJourneyEvent.
+ * Delivers journey_events outbox rows (written by the triggers in migrations
+ * 060 and 061) to journeys through the normal dispatchJourneyEvent.
  *
  * The row's source_id is the event's sourceId, so run idempotency keys are the
- * same as for any other event of that type (type:sourceId:journeyId:vN).
- * Delivering a row again (retry, two dispatchers, expired claim) finds the run
- * it already started by that key and starts nothing new.
+ * same as for any other event of that type (type:sourceId:journeyId, with no
+ * journey version; see idempotencyKey). Delivering a row again (retry, two
+ * dispatchers, expired claim) finds the run it already started by that key and
+ * starts nothing new.
  *
  * Claim, complete, and fail follow lead_status_events exactly: attempts are
  * counted at claim, failures back off 1, 2, 4 ... 60 minutes, and a row that
  * used its last attempt is parked with failed_at.
+ *
+ * lead.assigned and lead.handoff_requested can be caused by a journey step
+ * (Assign lead, Update lead), so they carry lineage exactly like
+ * lead.status_changed (lead-status-outbox.ts): the row's origin and
+ * origin_run_id come from the trigger; causation depth, origin journey, and root
+ * run are derived here from the originating run in the same workspace; the
+ * originating journey is excluded; an event at the depth limit starts no runs
+ * and is still marked dispatched. Every other type carries no lineage.
  *
  * Pure module (relative imports only) so it runs under node --test.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TriggerEventType } from "./contracts.ts";
-import type { JourneyEvent } from "./engine.ts";
-import type {
-  ClaimOptions,
-  FailOutcome,
-  OutboxDispatchOptions,
-  OutboxDispatchSummary,
+import { isCausationDepthLimited, MAX_JOURNEY_CAUSATION_DEPTH, type JourneyEvent } from "./engine.ts";
+import {
+  eventCausationDepth,
+  leadStatusLineage,
+  loadOriginRun,
+  type ClaimOptions,
+  type FailOutcome,
+  type OriginRun,
+  type OutboxDispatchOptions,
+  type OutboxDispatchSummary,
 } from "./lead-status-outbox.ts";
 
 export const JOURNEY_EVENT_TYPES = [
@@ -30,9 +42,16 @@ export const JOURNEY_EVENT_TYPES = [
   "message.received",
   "appointment.booked",
   "task.completed",
+  "opportunity.stage_changed",
+  "appointment.rescheduled",
+  "lead.assigned",
+  "lead.handoff_requested",
 ] as const satisfies readonly TriggerEventType[];
 
 export type DurableJourneyEventType = (typeof JOURNEY_EVENT_TYPES)[number];
+
+/** Events a journey step can cause; dispatched with lead.status_changed's lineage rules. */
+export const LINEAGE_EVENT_TYPES: ReadonlySet<string> = new Set<DurableJourneyEventType>(["lead.assigned", "lead.handoff_requested"]);
 
 export interface JourneyEventRow {
   id: string;
@@ -43,6 +62,10 @@ export interface JourneyEventRow {
   entity_type: string;
   entity_id: string | null;
   payload: Record<string, unknown> | null;
+  /** Set by the 061 triggers; null on 060 events and appointment.rescheduled. */
+  origin?: string | null;
+  /** Only on lead.assigned / lead.handoff_requested with origin "journey". */
+  origin_run_id?: string | null;
   created_at: string;
   attempt_count: number;
   claim_token: string | null;
@@ -55,17 +78,44 @@ export interface JourneyEventOutbox {
   claim(options: ClaimOptions): Promise<JourneyEventRow[]>;
   complete(row: JourneyEventRow): Promise<void>;
   fail(row: JourneyEventRow, error: string): Promise<FailOutcome>;
+  /** The run in this row's workspace with id origin_run_id; null if there is none. */
+  originRun(row: JourneyEventRow): Promise<OriginRun | null>;
 }
 
-export function journeyEventFromRow(row: JourneyEventRow): JourneyEvent {
-  return {
+function provenance(row: JourneyEventRow) {
+  return { origin: row.origin ?? "system", origin_run_id: row.origin_run_id ?? null };
+}
+
+function rowPayload(row: JourneyEventRow): Record<string, unknown> {
+  return row.payload && typeof row.payload === "object" && !Array.isArray(row.payload) ? row.payload : {};
+}
+
+export function journeyEventFromRow(row: JourneyEventRow, originRun: OriginRun | null = null): JourneyEvent {
+  const event: JourneyEvent = {
     tenantId: row.tenant_id,
     type: row.event_type,
     sourceId: row.source_id,
     contactId: row.contact_id,
     entityType: row.entity_type,
     entityId: row.entity_id,
-    payload: row.payload && typeof row.payload === "object" && !Array.isArray(row.payload) ? row.payload : {},
+    payload: rowPayload(row),
+  };
+  if (!LINEAGE_EVENT_TYPES.has(row.event_type)) return event;
+
+  const source = provenance(row);
+  const resolved = source.origin === "journey" ? originRun : null;
+  // Lineage keys are only ever the derived values, never anything stored in the row's payload.
+  const { origin_journey_id: _journey, root_run_id: _root, causation_depth: _depth, ...stored } = event.payload;
+  return {
+    ...event,
+    payload: {
+      ...stored,
+      origin: source.origin,
+      origin_run_id: source.origin_run_id,
+      causation_depth: eventCausationDepth(source, resolved),
+      ...leadStatusLineage(source, resolved),
+    },
+    ...(resolved ? { excludeJourneyId: resolved.journeyId } : {}),
   };
 }
 
@@ -97,8 +147,20 @@ export async function dispatchJourneyEvents(
     summary.claimed += rows.length;
 
     for (const row of rows) {
+      let depthLimited = false;
       try {
-        await dispatch(journeyEventFromRow(row));
+        const lineage = LINEAGE_EVENT_TYPES.has(row.event_type);
+        const originRun = lineage && row.origin === "journey" && row.origin_run_id ? await outbox.originRun(row) : null;
+        const event = journeyEventFromRow(row, originRun);
+        const depth = lineage ? (event.payload.causation_depth as number) : 0;
+        if (lineage && isCausationDepthLimited(depth)) {
+          depthLimited = true;
+          log(
+            `[journeys] ${row.event_type} event ${row.id} started no journeys: causation depth ${depth} reached the limit of ${MAX_JOURNEY_CAUSATION_DEPTH} (origin run ${row.origin_run_id}).`,
+          );
+        } else {
+          await dispatch(event);
+        }
       } catch (error) {
         summary.failed++;
         const message = errorMessage(error);
@@ -118,6 +180,7 @@ export async function dispatchJourneyEvents(
         continue;
       }
       summary.delivered++;
+      if (depthLimited) summary.depthLimited++;
     }
 
     if (rows.length < options.limit) break;
@@ -156,5 +219,6 @@ export function createSupabaseJourneyEventOutbox(db: SupabaseClient): JourneyEve
       if (error) throw new Error(`fail_journey_event: ${error.message}`);
       return data === "failed" || data === "retry" ? data : "stale";
     },
+    originRun: (row) => loadOriginRun(db, row.tenant_id, row.origin_run_id ?? null),
   };
 }

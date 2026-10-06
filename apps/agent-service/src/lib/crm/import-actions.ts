@@ -445,11 +445,10 @@ async function importOpportunities(
           result.skipped += 1;
           continue;
         }
-        const { error } = await supabase
-          .from("opportunities")
-          .update(payload)
-          .eq("id", existingId)
-          .eq("tenant_id", tenantId);
+        const { error } = await withStatusOrigin(
+          supabase.from("opportunities").update(payload).eq("id", existingId).eq("tenant_id", tenantId),
+          { origin: "import" },
+        );
         if (error) {
           result.failed += 1;
           result.errors.push(`Row ${index + 1}: ${error.message}`);
@@ -464,10 +463,10 @@ async function importOpportunities(
         continue;
       }
 
-      const { error } = await supabase.from("opportunities").insert({
-        tenant_id: tenantId,
-        ...payload,
-      });
+      const { error } = await withStatusOrigin(
+        supabase.from("opportunities").insert({ tenant_id: tenantId, ...payload }),
+        { origin: "import" },
+      );
       if (error) {
         result.failed += 1;
         result.errors.push(`Row ${index + 1}: ${error.message}`);

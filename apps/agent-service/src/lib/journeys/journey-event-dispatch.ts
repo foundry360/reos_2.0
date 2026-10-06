@@ -2,8 +2,7 @@ import { after } from "next/server";
 import type { OutboxDispatchOptions, OutboxDispatchSummary } from "./runtime/lead-status-outbox";
 
 /**
- * Delivers pending journey_events (lead.created, message.received,
- * appointment.booked, task.completed) to journeys. The cron tick drains
+ * Delivers pending journey_events (migrations 060 and 061) to journeys. The cron tick drains
  * everything due; producers that just wrote an event ask for that contact's rows
  * to go out right away.
  *

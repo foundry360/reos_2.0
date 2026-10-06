@@ -47,17 +47,24 @@ export function liveBackend(tenantId: string): AgentBackend {
       if (result.ok) dispatchJourneyEventsSoon(tenantId, result.contactId);
       return result;
     },
-    reschedule: (params) =>
-      rescheduleReosAppointment({
+    reschedule: async (params) => {
+      const result = await rescheduleReosAppointment({
         tenantId,
         appointmentId: params.appointmentId,
         start: params.start.toISOString(),
         end: params.end.toISOString(),
         attendeeEmail: params.attendeeEmail,
         leadName: params.leadName,
-      }),
-    applyToolCalls: async (contactId, toolCalls) =>
-      (await applyToolCalls(contactId, toolCalls)) ?? contactId,
+      });
+      if (result.ok) dispatchJourneyEventsSoon(tenantId, result.contactId);
+      return result;
+    },
+    applyToolCalls: async (contactId, toolCalls) => {
+      const survivor = (await applyToolCalls(contactId, toolCalls)) ?? contactId;
+      // Handoff and opportunity stage changes made by the turn are already recorded; deliver them now.
+      if (persisted(survivor)) dispatchJourneyEventsSoon(tenantId, survivor);
+      return survivor;
+    },
 
     loadMessages: async ({ threadKey, contactId }) => {
       if (isSupabaseConfigured() && contactId) {

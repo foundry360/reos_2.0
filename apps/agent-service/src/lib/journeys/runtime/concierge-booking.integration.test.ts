@@ -43,7 +43,7 @@ create table public.opportunities (
 
 const db = await createJourneyEventsTestDb(CONTACT_COLUMNS);
 attachTestDb(db);
-const { bookReosConsultSlot } = await import("../../calendar/consult-appointments.ts");
+const { bookReosConsultSlot, rescheduleReosAppointment } = await import("../../calendar/consult-appointments.ts");
 const { mergeContacts } = await import("../../db/contact-merge.ts");
 
 const service = db.client("service_role");
@@ -125,6 +125,41 @@ describe("repeated concierge booking of the same slot", () => {
     const [contact] = await db.query<{ appt_booked: boolean; lead_status: string }>("select appt_booked, lead_status from public.contacts where id = $1", [lead]);
     assert.deepEqual(contact, { appt_booked: false, lead_status: "New" }, "the CRM update belongs to the request that booked");
     assert.equal(providers.resend.calls.length, 0, "no invite re-sent");
+  });
+});
+
+describe("rescheduling a concierge booking (migration 061)", () => {
+  it("moves the same row in place and records appointment.rescheduled by the agent with the old and new times", async () => {
+    const lead = await newContact();
+    const start = upcomingStart();
+    const appointment = await conciergeBooking(lead, start);
+    const newStart = upcomingStart(3);
+    const newEnd = new Date(Date.parse(newStart) + 30 * 60_000).toISOString();
+
+    const result = await rescheduleReosAppointment({ tenantId: tenant, appointmentId: appointment, start: newStart, end: newEnd });
+
+    assert.ok(result.ok);
+    assert.equal(result.appointmentId, appointment);
+    const rows = await db.query<{ id: string; occurred_at: Date; metadata: { invite_sequence: number; reschedules: unknown[] } }>(
+      "select id, occurred_at, metadata from public.contact_activities",
+    );
+    assert.equal(rows.length, 1, "same row, no new appointment");
+    assert.equal(rows[0].occurred_at.toISOString(), newStart);
+    assert.equal(rows[0].metadata.invite_sequence, 1);
+    assert.equal(rows[0].metadata.reschedules.length, 1);
+    const events = await db.query<{ event_type: string; entity_id: string; payload: Record<string, unknown> }>(
+      "select event_type, entity_id, payload from public.journey_events order by created_at, id",
+    );
+    assert.deepEqual(events.map((row) => row.event_type), ["appointment.booked", "appointment.rescheduled"]);
+    assert.equal(events[1].entity_id, appointment);
+    assert.deepEqual(events[1].payload, {
+      appointment_id: appointment,
+      contact_id: lead,
+      from_start: start,
+      to_start: newStart,
+      to_end: newEnd,
+      rescheduled_by: "agent",
+    });
   });
 });
 

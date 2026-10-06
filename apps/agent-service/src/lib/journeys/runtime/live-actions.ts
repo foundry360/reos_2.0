@@ -152,11 +152,15 @@ export function createLiveActionExecutor(db: SupabaseClient): ActionExecutor {
           if (!member) {
             throw new JourneyStepError("That team member isn't in this workspace anymore.", "config");
           }
-          const { error } = await db
-            .from("contacts")
-            .update({ assigned_agent_id: action.agentUserId })
-            .eq("id", contactId)
-            .eq("tenant_id", input.tenantId);
+          // lead.assigned records this run as its origin, so its journey isn't re-enrolled (migration 061).
+          const { error } = await withStatusOrigin(
+            db
+              .from("contacts")
+              .update({ assigned_agent_id: action.agentUserId })
+              .eq("id", contactId)
+              .eq("tenant_id", input.tenantId),
+            { origin: "journey", originRunId: input.runId },
+          );
           if (error) throw new JourneyStepError(error.message, "transient");
           await db
             .from("opportunities")

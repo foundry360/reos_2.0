@@ -64,6 +64,11 @@ function dispatchTaskCompleted(tenantId: string, contactId: string | null) {
   if (contactId) dispatchJourneyEventsSoon(tenantId, contactId);
 }
 
+/** The opportunities trigger recorded opportunity.stage_changed with the write (migration 061); deliver it now. */
+function dispatchOpportunityStageChanged(tenantId: string, contactId: string | null) {
+  if (contactId) dispatchJourneyEventsSoon(tenantId, contactId);
+}
+
 function parsePersonKind(value: FormDataEntryValue | null): PersonKind {
   const raw = String(value ?? "").trim();
   return isPersonKind(raw) ? raw : "lead";
@@ -621,6 +626,9 @@ export async function updateLeadAction(formData: FormData): Promise<CrmActionRes
   if (kind === "lead" && existing.lead_status !== updates.lead_status) {
     dispatchLeadStatusEventsSoon(tenant.tenantId, leadId);
   }
+  if (assignedAgentId && (existing.assigned_agent_id ?? null) !== assignedAgentId) {
+    dispatchJourneyEventsSoon(tenant.tenantId, leadId);
+  }
 
   revalidateAfterPersonUpdate(kind, nextKind, leadId);
   return { ok: true, id: leadId, kind: nextKind };
@@ -907,6 +915,7 @@ export async function createOpportunityAction(
     body: `Stage ${formatOpportunityStageLabel(stage)}`,
     href: `/opportunities/${opportunity.id}`,
   });
+  dispatchOpportunityStageChanged(tenant.tenantId, contactId);
 
   revalidatePath("/opportunities");
   revalidatePath(`/opportunities/${opportunity.id}`);
@@ -1118,6 +1127,7 @@ export async function updateOpportunityAction(
         body: `${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
         href: `/opportunities/${id}`,
       });
+      dispatchOpportunityStageChanged(tenant.tenantId, contactId);
     }
   }
 
@@ -1244,6 +1254,7 @@ export async function updateOpportunityStageAction(
     body: `${formatOpportunityStageLabel(existing.stage)} → ${formatOpportunityStageLabel(stage)}`,
     href: `/opportunities/${id}`,
   });
+  dispatchOpportunityStageChanged(tenant.tenantId, existing.contact_id);
 
   revalidatePath("/opportunities");
   revalidatePath(`/opportunities/${id}`);

@@ -85,8 +85,11 @@ export interface LeadStatusOutbox {
 
 export { runCausationDepth };
 
+/** The provenance an event row records (lead_status_events, and journey_events from migration 061). */
+export type EventProvenance = Pick<LeadStatusEventRow, "origin" | "origin_run_id">;
+
 /** Depth of this status change: 0 unless a journey run in the same workspace made it. */
-export function eventCausationDepth(row: LeadStatusEventRow, originRun: OriginRun | null): number {
+export function eventCausationDepth(row: Pick<EventProvenance, "origin">, originRun: OriginRun | null): number {
   return row.origin === "journey" && originRun ? runCausationDepth(originRun) : 0;
 }
 
@@ -98,7 +101,7 @@ export function eventCausationDepth(row: LeadStatusEventRow, originRun: OriginRu
  * exclusion, or access. Without a resolved origin run there is no lineage.
  */
 export function leadStatusLineage(
-  row: LeadStatusEventRow,
+  row: EventProvenance,
   originRun: OriginRun | null,
 ): { origin_journey_id: string; root_run_id: string } | null {
   if (row.origin !== "journey" || !originRun || !row.origin_run_id) return null;
@@ -254,22 +257,29 @@ export function createSupabaseLeadStatusOutbox(db: SupabaseClient): LeadStatusOu
       if (error) throw new Error(`fail_lead_status_event: ${error.message}`);
       return data === "failed" || data === "retry" ? data : "stale";
     },
-    async originRun(row) {
-      if (!row.origin_run_id) return null;
-      const { data, error } = await db
-        .from("journey_runs")
-        .select("journey_id, trigger_event, trigger_payload")
-        .eq("id", row.origin_run_id)
-        .eq("tenant_id", row.tenant_id);
-      if (error) throw new Error(`origin run lookup: ${error.message}`);
-      const run = data?.[0] as { journey_id?: unknown; trigger_event?: unknown; trigger_payload?: unknown } | undefined;
-      if (!run || typeof run.journey_id !== "string") return null;
-      const payload = run.trigger_payload;
-      return {
-        journeyId: run.journey_id,
-        triggerEvent: typeof run.trigger_event === "string" ? run.trigger_event : "",
-        triggerPayload: payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {},
-      };
-    },
+    originRun: (row) => loadOriginRun(db, row.tenant_id, row.origin_run_id),
+  };
+}
+
+/** The run `originRunId` in `tenantId`'s workspace; null if there is none. */
+export async function loadOriginRun(
+  db: SupabaseClient,
+  tenantId: string,
+  originRunId: string | null,
+): Promise<OriginRun | null> {
+  if (!originRunId) return null;
+  const { data, error } = await db
+    .from("journey_runs")
+    .select("journey_id, trigger_event, trigger_payload")
+    .eq("id", originRunId)
+    .eq("tenant_id", tenantId);
+  if (error) throw new Error(`origin run lookup: ${error.message}`);
+  const run = data?.[0] as { journey_id?: unknown; trigger_event?: unknown; trigger_payload?: unknown } | undefined;
+  if (!run || typeof run.journey_id !== "string") return null;
+  const payload = run.trigger_payload;
+  return {
+    journeyId: run.journey_id,
+    triggerEvent: typeof run.trigger_event === "string" ? run.trigger_event : "",
+    triggerPayload: payload && typeof payload === "object" && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {},
   };
 }

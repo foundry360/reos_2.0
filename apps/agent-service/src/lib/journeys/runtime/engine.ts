@@ -304,7 +304,13 @@ export const MAX_STEPS_PER_PASS = 50;
 export const MAX_JOURNEY_CAUSATION_DEPTH = 3;
 
 /** Events a journey run causes. A run started by one inherits the causing run's depth and root. */
-export const JOURNEY_CAUSED_EVENTS: ReadonlySet<string> = new Set(["lead.status_changed", "journey.started"]);
+export const JOURNEY_CAUSED_EVENTS: ReadonlySet<string> = new Set([
+  "lead.status_changed",
+  "journey.started",
+  // Assign lead / Update lead steps (migration 061).
+  "lead.assigned",
+  "lead.handoff_requested",
+]);
 
 /**
  * A run's depth. Only a run started by a journey-caused event inherits depth;
@@ -369,6 +375,11 @@ const ONCE_PER_JOURNEY_EVENTS = new Set<string>([
   "message.received",
   "appointment.booked",
   "task.completed",
+  // Lifecycle journey events (migration 061).
+  "opportunity.stage_changed",
+  "appointment.rescheduled",
+  "lead.assigned",
+  "lead.handoff_requested",
 ]);
 
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
