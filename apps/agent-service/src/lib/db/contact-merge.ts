@@ -183,7 +183,7 @@ async function loadContact(contactId: string): Promise<MergeContactRow | null> {
 type AdminClient = NonNullable<ReturnType<typeof getSupabaseAdmin>>;
 
 /**
- * A concierge consult is unique per contact and start (migration 060), so the
+ * A concierge consult that isn't cancelled is unique per contact and start (migrations 060, 062), so the
  * loser's booking of a start the winner already holds can't move. It is the
  * same consult booked twice; left in place it would fail the whole
  * contact_activities move, and the loser's delete would take every one of its
@@ -195,7 +195,8 @@ async function dropDuplicateConciergeBookings(db: AdminClient, winnerId: string,
     .select("id, contact_id, occurred_at")
     .in("contact_id", [winnerId, loserId])
     .eq("activity_type", "appointment")
-    .eq("source", "concierge");
+    .eq("source", "concierge")
+    .neq("appointment_status", "cancelled");
   if (error) {
     console.error("mergeContacts concierge booking lookup failed:", error.message);
     return;

@@ -30,5 +30,27 @@ describe("buildIcsInvite", () => {
     assert.match(ics, /ORGANIZER;CN=Alex Agent:mailto:agent@broker\.com/);
     assert.match(ics, /ATTENDEE;CN=Jane Lead;RSVP=TRUE/);
     assert.match(ics, /mailto:jane@gmail\.com/);
+    assert.match(ics, /STATUS:CONFIRMED/);
+    assert.doesNotMatch(ics, /METHOD:CANCEL|STATUS:CANCELLED/);
+  });
+
+  it("builds a METHOD:CANCEL body for the same uid with a higher sequence and STATUS:CANCELLED", () => {
+    const ics = buildIcsInvite({
+      uid: "appt-123@reos",
+      summary: "Consult - Jane",
+      description: "Cancelled via REOS.",
+      start: new Date("2026-10-01T15:00:00.000Z"),
+      end: new Date("2026-10-01T15:30:00.000Z"),
+      organizer: { email: "agent@broker.com", name: "Alex Agent" },
+      attendees: [{ email: "jane@gmail.com", name: null }],
+      sequence: 2,
+      method: "CANCEL",
+    });
+
+    assert.match(ics, /METHOD:CANCEL/);
+    assert.match(ics, /UID:appt-123@reos/);
+    assert.match(ics, /SEQUENCE:2/);
+    assert.match(ics, /STATUS:CANCELLED/);
+    assert.doesNotMatch(ics, /METHOD:REQUEST|STATUS:CONFIRMED/);
   });
 });

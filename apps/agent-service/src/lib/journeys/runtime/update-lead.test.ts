@@ -177,7 +177,7 @@ describe("Converted", () => {
     assert.equal(row.contact_type, "Prospect");
     assert.equal(row.ready_to_book, false, "ready to book is left as it was");
     assert.deepEqual(result.output, { updated: ["lead_status"], converted: true });
-    assert.deepEqual(leads.activity, ["Journey set lead status. Converted to client."]);
+    assert.deepEqual(leads.activity, ["Journey set lead status. Converted to a Prospect contact."]);
   });
 
   it("F: other fields never convert the lead", async () => {

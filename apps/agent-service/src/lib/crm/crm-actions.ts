@@ -33,8 +33,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   defaultAppointmentEnd,
   resolveAssignedAgentUserId,
+  sendAppointmentCancellation,
   sendAppointmentInvites,
 } from "@/lib/calendar/appointment-invites";
+import { setAppointmentStatus, type AppointmentOutcome } from "@/lib/calendar/appointment-status";
 import {
   createJitsiMeetingUrl,
 } from "@/lib/calendar/jitsi";
@@ -1915,11 +1917,13 @@ export async function updateActivityAction(formData: FormData): Promise<CrmActio
 }
 
 /**
- * Remove a REOS calendar appointment/meeting (contact_activities row).
- * Accepts raw activity UUID or calendar event id (`activity:<uuid>`).
+ * Cancel, complete, or mark a no-show on a REOS calendar appointment/meeting
+ * (the row stays; migration 062). Accepts raw activity UUID or calendar event
+ * id (`activity:<uuid>`). Cancelling withdraws a sent invite.
  */
-export async function deleteCalendarAppointmentAction(
+async function changeCalendarAppointmentStatus(
   eventId: string,
+  status: AppointmentOutcome,
 ): Promise<CrmActionResult> {
   const tenant = await requireTenantId();
   if (!("tenantId" in tenant)) return tenant;
@@ -1932,67 +1936,58 @@ export async function deleteCalendarAppointmentAction(
   }
 
   const supabase = await createClient();
-  let existing: {
-    id: string;
-    contact_id: string | null;
-    activity_type: string;
-    related_entity_type?: string | null;
-    related_entity_id?: string | null;
-  } | null = null;
+  const result = await setAppointmentStatus(supabase, {
+    tenantId: tenant.tenantId,
+    appointmentId: activityId,
+    status,
+    now: new Date(),
+  });
+  if (!result.ok) return { ok: false, error: result.error };
+  const { change } = result;
 
-  const withRelated = await supabase
-    .from("contact_activities")
-    .select("id, contact_id, activity_type, related_entity_type, related_entity_id")
-    .eq("id", activityId)
-    .eq("tenant_id", tenant.tenantId)
-    .maybeSingle();
+  dispatchJourneyEventsSoon(tenant.tenantId, change.contactId);
 
-  if (withRelated.error && /related_entity|schema cache|column/i.test(withRelated.error.message)) {
-    const legacy = await supabase
-      .from("contact_activities")
-      .select("id, contact_id, activity_type")
-      .eq("id", activityId)
-      .eq("tenant_id", tenant.tenantId)
+  if (change.cancellationSequence !== null) {
+    const { data: tenantRow } = await supabase
+      .from("tenants")
+      .select("timezone")
+      .eq("id", tenant.tenantId)
       .maybeSingle();
-    if (legacy.error || !legacy.data) {
-      return { ok: false, error: legacy.error?.message ?? "Appointment was not found." };
+    const start = new Date(change.start);
+    const cancellation = await sendAppointmentCancellation({
+      appointmentId: change.id,
+      summary: change.title?.trim() || "Consult",
+      label: formatSlotLabel(change.start, tenantRow?.timezone?.trim() || DEFAULT_TIME_ZONE),
+      start,
+      end: defaultAppointmentEnd(start, change.end ? new Date(change.end) : null),
+      sequence: change.cancellationSequence,
+      metadata: change.metadata,
+    });
+    if (cancellation.errors.length > 0) {
+      console.warn("Appointment cancellation email issues:", cancellation.errors.join("; "));
     }
-    existing = legacy.data;
-  } else if (withRelated.error || !withRelated.data) {
-    return { ok: false, error: withRelated.error?.message ?? "Appointment was not found." };
-  } else {
-    existing = withRelated.data;
-  }
-
-  if (
-    existing.activity_type !== "appointment" &&
-    existing.activity_type !== "meeting"
-  ) {
-    return { ok: false, error: "Only appointments can be removed from the calendar." };
-  }
-
-  const { error } = await supabase
-    .from("contact_activities")
-    .delete()
-    .eq("id", activityId)
-    .eq("tenant_id", tenant.tenantId);
-
-  if (error) {
-    return { ok: false, error: error.message };
   }
 
   revalidatePath("/calendar");
-  if (existing.contact_id) {
-    revalidatePath(`/leads/${existing.contact_id}`);
-    revalidatePath(`/contacts/${existing.contact_id}`);
-  }
-  if (
-    existing.related_entity_type === "opportunity" &&
-    typeof existing.related_entity_id === "string" &&
-    existing.related_entity_id
-  ) {
-    revalidatePath(`/opportunities/${existing.related_entity_id}`);
+  revalidatePath(`/leads/${change.contactId}`);
+  revalidatePath(`/contacts/${change.contactId}`);
+  if (change.relatedEntityType === "opportunity" && change.relatedEntityId) {
+    revalidatePath(`/opportunities/${change.relatedEntityId}`);
   }
   return { ok: true, id: activityId };
+}
+
+export async function cancelCalendarAppointmentAction(eventId: string): Promise<CrmActionResult> {
+  return changeCalendarAppointmentStatus(eventId, "cancelled");
+}
+
+export async function markCalendarAppointmentAction(
+  eventId: string,
+  outcome: "completed" | "no_show",
+): Promise<CrmActionResult> {
+  if (outcome !== "completed" && outcome !== "no_show") {
+    return { ok: false, error: "Invalid appointment outcome." };
+  }
+  return changeCalendarAppointmentStatus(eventId, outcome);
 }
 

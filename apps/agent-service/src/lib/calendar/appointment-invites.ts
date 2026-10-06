@@ -135,6 +135,7 @@ async function sendOneInviteEmail(params: {
   bodyHtml: string;
   icsContent: string;
   filename: string;
+  method?: "REQUEST" | "CANCEL";
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const apiKey = await getResendApiKey();
   const sender = getResendSender();
@@ -165,7 +166,7 @@ async function sendOneInviteEmail(params: {
         {
           filename: params.filename,
           content: Buffer.from(params.icsContent, "utf8").toString("base64"),
-          content_type: "text/calendar; method=REQUEST",
+          content_type: `text/calendar; method=${params.method ?? "REQUEST"}`,
         },
       ],
     }),
@@ -405,6 +406,95 @@ export async function sendAppointmentInvites(
   }
 
   return { inviteSent, leadSent, agentSent, errors };
+}
+
+export interface SendAppointmentCancellationParams {
+  appointmentId: string;
+  summary: string;
+  label: string;
+  start: Date;
+  end: Date;
+  /** Higher than the last invite's sequence. */
+  sequence: number;
+  /** The appointment's metadata as the last invite left it (invite_* keys). */
+  metadata: Record<string, unknown>;
+}
+
+function invitedEmail(metadata: Record<string, unknown>, sentKey: string, emailKey: string): string | null {
+  const email = metadata[emailKey];
+  return metadata[sentKey] === true && typeof email === "string" && isValidEmailAddress(email)
+    ? normalizeEmailAddress(email)
+    : null;
+}
+
+/**
+ * Withdraw a sent invite: a METHOD:CANCEL .ics with the invite's uid, from the
+ * organizer of the last invite, to only the people it was sent to. Nothing is
+ * sent when no invite went out.
+ */
+export async function sendAppointmentCancellation(
+  params: SendAppointmentCancellationParams,
+): Promise<SendAppointmentInvitesResult> {
+  const leadEmail = invitedEmail(params.metadata, "invite_lead_sent", "invite_lead_email");
+  const agentEmail = invitedEmail(params.metadata, "invite_agent_sent", "invite_agent_email");
+  if (!leadEmail && !agentEmail) {
+    return { inviteSent: false, leadSent: false, agentSent: false, errors: [] };
+  }
+  const sender = getResendSender();
+  if (!(await getResendApiKey()) || !sender) {
+    return { inviteSent: false, leadSent: false, agentSent: false, errors: ["Email sending is not configured."] };
+  }
+
+  // The invite's organizer was the agent when there was one, else the sender.
+  const storedAgentEmail = params.metadata.invite_agent_email;
+  const organizer: AppointmentInvitePerson =
+    typeof storedAgentEmail === "string" && isValidEmailAddress(storedAgentEmail)
+      ? { email: normalizeEmailAddress(storedAgentEmail), name: null }
+      : { email: sender.email, name: sender.name || "REOS" };
+
+  const recipients: AppointmentInvitePerson[] = [];
+  if (leadEmail) recipients.push({ email: leadEmail, name: null });
+  if (agentEmail && agentEmail !== leadEmail) recipients.push({ email: agentEmail, name: null });
+
+  const icsContent = buildIcsInvite({
+    uid: `${params.appointmentId}@reos`,
+    summary: params.summary,
+    description: [params.summary, params.label, "Cancelled via REOS."].join("\n"),
+    start: params.start,
+    end: params.end,
+    organizer,
+    attendees: recipients,
+    sequence: params.sequence,
+    method: "CANCEL",
+  });
+
+  const errors: string[] = [];
+  let leadSent = false;
+  let agentSent = false;
+  for (const to of recipients) {
+    const forAgent = to.email === agentEmail && to.email !== leadEmail;
+    const sent = await sendOneInviteEmail({
+      to,
+      organizer,
+      subject: `Cancelled: ${params.summary} (${params.label})`,
+      bodyHtml: [
+        "<p>Hi,</p>",
+        `<p>${forAgent ? "A consult on your REOS calendar was cancelled." : "Your consult has been cancelled."}</p>`,
+        `<p><strong>${escapeHtml(params.summary)}</strong><br/>${escapeHtml(params.label)}</p>`,
+        "<p>The attached update removes it from your calendar.</p>",
+      ].join("\n"),
+      icsContent,
+      filename: "cancel.ics",
+      method: "CANCEL",
+    });
+    if (sent.ok) {
+      if (forAgent) agentSent = true;
+      else leadSent = true;
+    } else {
+      errors.push(`${forAgent ? "Agent" : "Lead"}: ${sent.error}`);
+    }
+  }
+  return { inviteSent: leadSent || agentSent, leadSent, agentSent, errors };
 }
 
 export function defaultAppointmentEnd(start: Date, end?: Date | null): Date {

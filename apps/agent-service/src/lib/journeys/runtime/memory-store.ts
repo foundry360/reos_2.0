@@ -58,6 +58,10 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
   runs = new Map<string, MemoryRun>();
   steps: MemoryStep[] = [];
   contacts = new Map<string, { tenantId: string; lead: Record<string, unknown>; opportunity?: Record<string, unknown> }>();
+  appointments = new Map<
+    string,
+    { tenantId: string; contactId: string; status: string; start: string; end: string | null }
+  >();
   messages: Array<{ tenantId: string; contactId: string; direction: "inbound" | "outbound"; createdAt: string }> = [];
   /** Stands in for the database's now() default on journey_runs.started_at. */
   clock: () => Date = () => new Date();
@@ -141,6 +145,8 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
       error: null,
       resumeAt: input.resumeAt,
       startedAt: this.clock().toISOString(),
+      entityType: input.entityType,
+      entityId: input.entityId,
       idempotencyKey: input.idempotencyKey,
       lockedUntil: null,
       completedAt: null,
@@ -225,10 +231,21 @@ export class MemoryJourneyStore implements JourneyRuntimeStore {
     return step ? { status: step.status, output: structuredClone(step.output ?? {}) } : null;
   }
 
-  async loadEntities(tenantId: string, contactId: string | null): Promise<LoadedEntities> {
+  async loadEntities(tenantId: string, contactId: string | null, appointmentId?: string | null): Promise<LoadedEntities> {
     const contact = contactId ? this.contacts.get(contactId) : undefined;
     if (!contact || contact.tenantId !== tenantId) return { lead: null, opportunity: null };
-    return { lead: structuredClone(contact.lead), opportunity: structuredClone(contact.opportunity ?? null) };
+    const entities: LoadedEntities = {
+      lead: structuredClone(contact.lead),
+      opportunity: structuredClone(contact.opportunity ?? null),
+    };
+    if (appointmentId) {
+      const appointment = this.appointments.get(appointmentId);
+      entities.appointment =
+        appointment && appointment.tenantId === tenantId && appointment.contactId === contactId
+          ? { id: appointmentId, status: appointment.status, start: appointment.start, end: appointment.end }
+          : null;
+    }
+    return entities;
   }
 
   async hasInboundMessageSince(tenantId: string, contactId: string, since: string) {

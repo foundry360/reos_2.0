@@ -66,10 +66,20 @@ export const TRIGGER_EVENTS = {
     description: "Planned: any lead field changes.",
     implemented: false,
   },
+  "appointment.cancelled": {
+    label: "Appointment cancelled",
+    description: "A team member cancels an appointment or meeting.",
+    implemented: true,
+  },
   "appointment.completed": {
     label: "Appointment completed",
-    description: "Planned: REOS has no attended/completed appointment state yet.",
-    implemented: false,
+    description: "A team member marks an appointment or meeting as completed. Never inferred from the time passing.",
+    implemented: true,
+  },
+  "appointment.no_show": {
+    label: "Appointment no-show",
+    description: "A team member marks that the lead didn't attend an appointment or meeting. Never inferred.",
+    implemented: true,
   },
   manual: {
     label: "Manual enrollment",
@@ -125,6 +135,17 @@ const OPPORTUNITY_STAGES = [
   "Nurture",
   "Closed_Won",
 ] as const;
+/** contact_activities.appointment_status (migration 062). */
+const APPOINTMENT_STATUSES = ["scheduled", "cancelled", "completed", "no_show"] as const;
+/** Events whose run has an appointment: the one the event is about. */
+const APPOINTMENT_EVENTS = [
+  "appointment.booked",
+  "appointment.rescheduled",
+  "appointment.cancelled",
+  "appointment.completed",
+  "appointment.no_show",
+] as const;
+const APPOINTMENT_STATUS_EVENTS = ["appointment.cancelled", "appointment.completed", "appointment.no_show"] as const;
 
 /** The only data a condition or trigger filter may read. No expressions, no arbitrary paths. */
 export const CONDITION_FIELDS: Record<string, FieldDefinition> = {
@@ -146,6 +167,13 @@ export const CONDITION_FIELDS: Record<string, FieldDefinition> = {
   "lead.financing_status": { label: "Financing", type: "string" },
   [LEAD_REPLIED_FIELD]: { label: "Lead has replied since journey started", type: "boolean", conditionOnly: true },
   "opportunity.stage": { label: "Opportunity stage", type: "enum", options: OPPORTUNITY_STAGES },
+  // Current state, read again whenever the run resumes: a reminder after a Wait can check it's still scheduled.
+  "appointment.status": {
+    label: "Appointment status (now)",
+    type: "enum",
+    options: APPOINTMENT_STATUSES,
+    events: APPOINTMENT_EVENTS,
+  },
   "trigger.channel": {
     label: "Message channel",
     type: "enum",
@@ -183,6 +211,12 @@ export const CONDITION_FIELDS: Record<string, FieldDefinition> = {
     type: "enum",
     options: ["agent", "team", "system"],
     events: ["appointment.rescheduled"],
+  },
+  "trigger.changed_by": {
+    label: "Changed by",
+    type: "enum",
+    options: ["team", "system"],
+    events: APPOINTMENT_STATUS_EVENTS,
   },
   "trigger.from_agent_id": { label: "Previous agent", type: "string", events: ["lead.assigned"] },
   "trigger.to_agent_id": { label: "New agent", type: "string", events: ["lead.assigned"] },

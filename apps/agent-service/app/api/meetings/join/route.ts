@@ -32,13 +32,16 @@ export async function GET(request: Request) {
 
   const { data: activity, error } = await db
     .from("contact_activities")
-    .select("id, tenant_id, title, metadata, activity_type")
+    .select("id, tenant_id, title, metadata, activity_type, appointment_status")
     .eq("id", payload.activityId)
     .eq("tenant_id", payload.tenantId)
     .maybeSingle();
 
   if (error || !activity) {
     return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
+  }
+  if (activity.appointment_status === "cancelled") {
+    return NextResponse.json({ error: "This meeting was cancelled." }, { status: 410 });
   }
 
   const metadata =

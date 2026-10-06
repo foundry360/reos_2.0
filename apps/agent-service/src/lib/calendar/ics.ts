@@ -1,4 +1,4 @@
-/** Build a METHOD:REQUEST .ics calendar invite (RFC 5545 subset). */
+/** Build a METHOD:REQUEST (or CANCEL) .ics calendar invite (RFC 5545 / 5546 subset). */
 
 export interface IcsAttendee {
   email: string;
@@ -17,6 +17,8 @@ export interface BuildIcsInviteParams {
   timeZone?: string | null;
   /** Bump on each change so calendar apps update the existing event (same uid) instead of adding one. */
   sequence?: number;
+  /** CANCEL withdraws the event with this uid; it needs a higher sequence than the last invite. */
+  method?: "REQUEST" | "CANCEL";
 }
 
 function pad(n: number): string {
@@ -70,12 +72,13 @@ export function buildIcsInvite(params: BuildIcsInviteParams): string {
   const description = params.description?.trim()
     ? escapeIcsText(params.description.trim())
     : null;
+  const method = params.method ?? "REQUEST";
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//REOS//Calendar//EN",
     "CALSCALE:GREGORIAN",
-    "METHOD:REQUEST",
+    `METHOD:${method}`,
     "BEGIN:VEVENT",
     `UID:${params.uid.replace(/[\r\n]/g, "")}`,
     `DTSTAMP:${formatIcsUtc(new Date())}`,
@@ -90,6 +93,11 @@ export function buildIcsInvite(params: BuildIcsInviteParams): string {
   for (const attendee of params.attendees) {
     lines.push(attendeeLine("ATTENDEE", attendee));
   }
-  lines.push("STATUS:CONFIRMED", `SEQUENCE:${params.sequence ?? 0}`, "END:VEVENT", "END:VCALENDAR");
+  lines.push(
+    method === "CANCEL" ? "STATUS:CANCELLED" : "STATUS:CONFIRMED",
+    `SEQUENCE:${params.sequence ?? 0}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  );
   return `${lines.map(foldLine).join("\r\n")}\r\n`;
 }

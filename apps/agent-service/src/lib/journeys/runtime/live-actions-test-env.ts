@@ -131,6 +131,8 @@ export interface ResendCall {
   replyTo: string;
   subject: string;
   html: string;
+  /** Decoded attachments (calendar invites). */
+  attachments: { filename: string; contentType: string; content: string }[];
 }
 
 export interface MetaCall {
@@ -186,9 +188,21 @@ globalThis.fetch = async (input, init) => {
   }
 
   if (url.origin === "https://api.resend.com" && url.pathname === "/emails" && request.method === "POST") {
-    const body = (await request.json()) as { from: string; to: string[]; reply_to: string; subject: string; html: string };
+    const body = (await request.json()) as {
+      from: string;
+      to: string[];
+      reply_to: string;
+      subject: string;
+      html: string;
+      attachments?: { filename: string; content: string; content_type: string }[];
+    };
+    const attachments = (body.attachments ?? []).map((attachment) => ({
+      filename: attachment.filename,
+      contentType: attachment.content_type,
+      content: Buffer.from(attachment.content, "base64").toString("utf8"),
+    }));
     return providers.resend.reply(
-      { apiKey: bearer(request), from: body.from, to: body.to, replyTo: body.reply_to, subject: body.subject, html: body.html },
+      { apiKey: bearer(request), from: body.from, to: body.to, replyTo: body.reply_to, subject: body.subject, html: body.html, attachments },
       (count) => ({ id: `resend-email-${count}` }),
     );
   }

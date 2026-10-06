@@ -27,6 +27,7 @@ import {
   sendAppointmentInvites,
 } from "@/lib/calendar/appointment-invites";
 import { isValidEmailAddress } from "@/lib/email/email-utils";
+import { APPOINTMENT_STATUS_LABELS, appointmentStatusOf } from "@/lib/calendar/appointment-status";
 import {
   bookingWindowsFor,
   normalizeWorkingHours,
@@ -90,6 +91,7 @@ export async function loadReosBusyIntervals(
     .select("occurred_at, ends_at, activity_type")
     .eq("tenant_id", tenantId)
     .in("activity_type", ["appointment", "meeting"])
+    .neq("appointment_status", "cancelled")
     .gte("occurred_at", new Date(rangeStart.getTime() - 24 * 60 * 60 * 1000).toISOString())
     .lte("occurred_at", rangeEndIso)
     .limit(500);
@@ -164,7 +166,7 @@ export async function loadReosBusyIntervals(
   return busy;
 }
 
-/** This lead's appointments from now on, soonest first. */
+/** This lead's scheduled appointments from now on, soonest first. */
 export async function loadContactUpcomingAppointments(
   tenantId: string,
   contactId: string,
@@ -178,6 +180,7 @@ export async function loadContactUpcomingAppointments(
     .eq("tenant_id", tenantId)
     .eq("contact_id", contactId)
     .in("activity_type", ["appointment", "meeting"])
+    .eq("appointment_status", "scheduled")
     .gte("occurred_at", now.toISOString())
     .order("occurred_at", { ascending: true })
     .limit(5);
@@ -275,6 +278,7 @@ async function existingConsultBooking(
     .eq("activity_type", "appointment")
     .eq("source", "concierge")
     .eq("occurred_at", params.startIso)
+    .neq("appointment_status", "cancelled")
     .maybeSingle();
   if (!data?.id) {
     return { ok: false, error: "Could not create the appointment." };
@@ -522,7 +526,7 @@ export async function rescheduleReosAppointment(params: {
 
   const { data: appt, error: loadError } = await db
     .from("contact_activities")
-    .select("id, contact_id, activity_type, title, body, occurred_at, ends_at, metadata")
+    .select("id, contact_id, activity_type, title, body, occurred_at, ends_at, metadata, appointment_status")
     .eq("id", params.appointmentId)
     .eq("tenant_id", params.tenantId)
     .maybeSingle();
@@ -531,6 +535,10 @@ export async function rescheduleReosAppointment(params: {
   }
   if (appt.activity_type !== "appointment" && appt.activity_type !== "meeting") {
     return { ok: false, error: "That record is not an appointment." };
+  }
+  const status = appointmentStatusOf(appt.appointment_status);
+  if (status !== "scheduled") {
+    return { ok: false, error: `That appointment is ${APPOINTMENT_STATUS_LABELS[status].toLowerCase()}, so it can't be moved.` };
   }
 
   const timeZone = await loadTenantTimezone(params.tenantId);

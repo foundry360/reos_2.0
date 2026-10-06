@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { personBasePath, type PersonKind } from "@/lib/crm/person-kind";
 import type { CalendarEvent, CalendarEventKind } from "@/lib/calendar/calendar-types";
 import { endOfDay, startOfDay } from "@/lib/calendar/calendar-date";
+import { appointmentStatusOf } from "@/lib/calendar/appointment-status";
 const APPOINTMENT_MINUTES = 30;
 const TASK_DEFAULT_MINUTES = 30;
 
@@ -32,6 +33,7 @@ function appointmentFromRow(row: {
   ends_at?: string | null;
   contact_id?: string | null;
   metadata?: unknown;
+  appointment_status?: string | null;
   contacts?:
     | { first_name: string | null; last_name: string | null; record_type: string | null }
     | { first_name: string | null; last_name: string | null; record_type: string | null }[]
@@ -69,6 +71,7 @@ function appointmentFromRow(row: {
     conferenceUrl,
     conferenceHostUrl,
     contactName,
+    appointmentStatus: appointmentStatusOf(row.appointment_status),
   };
 }
 
@@ -204,12 +207,13 @@ export async function fetchCalendarEvents(
       .from("contact_activities")
       .select(
         `
-        id, title, body, activity_type, occurred_at, ends_at, contact_id, metadata,
+        id, title, body, activity_type, occurred_at, ends_at, contact_id, metadata, appointment_status,
         contacts ( first_name, last_name, record_type )
       `,
       )
       .eq("tenant_id", tenantId)
       .in("activity_type", ["appointment", "meeting"])
+      .neq("appointment_status", "cancelled")
       .gte("occurred_at", rangeStart.toISOString())
       .lte("occurred_at", rangeEnd.toISOString())
       .order("occurred_at", { ascending: true })

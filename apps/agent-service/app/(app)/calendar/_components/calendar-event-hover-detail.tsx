@@ -20,7 +20,7 @@ import {
   CALENDAR_EVENT_KIND_LABELS,
   eventColor,
 } from "@/lib/calendar/calendar-types";
-import { CalendarDeleteAppointmentModal } from "./calendar-delete-appointment-modal";
+import { CalendarCancelAppointmentModal } from "./calendar-cancel-appointment-modal";
 import { CalendarEventDetailModal } from "./calendar-event-detail-modal";
 import styles from "./calendar.module.css";
 
@@ -66,8 +66,12 @@ function IconTrash() {
   );
 }
 
-function canDeleteEvent(event: CalendarEvent): boolean {
-  return event.kind === "appointment" && event.id.startsWith("activity:");
+function canCancelEvent(event: CalendarEvent): boolean {
+  return (
+    event.kind === "appointment" &&
+    event.id.startsWith("activity:") &&
+    (event.appointmentStatus ?? "scheduled") === "scheduled"
+  );
 }
 
 function computePopoverPosition(
@@ -106,7 +110,7 @@ export function CalendarEventHoverDetail({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
-  const deletable = canDeleteEvent(event);
+  const deletable = canCancelEvent(event);
   const showDetailCta = event.kind === "appointment" || Boolean(event.href);
   const blockingModal = detailOpen || deleteOpen;
 
@@ -208,8 +212,8 @@ export function CalendarEventHoverDetail({
               <button
                 type="button"
                 className={styles.eventDetailDelete}
-                aria-label="Remove from calendar"
-                title="Remove from calendar"
+                aria-label="Cancel appointment"
+                title="Cancel appointment"
                 onClick={openDelete}
               >
                 <IconTrash />
@@ -271,7 +275,7 @@ export function CalendarEventHoverDetail({
         open={detailOpen}
         onClose={() => setDetailOpen(false)}
       />
-      <CalendarDeleteAppointmentModal
+      <CalendarCancelAppointmentModal
         event={event}
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}

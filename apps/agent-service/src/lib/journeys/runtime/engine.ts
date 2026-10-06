@@ -127,6 +127,9 @@ export interface RunRecord {
   error: string | null;
   resumeAt: string | null;
   startedAt: string;
+  /** What the run was started for (journey_runs.entity_type / entity_id). */
+  entityType?: string;
+  entityId?: string | null;
 }
 
 /** A run this worker leased; `lease` is the locked_until value it holds. */
@@ -204,6 +207,13 @@ export interface CandidateJourney {
 export interface LoadedEntities {
   lead: Record<string, unknown> | null;
   opportunity: Record<string, unknown> | null;
+  /** Loaded only when asked for by id: { id, status, start, end } of that appointment in the contact's workspace. */
+  appointment?: Record<string, unknown> | null;
+}
+
+/** The appointment an event or run is about (entity 'appointment'), if any. */
+export function appointmentIdOf(source: { entityType?: string | null; entityId?: string | null }): string | null {
+  return source.entityType === "appointment" && source.entityId ? source.entityId : null;
 }
 
 /** Persistence used by the engine. Every method is scoped to the tenant it is given. */
@@ -243,7 +253,7 @@ export interface JourneyRuntimeStore {
   insertStep(step: NewStep): Promise<string>;
   updateStep(stepId: string, patch: StepPatch): Promise<void>;
   loadStep(tenantId: string, stepId: string): Promise<{ status: StepStatus; output: Record<string, unknown> } | null>;
-  loadEntities(tenantId: string, contactId: string | null): Promise<LoadedEntities>;
+  loadEntities(tenantId: string, contactId: string | null, appointmentId?: string | null): Promise<LoadedEntities>;
   /** Whether the contact sent any inbound message at or after `since`. */
   hasInboundMessageSince(tenantId: string, contactId: string, since: string): Promise<boolean>;
   listDueRunIds(now: Date, limit: number): Promise<string[]>;
@@ -380,6 +390,10 @@ const ONCE_PER_JOURNEY_EVENTS = new Set<string>([
   "appointment.rescheduled",
   "lead.assigned",
   "lead.handoff_requested",
+  // Appointment state events (migration 062).
+  "appointment.cancelled",
+  "appointment.completed",
+  "appointment.no_show",
 ]);
 
 export function idempotencyKey(event: Pick<JourneyEvent, "type" | "sourceId">, journeyId: string, version: number) {
@@ -634,7 +648,7 @@ export async function dispatchJourneyEvent(
   );
   if (candidates.length === 0) return [];
 
-  const entities = await deps.store.loadEntities(event.tenantId, event.contactId);
+  const entities = await deps.store.loadEntities(event.tenantId, event.contactId, appointmentIdOf(event));
   const context: ExecutionContext = {
     ...entities,
     trigger: { event: event.type, payload: event.payload },
@@ -1123,7 +1137,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
   const state: RunState = { steps: { ...(run.context.steps ?? {}) }, attempts: { ...(run.context.attempts ?? {}) } };
   let currentNodeId = run.currentNodeId;
 
-  let entities = await store.loadEntities(run.tenantId, run.contactId);
+  let entities = await store.loadEntities(run.tenantId, run.contactId, appointmentIdOf(run));
   const context = (): ExecutionContext => ({
     ...entities,
     trigger: { event: run.triggerEvent, payload: run.triggerPayload },
@@ -1407,7 +1421,7 @@ async function executePass(deps: EngineDeps, runId: string, started: string[]): 
     currentNodeId = nextNodeId(snapshot, node.id);
     if (!(await persist())) return leaseLost();
     if (outcome.status === "completed" && action !== null && CHANGES_ENTITIES.has(action.action)) {
-      entities = await store.loadEntities(run.tenantId, run.contactId);
+      entities = await store.loadEntities(run.tenantId, run.contactId, appointmentIdOf(run));
     }
   }
 

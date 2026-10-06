@@ -17,7 +17,7 @@ import type {
 } from "./engine";
 
 const RUN_COLUMNS =
-  "id, tenant_id, journey_id, journey_version, contact_id, status, current_node_id, trigger_event, trigger_payload, context, error, resume_at, started_at";
+  "id, tenant_id, journey_id, journey_version, contact_id, status, current_node_id, trigger_event, trigger_payload, context, error, resume_at, started_at, entity_type, entity_id";
 
 const LEAD_COLUMNS =
   "id, first_name, last_name, email, lead_status, lead_temperature, intent, qualification_score, ready_to_book, appt_booked, handoff, opted_out, assigned_agent_id, record_type, target_location, property_type, budget, timeline, financing_status";
@@ -36,6 +36,8 @@ type RunRow = {
   error: string | null;
   resume_at: string | null;
   started_at: string;
+  entity_type: string | null;
+  entity_id: string | null;
 };
 
 function toRun(row: RunRow): RunRecord {
@@ -53,6 +55,8 @@ function toRun(row: RunRow): RunRecord {
     error: row.error,
     resumeAt: row.resume_at,
     startedAt: row.started_at,
+    entityType: row.entity_type ?? undefined,
+    entityId: row.entity_id,
   };
 }
 
@@ -108,6 +112,37 @@ function fail(operation: string, error: { message: string } | null): never {
  * query is explicitly scoped by tenant or by a run id that was loaded by tenant.
  */
 export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeStore {
+  /** The appointment as it is now; null when it's gone or not this contact's (a Condition then sees no status). */
+  async function loadAppointment(
+    tenantId: string,
+    contactId: string,
+    appointmentId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const { data, error } = await db
+      .from("contact_activities")
+      .select("id, activity_type, appointment_status, occurred_at, ends_at")
+      .eq("id", appointmentId)
+      .eq("tenant_id", tenantId)
+      .eq("contact_id", contactId)
+      .maybeSingle();
+    if (error) fail("loadAppointment", error);
+    const row = data as {
+      id: string;
+      activity_type: string;
+      appointment_status: string | null;
+      occurred_at: string;
+      ends_at: string | null;
+    } | null;
+    if (!row || (row.activity_type !== "appointment" && row.activity_type !== "meeting")) return null;
+    return {
+      id: row.id,
+      // Rows from before migration 062 have no status and are scheduled.
+      status: row.appointment_status ?? "scheduled",
+      start: row.occurred_at,
+      end: row.ends_at,
+    };
+  }
+
   return {
     async findCandidateJourneys(tenantId: string, event: TriggerEventType): Promise<CandidateJourney[]> {
       const { data: journeys, error } = await db
@@ -306,9 +341,9 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
       return data ? { status: data.status as StepStatus, output: (data.output ?? {}) as Record<string, unknown> } : null;
     },
 
-    async loadEntities(tenantId, contactId): Promise<LoadedEntities> {
+    async loadEntities(tenantId, contactId, appointmentId): Promise<LoadedEntities> {
       if (!contactId) return { lead: null, opportunity: null };
-      const [{ data: lead, error }, { data: phone }, { data: opportunity }] = await Promise.all([
+      const [{ data: lead, error }, { data: phone }, { data: opportunity }, appointment] = await Promise.all([
         db.from("contacts").select(LEAD_COLUMNS).eq("id", contactId).eq("tenant_id", tenantId).maybeSingle(),
         db
           .from("contact_identities")
@@ -325,12 +360,14 @@ export function createSupabaseJourneyStore(db: SupabaseClient): JourneyRuntimeSt
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
+        appointmentId ? loadAppointment(tenantId, contactId, appointmentId) : Promise.resolve(undefined),
       ]);
       if (error) fail("loadEntities", error);
       if (!lead) return { lead: null, opportunity: null };
       return {
         lead: { ...(lead as Record<string, unknown>), has_phone: Boolean(phone) },
         opportunity: (opportunity as Record<string, unknown> | null) ?? null,
+        ...(appointment === undefined ? {} : { appointment }),
       };
     },
 

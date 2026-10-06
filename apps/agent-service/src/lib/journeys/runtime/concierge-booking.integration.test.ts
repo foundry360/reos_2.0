@@ -45,6 +45,8 @@ const db = await createJourneyEventsTestDb(CONTACT_COLUMNS);
 attachTestDb(db);
 const { bookReosConsultSlot, rescheduleReosAppointment } = await import("../../calendar/consult-appointments.ts");
 const { mergeContacts } = await import("../../db/contact-merge.ts");
+const { setAppointmentStatus } = await import("../../calendar/appointment-status.ts");
+const { sendAppointmentCancellation } = await import("../../calendar/appointment-invites.ts");
 
 const service = db.client("service_role");
 
@@ -182,5 +184,169 @@ describe("merging contacts that hold the same concierge slot", () => {
     const activities = await db.query<{ id: string; contact_id: string }>("select id, contact_id from public.contact_activities order by id");
     assert.deepEqual(activities.map((row) => row.id).sort(), [kept, otherSlot, note].sort());
     assert.ok(activities.every((row) => row.contact_id === winner));
+  });
+
+  it("a cancelled booking of the shared slot isn't a duplicate: it moves to the winner as history (migration 062)", async () => {
+    const winner = await newContact();
+    const loser = await newContact();
+    const shared = upcomingStart();
+    const kept = await conciergeBooking(winner, shared);
+    const cancelled = await conciergeBooking(loser, shared);
+    assert.ok((await setAppointmentStatus(service, { tenantId: tenant, appointmentId: cancelled, status: "cancelled", now: new Date() })).ok);
+
+    assert.equal(await mergeContacts(winner, loser), winner);
+
+    const rows = await db.query<{ id: string; contact_id: string; appointment_status: string }>(
+      "select id, contact_id, appointment_status from public.contact_activities order by id",
+    );
+    assert.deepEqual(
+      rows.map((row) => [row.id, row.appointment_status]).sort(),
+      [
+        [kept, "scheduled"],
+        [cancelled, "cancelled"],
+      ].sort(),
+    );
+    assert.ok(rows.every((row) => row.contact_id === winner));
+  });
+});
+
+/** Metadata as sendAppointmentInvites leaves it after inviting both people. */
+const INVITED = {
+  invite_sent_at: "2026-10-01T12:00:00.000Z",
+  invite_lead_sent: true,
+  invite_agent_sent: true,
+  invite_lead_email: "lead@example.test",
+  invite_agent_email: "agent@broker.test",
+};
+
+async function invitedBooking(contactId: string, startIso: string, metadata: Record<string, unknown> = INVITED) {
+  const id = await conciergeBooking(contactId, startIso);
+  await db.query("update public.contact_activities set metadata = $2 where id = $1", [id, JSON.stringify(metadata)]);
+  return id;
+}
+
+/** Cancels the way cancelCalendarAppointmentAction does: the status change, then the CANCEL to whoever got the invite. */
+async function cancelAppointment(appointmentId: string) {
+  const result = await setAppointmentStatus(service, { tenantId: tenant, appointmentId, status: "cancelled", now: new Date() });
+  assert.ok(result.ok, result.ok ? "" : result.error);
+  const { change } = result;
+  if (change.cancellationSequence === null) return { change, sent: null };
+  const start = new Date(change.start);
+  const sent = await sendAppointmentCancellation({
+    appointmentId: change.id,
+    summary: change.title ?? "Appointment",
+    label: "Thu, Oct 8 at 3:00 PM",
+    start,
+    end: change.end ? new Date(change.end) : new Date(start.getTime() + 30 * 60_000),
+    sequence: change.cancellationSequence,
+    metadata: change.metadata,
+  });
+  return { change, sent };
+}
+
+describe("cancelling a concierge booking (migration 062)", () => {
+  it("keeps the row as cancelled with its history, and sends a METHOD:CANCEL for the same invite to the people who got it", async () => {
+    const lead = await newContact({ email: "lead@example.test" });
+    const start = upcomingStart();
+    const appointment = await invitedBooking(lead, start);
+
+    const { change, sent } = await cancelAppointment(appointment);
+
+    assert.equal(change.cancellationSequence, 1);
+    assert.deepEqual(sent, { inviteSent: true, leadSent: true, agentSent: true, errors: [] });
+    const rows = await db.query<{ id: string; appointment_status: string; occurred_at: Date; metadata: Record<string, unknown> }>(
+      "select id, appointment_status, occurred_at, metadata from public.contact_activities",
+    );
+    assert.equal(rows.length, 1, "not deleted");
+    assert.equal(rows[0].appointment_status, "cancelled");
+    assert.equal(rows[0].occurred_at.toISOString(), start);
+    assert.deepEqual({ ...rows[0].metadata, cancelled_at: "x" }, { ...INVITED, invite_sequence: 1, cancelled_at: "x" });
+
+    assert.deepEqual(providers.resend.calls.map((call) => call.to), [["lead@example.test"], ["agent@broker.test"]]);
+    for (const call of providers.resend.calls) {
+      assert.match(call.subject, /^Cancelled: Consult \(/);
+      assert.equal(call.attachments.length, 1);
+      const [ics] = call.attachments;
+      assert.equal(ics.filename, "cancel.ics");
+      assert.equal(ics.contentType, "text/calendar; method=CANCEL");
+      assert.match(ics.content, /METHOD:CANCEL/);
+      assert.match(ics.content, new RegExp(`UID:${appointment}@reos`));
+      assert.match(ics.content, /SEQUENCE:1/);
+      assert.match(ics.content, /STATUS:CANCELLED/);
+      assert.match(ics.content, /ORGANIZER[^:]*:mailto:agent@broker\.test/);
+    }
+    const events = await db.query<{ event_type: string }>("select event_type from public.journey_events order by created_at, id");
+    assert.deepEqual(events.map((row) => row.event_type), ["appointment.booked", "appointment.cancelled"]);
+  });
+
+  it("after reschedules the cancellation's sequence is higher than the last update's", async () => {
+    const lead = await newContact();
+    const appointment = await invitedBooking(lead, upcomingStart(), { ...INVITED, invite_sequence: 2, invite_agent_sent: false });
+    const { change, sent } = await cancelAppointment(appointment);
+    assert.equal(change.cancellationSequence, 3);
+    assert.deepEqual(sent, { inviteSent: true, leadSent: true, agentSent: false, errors: [] });
+    assert.deepEqual(providers.resend.calls.map((call) => call.to), [["lead@example.test"]]);
+    assert.match(providers.resend.calls[0].attachments[0].content, /SEQUENCE:3/);
+  });
+
+  it("sends nothing when no invite went out", async () => {
+    const lead = await newContact();
+    const appointment = await conciergeBooking(lead, upcomingStart());
+    const { change, sent } = await cancelAppointment(appointment);
+    assert.equal(change.cancellationSequence, null);
+    assert.equal(sent, null);
+    const none = await sendAppointmentCancellation({
+      appointmentId: appointment, summary: "Consult", label: "-", start: new Date(), end: new Date(), sequence: 1, metadata: {},
+    });
+    assert.deepEqual(none, { inviteSent: false, leadSent: false, agentSent: false, errors: [] });
+    assert.equal(providers.resend.calls.length, 0);
+  });
+
+  it("frees the slot: the contact can book the same time again, while a scheduled booking still holds it", async () => {
+    const lead = await newContact();
+    const start = upcomingStart();
+    const first = await conciergeBooking(lead, start);
+    const insertSameSlot = () =>
+      service.from("contact_activities").insert({
+        tenant_id: tenant, contact_id: lead, activity_type: "appointment", title: "Consult", occurred_at: start, source: "concierge",
+      });
+    assert.match((await insertSameSlot()).error?.message ?? "", /concierge_slot_key|duplicate/);
+    await cancelAppointment(first);
+
+    // The test database can't serve the availability lookup's range filters; the
+    // existing-booking check is what would otherwise return "Already booked".
+    const result = await bookReosConsultSlot({ tenantId: tenant, contactId: lead, start });
+
+    assert.ok(result.ok, result.ok ? "" : result.error);
+    assert.notEqual(result.appointmentId, first);
+    assert.doesNotMatch(result.confirmation, /^Already booked /);
+    const rows = await db.query<{ id: string; appointment_status: string }>("select id, appointment_status from public.contact_activities");
+    assert.deepEqual(
+      rows.map((row) => [row.id, row.appointment_status]).sort(),
+      [
+        [first, "cancelled"],
+        [result.appointmentId, "scheduled"],
+      ].sort(),
+    );
+
+    // Booking it a third time finds the scheduled booking, not the cancelled one.
+    const again = await bookReosConsultSlot({ tenantId: tenant, contactId: lead, start });
+    assert.ok(again.ok, again.ok ? "" : again.error);
+    assert.equal(again.appointmentId, result.appointmentId);
+    assert.match(again.confirmation, /^Already booked /);
+  });
+
+  it("a cancelled appointment can't be rescheduled", async () => {
+    const lead = await newContact();
+    const start = upcomingStart();
+    const appointment = await conciergeBooking(lead, start);
+    await cancelAppointment(appointment);
+    const newStart = upcomingStart(3);
+    const result = await rescheduleReosAppointment({
+      tenantId: tenant, appointmentId: appointment, start: newStart, end: new Date(Date.parse(newStart) + 30 * 60_000).toISOString(),
+    });
+    assert.deepEqual(result, { ok: false, error: "That appointment is cancelled, so it can't be moved." });
+    const [row] = await db.query<{ occurred_at: Date }>("select occurred_at from public.contact_activities where id = $1", [appointment]);
+    assert.equal(row.occurred_at.toISOString(), start);
   });
 });

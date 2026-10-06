@@ -46,6 +46,9 @@ export const JOURNEY_EVENT_TYPES = [
   "appointment.rescheduled",
   "lead.assigned",
   "lead.handoff_requested",
+  "appointment.cancelled",
+  "appointment.completed",
+  "appointment.no_show",
 ] as const satisfies readonly TriggerEventType[];
 
 export type DurableJourneyEventType = (typeof JOURNEY_EVENT_TYPES)[number];

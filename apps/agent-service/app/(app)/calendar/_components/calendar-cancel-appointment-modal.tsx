@@ -4,22 +4,22 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import type { CalendarEvent } from "@/lib/calendar/calendar-types";
-import { deleteCalendarAppointmentAction } from "@/lib/crm/crm-actions";
+import { cancelCalendarAppointmentAction } from "@/lib/crm/crm-actions";
 import shellStyles from "@/components/shell/shell.module.css";
 
-interface CalendarDeleteAppointmentModalProps {
+interface CalendarCancelAppointmentModalProps {
   event: CalendarEvent;
   open: boolean;
   onClose: () => void;
-  onDeleted?: () => void;
+  onCancelled?: () => void;
 }
 
-export function CalendarDeleteAppointmentModal({
+export function CalendarCancelAppointmentModal({
   event,
   open,
   onClose,
-  onDeleted,
-}: CalendarDeleteAppointmentModalProps) {
+  onCancelled,
+}: CalendarCancelAppointmentModalProps) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,16 +43,16 @@ export function CalendarDeleteAppointmentModal({
     };
   }, [open, pending, onClose]);
 
-  function handleDelete() {
+  function handleCancel() {
     if (pending) return;
     startTransition(async () => {
-      const result = await deleteCalendarAppointmentAction(event.id);
+      const result = await cancelCalendarAppointmentAction(event.id);
       if (!result.ok) {
-        setError(result.error ?? "Could not remove appointment.");
+        setError(result.error ?? "Could not cancel appointment.");
         return;
       }
       onClose();
-      onDeleted?.();
+      onCancelled?.();
       router.refresh();
     });
   }
@@ -68,16 +68,17 @@ export function CalendarDeleteAppointmentModal({
         className={shellStyles.modalPanel}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="delete-appointment-title"
+        aria-labelledby="cancel-appointment-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className={shellStyles.modalHeader}>
           <div>
-            <h2 id="delete-appointment-title" className={shellStyles.modalTitle}>
-              Delete {event.title}?
+            <h2 id="cancel-appointment-title" className={shellStyles.modalTitle}>
+              Cancel {event.title}?
             </h2>
             <p className={shellStyles.modalSubtitle}>
-              This removes the appointment from the calendar. This cannot be undone.
+              This removes the appointment from the calendar and sends a cancellation to anyone who got the
+              invite. The appointment stays in the activity history. This cannot be undone.
             </p>
           </div>
           <button
@@ -99,15 +100,15 @@ export function CalendarDeleteAppointmentModal({
               onClick={onClose}
               disabled={pending}
             >
-              Cancel
+              Keep appointment
             </button>
             <button
               type="button"
               className={shellStyles.btnDanger}
-              onClick={handleDelete}
+              onClick={handleCancel}
               disabled={pending}
             >
-              {pending ? "Deleting…" : "Delete"}
+              {pending ? "Cancelling…" : "Cancel appointment"}
             </button>
           </div>
         </div>

@@ -16,6 +16,8 @@ import {
 export interface ExecutionContext {
   lead: Record<string, unknown> | null;
   opportunity: Record<string, unknown> | null;
+  /** The appointment the run's trigger event is about, as it is now; null for any other run. */
+  appointment?: Record<string, unknown> | null;
   trigger: { event: string; payload: Record<string, unknown> };
   /** steps.<key>.output.<field> */
   steps: Record<string, { output: Record<string, unknown> }>;
@@ -67,9 +69,11 @@ export function resolveField(context: ExecutionContext, field: string): unknown 
       ? context.lead
       : scope === "opportunity"
         ? context.opportunity
-        : scope === "trigger"
-          ? context.trigger.payload
-          : null;
+        : scope === "appointment"
+          ? (context.appointment ?? null)
+          : scope === "trigger"
+            ? context.trigger.payload
+            : null;
   return source && Object.hasOwn(source, name) ? source[name] : undefined;
 }
 

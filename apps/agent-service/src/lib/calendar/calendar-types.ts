@@ -1,3 +1,5 @@
+import type { AppointmentStatus } from "@/lib/calendar/appointment-status";
+
 export type CalendarView = "day" | "week" | "month" | "agenda";
 
 export type CalendarEventKind = "appointment" | "task" | "other" | "social";
@@ -38,6 +40,8 @@ export interface CalendarEvent {
   conferenceUrl?: string | null;
   conferenceHostUrl?: string | null;
   contactName?: string | null;
+  /** REOS appointments/meetings (migration 062); cancelled ones aren't shown. */
+  appointmentStatus?: AppointmentStatus;
 }
 
 export function eventColor(kind: CalendarEventKind): string {

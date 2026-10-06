@@ -9,6 +9,7 @@ import { createTestDb, type TestDb } from "./lead-status-test-db.ts";
 
 const MIGRATION_060 = new URL("../../../../../../supabase/migrations/060_journey_events.sql", import.meta.url);
 const MIGRATION_061 = new URL("../../../../../../supabase/migrations/061_journey_lifecycle_events.sql", import.meta.url);
+const MIGRATION_062 = new URL("../../../../../../supabase/migrations/062_appointment_status.sql", import.meta.url);
 
 /** Production shapes of the columns the triggers and producers use. */
 export const JOURNEY_EVENTS_STAND_IN = `
@@ -84,7 +85,7 @@ alter table public.contact_activities
   add column if not exists metadata jsonb;
 `;
 
-/** `extraSchema`: more stand-in columns or tables a test's code path needs, applied before migrations 060 and 061. */
+/** `extraSchema`: more stand-in columns or tables a test's code path needs, applied before migrations 060–062. */
 export async function createJourneyEventsTestDb(extraSchema = ""): Promise<TestDb> {
   return createTestDb({
     schema: [
@@ -93,6 +94,7 @@ export async function createJourneyEventsTestDb(extraSchema = ""): Promise<TestD
       LIFECYCLE_EVENTS_STAND_IN,
       readFileSync(MIGRATION_060, "utf8"),
       readFileSync(MIGRATION_061, "utf8"),
+      readFileSync(MIGRATION_062, "utf8"),
     ].join("\n"),
   });
 }

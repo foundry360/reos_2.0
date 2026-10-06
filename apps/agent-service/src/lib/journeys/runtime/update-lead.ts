@@ -82,7 +82,7 @@ export async function executeUpdateLead(
   await store.logActivity(
     input.tenantId,
     contactId,
-    `Journey set ${labels}.${converted ? " Converted to client." : ""}`,
+    `Journey set ${labels}.${converted ? " Converted to a Prospect contact." : ""}`,
   );
   return { status: "completed", output: { updated: keys, converted } };
 }

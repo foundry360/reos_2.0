@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import { APPOINTMENT_STATUS_LABELS } from "@/lib/calendar/appointment-status";
 import {
   formatCalendarEventDateLine,
   formatCalendarEventTimeLine,
 } from "@/lib/calendar/calendar-date";
 import type { CalendarEvent } from "@/lib/calendar/calendar-types";
-import { CalendarDeleteAppointmentModal } from "./calendar-delete-appointment-modal";
+import { markCalendarAppointmentAction } from "@/lib/crm/crm-actions";
+import { CalendarCancelAppointmentModal } from "./calendar-cancel-appointment-modal";
 import shellStyles from "@/components/shell/shell.module.css";
 import styles from "./calendar.module.css";
 
@@ -56,8 +59,12 @@ function IconTrash() {
   );
 }
 
-function canDeleteEvent(event: CalendarEvent): boolean {
-  return event.kind === "appointment" && event.id.startsWith("activity:");
+function isScheduledAppointment(event: CalendarEvent): boolean {
+  return (
+    event.kind === "appointment" &&
+    event.id.startsWith("activity:") &&
+    (event.appointmentStatus ?? "scheduled") === "scheduled"
+  );
 }
 
 interface CalendarEventDetailModalProps {
@@ -71,9 +78,28 @@ export function CalendarEventDetailModal({
   open,
   onClose,
 }: CalendarEventDetailModalProps) {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const deletable = canDeleteEvent(event);
+  const [outcomeError, setOutcomeError] = useState<string | null>(null);
+  const [outcomePending, startOutcome] = useTransition();
+  const deletable = isScheduledAppointment(event);
+  // Attendance is recorded by the team once the appointment has started; never inferred.
+  const canRecordOutcome = deletable && Date.parse(event.start) <= Date.now();
+
+  function recordOutcome(outcome: "completed" | "no_show") {
+    if (outcomePending) return;
+    setOutcomeError(null);
+    startOutcome(async () => {
+      const result = await markCalendarAppointmentAction(event.id, outcome);
+      if (!result.ok) {
+        setOutcomeError(result.error ?? "Could not update the appointment.");
+        return;
+      }
+      onClose();
+      router.refresh();
+    });
+  }
 
   useEffect(() => {
     setMounted(true);
@@ -126,8 +152,8 @@ export function CalendarEventDetailModal({
                   <button
                     type="button"
                     className={`${shellStyles.iconBtn} ${styles.eventDetailModalDeleteIcon}`}
-                    aria-label="Delete appointment"
-                    title="Delete"
+                    aria-label="Cancel appointment"
+                    title="Cancel appointment"
                     onClick={() => setDeleteOpen(true)}
                   >
                     <IconTrash />
@@ -207,18 +233,47 @@ export function CalendarEventDetailModal({
                     <dd className={styles.eventDetailModalNotes}>{event.body}</dd>
                   </div>
                 ) : null}
+                {event.appointmentStatus && event.appointmentStatus !== "scheduled" ? (
+                  <div className={styles.eventDetailModalRow}>
+                    <dt>Status</dt>
+                    <dd>{APPOINTMENT_STATUS_LABELS[event.appointmentStatus]}</dd>
+                  </div>
+                ) : null}
               </dl>
+              {canRecordOutcome ? (
+                <>
+                  {outcomeError ? <p className={shellStyles.error}>{outcomeError}</p> : null}
+                  <div className={shellStyles.modalFooter}>
+                    <button
+                      type="button"
+                      className={shellStyles.btnSecondary}
+                      onClick={() => recordOutcome("no_show")}
+                      disabled={outcomePending}
+                    >
+                      No-show
+                    </button>
+                    <button
+                      type="button"
+                      className={shellStyles.btnPrimary}
+                      onClick={() => recordOutcome("completed")}
+                      disabled={outcomePending}
+                    >
+                      Completed
+                    </button>
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         </div>,
         document.body,
       )}
 
-      <CalendarDeleteAppointmentModal
+      <CalendarCancelAppointmentModal
         event={event}
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
-        onDeleted={onClose}
+        onCancelled={onClose}
       />
     </>
   );
